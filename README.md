@@ -16,7 +16,8 @@ registry cleaner.
 Semua aplikasi Windows diperlakukan secara dinamis. Tidak ada daftar nama
 aplikasi yang harus diperbarui setiap kali ada software baru. Aplikasi yang baru
 di-install akan ikut terdeteksi otomatis; yang dilindungi hanya proses Windows,
-aplikasi yang sedang dipakai, dan proses yang baru saja aktif.
+aplikasi yang sedang dipakai, proses yang baru saja aktif, dan proses yang
+sedang memakai CPU cukup tinggi.
 
 ## Pilihan mode
 
@@ -34,6 +35,11 @@ aplikasi yang sedang dipakai, dan proses yang baru saja aktif.
 Saat dibuka, program tidak langsung meminta izin administrator. Izin tersebut
 baru diminta ketika kamu memilih operasi yang memang membutuhkannya.
 
+Setelah Optimize, hasil langsung tampil di jendela utama. Lima belas detik
+kemudian hasil stabil dihitung ulang. Kalau memori langsung diambil kembali,
+rebound protection menahan operasi berat selama 60 detik. Ringkasan setiap
+operasi juga disimpan di `windows/ReduceMemory.log` dengan ukuran terbatas.
+
 ## Isi folder
 
 - [`windows/ReduceMemory_x64.exe`](windows/ReduceMemory_x64.exe) — Windows 64-bit.
@@ -43,6 +49,22 @@ baru diminta ketika kamu memilih operasi yang memang membutuhkannya.
 - [`linux/ReduceMemory_Linux.sh`](linux/ReduceMemory_Linux.sh) — script untuk
   Linux.
 - [`docs/PROGRESS.md`](docs/PROGRESS.md) — catatan perkembangan upgrade.
+
+## Self-test aman
+
+Self-test tidak memangkas RAM atau membersihkan cache. Ia hanya memeriksa
+pembacaan RAM/commit, CPU time, kelima mode, dan penulisan log:
+
+```powershell
+.\windows\ReduceMemory_x64.exe /RMSELFTEST
+.\windows\ReduceMemory.exe /RMSELFTEST
+```
+
+Di Linux, pemeriksaan environment yang aman bisa dijalankan dengan:
+
+```bash
+./linux/ReduceMemory_Linux.sh check
+```
 
 Kalau RAM sedang benar-benar penuh, mode Aggressive bisa membantu cukup banyak.
 Kalau yang dicari adalah pemakaian rutin tanpa banyak gangguan, gunakan Smooth.

@@ -109,6 +109,8 @@ Global $RM_LastAggressiveDetail = ""
 Global $RM_LastAggressiveOk = 0
 Global $RM_RecentActivePID = 0
 Global $RM_RecentActiveAt = 0
+Global $RM_LastObservedActivePID = 0
+Global $RM_CPUShieldPIDs = "|"
 Global $RM_ActiveShieldSeconds = Int ( Number ( A3560501B29 ( "ActiveShieldSeconds" , 10 ) ) )
 If $RM_ActiveShieldSeconds < 3 Then $RM_ActiveShieldSeconds = 3
 If $RM_ActiveShieldSeconds > 60 Then $RM_ActiveShieldSeconds = 60
@@ -117,6 +119,9 @@ Global $RM_StableBeforeFree = 0
 Global $RM_StableStartedAt = 0
 Global $RM_ImmediateGainMB = 0
 Global $RM_StablePressureText = ""
+Global $RM_LastModeName = "Normal Optimize"
+Global $RM_ReboundAt = 0
+Global $RM_ReboundCooldownSeconds = 60
 Global $A3FF090012D = A5560304940 ( $A25F0A03415 , 1 , 0 , 1 )
 Global $A1DF0B03725 = A1160200452 ( $A45D0C00410 , $A2AF0C0551E , $A2DF0D02906 , $A5580E05E46 )
 $A1DF0B03725 = A5720304C54 ( $A1DF0B03725 , 1 )
@@ -320,6 +325,7 @@ Func A0D00301D0F ( )
 	EndIf
 EndFunc
 Func A140040081E ( )
+	RM_TrackActiveProcess ( )
 	A2700503407 ( )
 EndFunc
 Func A2700503407 ( $A1E41404E44 = 0 )
@@ -328,8 +334,6 @@ Func A2700503407 ( $A1E41404E44 = 0 )
 		Global $SSA2700503407 = 1
 	EndIf
 	Local $A0141502E2D = MemGetStats ( )
-	$RM_StableBeforeFree = $A0141502E2D [ 2 ]
-	$RM_StablePressureText = RM_GetPressureSummary ( )
 	Local $A0441604F5B = A3800802059 ( $A0141502E2D [ 1 ] )
 	Local $A4041702E28 = A3800802059 ( $A0141502E2D [ 1 ] - $A0141502E2D [ 2 ] , 1 )
 	Local $A3741801E52 = A3800802059 ( $A0141502E2D [ 2 ] , 1 )
@@ -450,14 +454,52 @@ Func RM_AggressiveRelease ( $RM_Smooth = 0 )
 	Return $RM_LastAggressiveOk
 EndFunc
 
+Func RM_EmergencyRelease ( )
+	Local $RM_FirstPass = RM_AggressiveRelease ( 0 )
+	Sleep ( 1000 )
+	Local $RM_SecondPass = RM_AggressiveRelease ( 0 )
+	Return ( $RM_FirstPass = 1 Or $RM_SecondPass = 1 )
+EndFunc
+
+Func RM_GetWorkerResultPath ( )
+	For $RM_ArgumentIndex = 2 To $CMDLINE [ 0 ]
+		If StringLeft ( $CMDLINE [ $RM_ArgumentIndex ] , 10 ) = "/RMRESULT=" Then Return StringTrimLeft ( $CMDLINE [ $RM_ArgumentIndex ] , 10 )
+	Next
+	Return ""
+EndFunc
+
+Func RM_FinishWorker ( $RM_ExitCode )
+	Local $RM_ResultPath = RM_GetWorkerResultPath ( )
+	If StringLen ( $RM_ResultPath ) > 0 Then FileWrite ( $RM_ResultPath , $RM_ExitCode )
+	Exit $RM_ExitCode
+EndFunc
+
 Func RM_RunAggressiveWorker ( $RM_Smooth = 0 )
-	If IsAdmin ( ) Then Return RM_AggressiveRelease ( $RM_Smooth )
+	If IsAdmin ( ) Then
+		If $RM_Smooth = 2 Then Return RM_EmergencyRelease ( )
+		Return RM_AggressiveRelease ( $RM_Smooth )
+	EndIf
 	Local $RM_WorkerArgument = "/RMAGGRESSIVE"
 	If $RM_Smooth = 1 Then $RM_WorkerArgument = "/RMSMOOTH"
-	Local $RM_WorkerPid = ShellExecute ( @AutoItExe , $RM_WorkerArgument , @ScriptDir , "runas" , @SW_HIDE )
+	If $RM_Smooth = 2 Then $RM_WorkerArgument = "/RMEMERGENCY"
+	Local $RM_ResultPath = @TempDir & "\ReduceMemory-worker-" & @AutoItPID & "-" & Int ( Random ( 100000 , 999999 , 1 ) ) & ".result"
+	FileDelete ( $RM_ResultPath )
+	Local $RM_WorkerParameters = $RM_WorkerArgument & ' /RMRESULT="' & $RM_ResultPath & '"'
+	Local $RM_WorkerPid = ShellExecute ( @AutoItExe , $RM_WorkerParameters , @ScriptDir , "runas" , @SW_HIDE )
 	If @error Or $RM_WorkerPid = 0 Then Return 0
-	ProcessWaitClose ( $RM_WorkerPid , 8 )
-	Return 1
+	Local $RM_WorkerTimer = TimerInit ( )
+	While ProcessExists ( $RM_WorkerPid ) And TimerDiff ( $RM_WorkerTimer ) < 15000
+		Sleep ( 50 )
+	WEnd
+	If ProcessExists ( $RM_WorkerPid ) Then Return 0
+	Local $RM_ResultTimer = TimerInit ( )
+	While Not FileExists ( $RM_ResultPath ) And TimerDiff ( $RM_ResultTimer ) < 1000
+		Sleep ( 25 )
+	WEnd
+	If Not FileExists ( $RM_ResultPath ) Then Return 0
+	Local $RM_WorkerExitCode = Number ( StringStripWS ( FileRead ( $RM_ResultPath ) , 3 ) )
+	FileDelete ( $RM_ResultPath )
+	Return ( $RM_WorkerExitCode = 0 )
 EndFunc
 
 Func RM_ModeChanged ( )
@@ -475,6 +517,29 @@ Func RM_ModeChanged ( )
 			$RM_OptimizeMode = 0
 	EndSwitch
 	IniWrite ( @ScriptDir & "\ReduceMemory.ini" , "Main" , "OptimizeMode" , $RM_OptimizeMode )
+EndFunc
+
+Func RM_GetModeName ( )
+	Switch $RM_OptimizeMode
+		Case 1
+			Return "Aggressive Release"
+		Case 2
+			Return "Aggressive Smooth"
+		Case 3
+			Return "Aggressive + Delete Temp"
+		Case 4
+			Return "Emergency Release"
+		Case Else
+			Return "Normal Optimize"
+	EndSwitch
+EndFunc
+
+Func RM_WriteLog ( $RM_StableGain , $RM_ReboundDetected )
+	Local $RM_LogPath = @ScriptDir & "\ReduceMemory.log"
+	If FileExists ( $RM_LogPath ) And FileGetSize ( $RM_LogPath ) > 131072 Then FileDelete ( $RM_LogPath )
+	Local $RM_ReboundValue = "no"
+	If $RM_ReboundDetected = 1 Then $RM_ReboundValue = "yes"
+	FileWriteLine ( $RM_LogPath , @YEAR & "-" & StringFormat ( "%02d" , @MON ) & "-" & StringFormat ( "%02d" , @MDAY ) & " " & StringFormat ( "%02d:%02d:%02d" , @HOUR , @MIN , @SEC ) & " | mode=" & $RM_LastModeName & " | immediate=" & $RM_ImmediateGainMB & " MB | stable=" & $RM_StableGain & " MB | rebound=" & $RM_ReboundValue & " | " & $RM_StablePressureText )
 EndFunc
 
 Func RM_GetPressureSummary ( )
@@ -497,8 +562,14 @@ Func RM_StableCheck ( )
 	Local $RM_StableGain = Round ( ( $RM_StableStats [ 2 ] - $RM_StableBeforeFree ) / 1024 )
 	If $RM_StableGain < 0 Then $RM_StableGain = 0
 	Local $RM_ReboundText = ""
-	If $RM_ImmediateGainMB > 0 And $RM_StableGain < $RM_ImmediateGainMB / 2 Then $RM_ReboundText = " | rebound detected"
+	Local $RM_ReboundDetected = 0
+	If $RM_ImmediateGainMB > 0 And $RM_StableGain < $RM_ImmediateGainMB / 2 Then
+		$RM_ReboundText = " | rebound detected"
+		$RM_ReboundDetected = 1
+		$RM_ReboundAt = TimerInit ( )
+	EndIf
 	GUICtrlSetData ( $A3411D0002B [ 4 ] , "Stable release: " & $RM_StableGain & " MB" & $RM_ReboundText & " | " & $RM_StablePressureText )
+	RM_WriteLog ( $RM_StableGain , $RM_ReboundDetected )
 	$RM_StablePending = 0
 	$RM_StableStartedAt = 0
 	AdlibUnRegister ( "RM_StableCheck" )
@@ -538,10 +609,19 @@ Func A4800704447 ( )
 		Global $A1251701F38 = " @SW_DISABLE " , $A5251C01F41 = "#SIZE" , $A0A51D04231 = " @SW_ENABLE "
 		Global $SSA4800704447 = 1
 	EndIf
+	If $RM_OptimizeMode >= 1 And $RM_ReboundAt > 0 And TimerDiff ( $RM_ReboundAt ) < $RM_ReboundCooldownSeconds * 1000 Then
+		GUICtrlSetData ( $A3411D0002B [ 4 ] , "Rebound protection active - wait " & Ceiling ( $RM_ReboundCooldownSeconds - TimerDiff ( $RM_ReboundAt ) / 1000 ) & " seconds" )
+		Return
+	EndIf
+	If $RM_ReboundAt > 0 And TimerDiff ( $RM_ReboundAt ) >= $RM_ReboundCooldownSeconds * 1000 Then $RM_ReboundAt = 0
 	GUISetState ( Execute ( $A1251701F38 ) , $A59A0605008 )
 	GUICtrlSetOnEvent ( $A3C21204863 , "" )
 	A4F00B01B0E ( 1 )
 	Local $A0141502E2D = MemGetStats ( )
+	$RM_StableBeforeFree = $A0141502E2D [ 2 ]
+	$RM_StablePressureText = RM_GetPressureSummary ( )
+	$RM_LastModeName = RM_GetModeName ( )
+	GUICtrlSetData ( $A3411D0002B [ 4 ] , "Stage 1/3 - protecting active applications" )
 	Local $A2651804725 = 0
 	Local $A1B5190023C = $A0B9010005E
 	If $A3FF090012D = 0 Then
@@ -554,13 +634,12 @@ Func A4800704447 ( )
 	EndIf
 	Local $A2751A01544 = A2A20200810 ( $A2651804725 , $A1B5190023C )
 	Local $RM_AggressiveResult = 0
+	If $RM_OptimizeMode >= 1 Then GUICtrlSetData ( $A3411D0002B [ 4 ] , "Stage 2/3 - releasing Windows memory" )
 	If $RM_OptimizeMode = 1 Or $RM_OptimizeMode = 3 Then $RM_AggressiveResult = RM_RunAggressiveWorker ( 0 )
 	If $RM_OptimizeMode = 2 Then $RM_AggressiveResult = RM_RunAggressiveWorker ( 1 )
 	If $RM_OptimizeMode = 4 Then
 		If MsgBox ( 48 + 4 , "ReduceMemory", "Emergency Release akan melakukan pelepasan memory penuh dua kali dan dapat menyebabkan reload atau stutter sementara." & @CRLF & @CRLF & "Lanjutkan sekarang?" , 0 , $A59A0605008 ) = 6 Then
-			$RM_AggressiveResult = RM_RunAggressiveWorker ( 0 )
-			Sleep ( 1000 )
-			If $RM_AggressiveResult = 1 Then $RM_AggressiveResult = RM_RunAggressiveWorker ( 0 )
+			$RM_AggressiveResult = RM_RunAggressiveWorker ( 2 )
 		EndIf
 	EndIf
 	If $RM_OptimizeMode = 3 And $RM_AutoTrigger = 0 Then
@@ -571,18 +650,21 @@ Func A4800704447 ( )
 	Else
 		Sleep ( 25 )
 	EndIf
+	GUICtrlSetData ( $A3411D0002B [ 4 ] , "Stage 3/3 - measuring immediate result" )
 	A2700503407 ( )
 	Local $A1F51B0452B = MemGetStats ( )
 	$A0141502E2D = Round ( ( $A1F51B0452B [ 2 ] - $A0141502E2D [ 2 ] ) / 1024 )
 	If $A0141502E2D < 1 Then $A0141502E2D = 0
 	$RM_ImmediateGainMB = $A0141502E2D
-	$RM_StablePending = 1
-	$RM_StableStartedAt = TimerInit ( )
-	AdlibUnRegister ( "RM_StableCheck" )
-	AdlibRegister ( "RM_StableCheck" , 1000 )
+	If $RM_OptimizeMode = 0 Or $RM_AggressiveResult = 1 Then
+		$RM_StablePending = 1
+		$RM_StableStartedAt = TimerInit ( )
+		AdlibUnRegister ( "RM_StableCheck" )
+		AdlibRegister ( "RM_StableCheck" , 1000 )
+	EndIf
 	If $A2751A01544 = 0 And $RM_OptimizeMode = 0 Then $A0141502E2D = 0
 	If $RM_OptimizeMode = 0 Then
-		GUICtrlSetData ( $A3411D0002B [ 4 ] , "Normal released: " & $A0141502E2D & " MB" )
+		GUICtrlSetData ( $A3411D0002B [ 4 ] , "Normal released: " & $A0141502E2D & " MB | trimmed: " & $A2751A01544 )
 	ElseIf $RM_AggressiveResult = 1 Then
 		Local $RM_ModeResultText = "Aggressive released: "
 		If $RM_OptimizeMode = 2 Then $RM_ModeResultText = "Smooth released: "
@@ -698,15 +780,36 @@ Func A2C10200057 ( )
 		Global $SSA2C10200057 = 1
 	EndIf
 	If $CMDLINE [ 0 ] = 0 Then Return 0
+	If $CMDLINE [ 1 ] = "/RMSELFTEST" Then
+		Local $RM_SelfPressure = RM_GetPressureSummary ( )
+		If StringInStr ( $RM_SelfPressure , "RAM load" ) = 0 Then Exit 10
+		If RM_GetProcessCpuTime ( @AutoItPID ) < 0 Then Exit 11
+		Local $RM_SelfOriginalMode = $RM_OptimizeMode
+		For $RM_SelfModeIndex = 0 To 4
+			$RM_OptimizeMode = $RM_SelfModeIndex
+			If StringLen ( RM_GetModeName ( ) ) = 0 Then Exit 12
+		Next
+		$RM_OptimizeMode = $RM_SelfOriginalMode
+		$RM_LastModeName = "Self Test"
+		$RM_StablePressureText = $RM_SelfPressure
+		RM_WriteLog ( 0 , 0 )
+		If Not FileExists ( @ScriptDir & "\ReduceMemory.log" ) Then Exit 13
+		Exit 0
+	EndIf
 	If $CMDLINE [ 1 ] = "/RMAGGRESSIVE" Then
-		If Not IsAdmin ( ) Then Exit 5
-		If RM_AggressiveRelease ( 0 ) = 1 Then Exit 0
-		Exit 6
+		If Not IsAdmin ( ) Then RM_FinishWorker ( 5 )
+		If RM_AggressiveRelease ( 0 ) = 1 Then RM_FinishWorker ( 0 )
+		RM_FinishWorker ( 6 )
 	EndIf
 	If $CMDLINE [ 1 ] = "/RMSMOOTH" Then
-		If Not IsAdmin ( ) Then Exit 5
-		If RM_AggressiveRelease ( 1 ) = 1 Then Exit 0
-		Exit 6
+		If Not IsAdmin ( ) Then RM_FinishWorker ( 5 )
+		If RM_AggressiveRelease ( 1 ) = 1 Then RM_FinishWorker ( 0 )
+		RM_FinishWorker ( 6 )
+	EndIf
+	If $CMDLINE [ 1 ] = "/RMEMERGENCY" Then
+		If Not IsAdmin ( ) Then RM_FinishWorker ( 5 )
+		If RM_EmergencyRelease ( ) = 1 Then RM_FinishWorker ( 0 )
+		RM_FinishWorker ( 6 )
 	EndIf
 	If ( $CMDLINE [ 0 ] = 2 And $CMDLINE [ 1 ] = $A4191204E34 ) Then
 		$A2601902115 = 1
@@ -1262,17 +1365,52 @@ Func A5B20104156 ( )
 	If @error Or Not IsArray ( $A5B20104156_Result ) Or Not $A5B20104156_Result [ 0 ] Then Return SetError ( 1 , 0 , 0 )
 	Return 1
 EndFunc
+
+Func RM_TrackActiveProcess ( )
+	If $RM_ProtectForeground <> 1 Then Return
+	Local $RM_ActivePID = WinGetProcess ( "[ACTIVE]" )
+	If $RM_ActivePID > 0 And $RM_ActivePID <> $RM_LastObservedActivePID Then
+		$RM_RecentActivePID = $RM_LastObservedActivePID
+		$RM_RecentActiveAt = TimerInit ( )
+		$RM_LastObservedActivePID = $RM_ActivePID
+	EndIf
+EndFunc
+
+Func RM_GetProcessCpuTime ( $RM_ProcessPID )
+	Local $RM_ProcessHandle = DllCall ( "kernel32.dll" , "handle" , "OpenProcess" , "dword" , 0x1000 , "bool" , False , "dword" , $RM_ProcessPID )
+	If @error Or Not IsArray ( $RM_ProcessHandle ) Or $RM_ProcessHandle [ 0 ] = 0 Then Return -1
+	Local $RM_Times = DllCall ( "kernel32.dll" , "bool" , "GetProcessTimes" , "handle" , $RM_ProcessHandle [ 0 ] , "uint64*" , 0 , "uint64*" , 0 , "uint64*" , 0 , "uint64*" , 0 )
+	Local $RM_TimesError = @error
+	DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_ProcessHandle [ 0 ] )
+	If $RM_TimesError Or Not IsArray ( $RM_Times ) Or $RM_Times [ 0 ] = 0 Then Return -1
+	Return Number ( $RM_Times [ 4 ] ) + Number ( $RM_Times [ 5 ] )
+EndFunc
+
+Func RM_BuildCPUShield ( )
+	$RM_CPUShieldPIDs = "|"
+	Local $RM_Processes = ProcessList ( )
+	If Not IsArray ( $RM_Processes ) Then Return
+	Local $RM_FirstTimes [ $RM_Processes [ 0 ] [ 0 ] + 1 ]
+	For $RM_CPUIndex = 1 To $RM_Processes [ 0 ] [ 0 ]
+		$RM_FirstTimes [ $RM_CPUIndex ] = RM_GetProcessCpuTime ( $RM_Processes [ $RM_CPUIndex ] [ 1 ] )
+	Next
+	Sleep ( 150 )
+	For $RM_CPUIndex = 1 To $RM_Processes [ 0 ] [ 0 ]
+		If $RM_FirstTimes [ $RM_CPUIndex ] < 0 Then ContinueLoop
+		Local $RM_SecondTime = RM_GetProcessCpuTime ( $RM_Processes [ $RM_CPUIndex ] [ 1 ] )
+		If $RM_SecondTime >= 0 And $RM_SecondTime - $RM_FirstTimes [ $RM_CPUIndex ] >= 150000 Then $RM_CPUShieldPIDs &= $RM_Processes [ $RM_CPUIndex ] [ 1 ] & "|"
+	Next
+EndFunc
+
 Func A2A20200810 ( $A3C42101753 = 0 , $A6242203763 = "" )
 	Local $A2A4230391F = 0
 	If $A3C42101753 <> 1 Then $A3C42101753 = 0
 	$A6242203763 = A5720304C54 ( $A6242203763 , 1 )
 	Local $A5E4240211A = ProcessList ( ) , $A17A0803B53 , $A2B42506363
 	Local $RM_ForegroundPID = 0
+	RM_TrackActiveProcess ( )
+	If $A3C42101753 = 0 Then RM_BuildCPUShield ( )
 	If $RM_ProtectForeground = 1 Then $RM_ForegroundPID = WinGetProcess ( "[ACTIVE]" )
-	If $RM_ForegroundPID > 0 Then
-		$RM_RecentActivePID = $RM_ForegroundPID
-		$RM_RecentActiveAt = TimerInit ( )
-	EndIf
 	For $A17A0803B53 = 1 To $A5E4240211A [ 0 ] [ 0 ]
 		$A2B42506363 = StringInStr ( $A6242203763 , $A5580E05E46 & $A5E4240211A [ $A17A0803B53 ] [ 0 ] & $A5580E05E46 )
 		If ( $A3C42101753 = 0 And $A2B42506363 = 0 ) Or ( $A3C42101753 = 1 And $A2B42506363 <> 0 ) Then
@@ -1295,6 +1433,7 @@ Func RM_ShouldSkipProcess ( $RM_ProcessName , $RM_ProcessPID , $RM_ForegroundPID
 	If $RM_ProcessPID = @AutoItPID Then Return 1
 	If $RM_ProtectForeground = 1 And $RM_ForegroundPID > 0 And $RM_ProcessPID = $RM_ForegroundPID Then Return 1
 	If $RM_RecentActivePID > 0 And $RM_ProcessPID = $RM_RecentActivePID And $RM_RecentActiveAt > 0 And TimerDiff ( $RM_RecentActiveAt ) < $RM_ActiveShieldSeconds * 1000 Then Return 1
+	If StringInStr ( $RM_CPUShieldPIDs , "|" & $RM_ProcessPID & "|" ) > 0 Then Return 1
 	Local $RM_Protected = "|system idle process|system|registry|memory compression|secure system|csrss.exe|smss.exe|wininit.exe|winlogon.exe|services.exe|lsass.exe|dwm.exe|audiodg.exe|fontdrvhost.exe|"
 	If StringInStr ( $RM_Protected , "|" & $RM_Name & "|" ) > 0 Then Return 1
 	Local $RM_Path = StringLower ( StringStripWS ( ProcessGetPath ( $RM_ProcessPID ) , 3 ) )

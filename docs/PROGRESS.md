@@ -16,9 +16,8 @@ the AutoIt source for every intermediate binary.
 - Removed the embedded Sordum website reference from the upgraded source/build.
 - Kept startup non-elevated; elevation is deferred until a privileged mode is
   actually selected.
-- Added a working four-item mode selector:
-  Normal Optimize, Aggressive Release, Aggressive Smooth, and Aggressive +
-  Delete Temp.
+- Added a working five-item mode selector: Normal Optimize, Aggressive Release,
+  Aggressive Smooth, Aggressive + Delete Temp, and Emergency Release.
 - Added stronger memory-list operations for Aggressive Release and a lighter
   path for Aggressive Smooth.
 - Added permanent Temp cleanup with a warning and locked-file skipping.
@@ -28,6 +27,8 @@ the AutoIt source for every intermediate binary.
   foreground process remains protected briefly after focus changes.
 - Added immediate versus stable memory reporting, rebound detection, pressure
   summary (RAM load and commit), and the manual Emergency Release mode.
+- Added a 60-second rebound guard, rotating result log, three-stage status, and
+  one-elevation Emergency worker with two full passes.
 
 ## Packaging and platform milestone
 
@@ -36,13 +37,14 @@ the AutoIt source for every intermediate binary.
 - Verified the Linux script with `bash -n`.
 - Verified that both Windows architectures use the same canonical source and
   that the final PE architectures match their filenames.
+- Added cross-platform CI: Windows runs both safe executable self-tests and
+  Ubuntu runs the Bash syntax check plus the native Linux `check` mode.
 
-## Next source-level milestone
+## Deliberately not included
 
-The next upgrade will be implemented as an actual source diff:
-
-1. staged Aggressive v3 (stop when enough memory is available);
-2. immediate versus stable-after-15-seconds measurement;
-3. background worker/progress state so the GUI stays responsive;
-4. rebound protection to avoid repeated purge/reload cycles;
-5. memory-pressure and commit-pressure aware automatic triggering.
+- Stop-when-enough targets are not used; a selected mode runs its defined pass.
+- No new automatic memory-pressure trigger was added.
+- Temp cleanup behavior was not expanded beyond its existing warning and
+  locked-file skipping.
+- The first half of Active Application Shield is implemented; GPU, audio,
+  recording, and fullscreen detection remain outside the current scope.

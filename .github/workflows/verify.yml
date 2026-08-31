@@ -1,0 +1,31 @@
+name: Verify builds
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify x64 self-test
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath .\windows\ReduceMemory_x64.exe -ArgumentList /RMSELFTEST -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "x64 self-test failed with exit code $($process.ExitCode)" }
+      - name: Verify x86 self-test
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath .\windows\ReduceMemory.exe -ArgumentList /RMSELFTEST -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "x86 self-test failed with exit code $($process.ExitCode)" }
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Bash syntax
+        run: bash -n linux/ReduceMemory_Linux.sh
+      - name: Run safe Linux self-check
+        run: ./linux/ReduceMemory_Linux.sh check
