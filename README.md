@@ -3,10 +3,12 @@
 Reduce Memory adalah utilitas ringan untuk membantu Windows melepaskan memori
 yang sedang tidak diperlukan dari RAM.
 
-Proyek ini merupakan upgrade dari alur Reduce Memory v1.7 yang sudah ada. Fokus
-utamanya tetap satu: membuat RAM lebih lega dengan meminta Windows memangkas
-working set aplikasi dan cache yang aman untuk dilepas. Ini bukan antivirus,
-bukan registry cleaner, dan bukan aplikasi yang mematikan proses sembarangan.
+Proyek ini terinspirasi oleh **Reduce Memory v1.7 dari Sordum Team**. Repo ini
+bukan salinan baru yang dibuat dari nol; ini adalah pengembangan lanjutan dari
+alur dan tujuan aplikasi tersebut. Fokus utamanya tetap satu: membuat RAM lebih
+lega dengan meminta Windows memangkas working set aplikasi dan cache yang aman
+untuk dilepas. Ini bukan antivirus, bukan registry cleaner, dan bukan aplikasi
+yang mematikan proses sembarangan.
 
 ## Pilihan mode
 
@@ -24,12 +26,13 @@ diminta ketika mode yang memang membutuhkan operasi memory Windows dijalankan.
 
 ## Platform
 
-- `ReduceMemory_x64.exe` — Windows 64-bit.
-- `ReduceMemory.exe` — Windows 32-bit (x86).
-- `ReduceMemory_Linux.sh` — companion native Linux dengan mode normal, smooth,
-  dan aggressive.
+- [`windows/ReduceMemory_x64.exe`](windows/ReduceMemory_x64.exe) — Windows 64-bit.
+- [`windows/ReduceMemory.exe`](windows/ReduceMemory.exe) — Windows 32-bit (x86).
+- [`linux/ReduceMemory_Linux.sh`](linux/ReduceMemory_Linux.sh) — companion native
+  Linux dengan mode normal, smooth, dan aggressive.
 
-Lihat [`PROGRESS.md`](PROGRESS.md) untuk perkembangan upgrade dan batas
+Source canonical ada di [`src/ReduceMemory.au3`](src/ReduceMemory.au3). Lihat
+[`docs/PROGRESS.md`](docs/PROGRESS.md) untuk perkembangan upgrade dan batas
 verifikasinya. Memory trimming tidak menghapus virus dan tidak menghapus data
 aplikasi yang sedang aktif; Windows atau aplikasi tetap dapat mengambil kembali
 halaman memori tersebut ketika diperlukan.

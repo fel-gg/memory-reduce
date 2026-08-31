@@ -29,8 +29,8 @@ the AutoIt source for every intermediate binary.
 - Built and smoke-tested x64 and x86 Windows executables.
 - Added a native Bash companion for Linux memory-cache release.
 - Verified the Linux script with `bash -n`.
-- Verified that the x86/x64 source snapshots are identical and that the final
-  PE architectures match their filenames.
+- Verified that both Windows architectures use the same canonical source and
+  that the final PE architectures match their filenames.
 
 ## Next source-level milestone
 
@@ -41,4 +41,3 @@ The next upgrade will be implemented as an actual source diff:
 3. background worker/progress state so the GUI stays responsive;
 4. rebound protection to avoid repeated purge/reload cycles;
 5. memory-pressure and commit-pressure aware automatic triggering.
-
