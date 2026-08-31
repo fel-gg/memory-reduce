@@ -1,15 +1,15 @@
 ﻿# ReduceMemory v1.7 â€” adaptive upgrade
 
 This folder keeps the original Sordum ReduceMemory project and adds a
+ReduceMemory v2.0 upgrade built from the canonical source.
 conservative adaptive pass to the x64 executable.
 
 ## Active build
 
 - `ReduceMemory_x64.exe` is the modified build compiled from the verified
   extracted AutoIt source.
-- `ReduceMemory.exe` remains the original v1.7 x86 build until an x86 build can
-  pass the same runtime smoke test. The modified x86 source is included for
-  reproducible follow-up work.
+- `ReduceMemory.exe` is the v2.0 x86 build compiled from the same canonical
+  source as the x64 build.
 - `backup-original-v1.7-20260831` contains the original executable, INI, and
   history file. Copy those files back to roll back.
 
