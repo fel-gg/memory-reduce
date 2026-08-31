@@ -1,0 +1,11 @@
+# Local backups and temporary upgrade helpers
+backup-original-v1.7-20260831/
+ReduceMemory_x64.running-old-*.exe
+Finalize-Upgrade.ps1
+
+# AutoIt/compiler intermediates
+*.obj
+*.tmp
+*.log
+build/
+
