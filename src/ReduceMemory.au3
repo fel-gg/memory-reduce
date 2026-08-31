@@ -175,15 +175,12 @@ Func A5A00100C3D ( )
 
 	GUICtrlCreateLabel ( "Optimize mode:" , 10 , 170 , 105 , 20 )
 
-	$RM_ModeControl = GUICtrlCreateCombo ( "Normal Optimize" , 115 , 165 , 295 , 25 , 3 )
-
-	GUICtrlSetData ( $RM_ModeControl , "Aggressive Release|Aggressive Smooth|Aggressive + Delete Temp" )
-
-	If $RM_OptimizeMode = 1 Then GUICtrlSetData ( $RM_ModeControl , "" , "Aggressive Release" )
-
-	If $RM_OptimizeMode = 2 Then GUICtrlSetData ( $RM_ModeControl , "" , "Aggressive Smooth" )
-
-	If $RM_OptimizeMode = 3 Then GUICtrlSetData ( $RM_ModeControl , "" , "Aggressive + Delete Temp" )
+	Local $RM_ModeDefault = "Normal Optimize"
+	If $RM_OptimizeMode = 1 Then $RM_ModeDefault = "Aggressive Release"
+	If $RM_OptimizeMode = 2 Then $RM_ModeDefault = "Aggressive Smooth"
+	If $RM_OptimizeMode = 3 Then $RM_ModeDefault = "Aggressive + Delete Temp"
+	$RM_ModeControl = GUICtrlCreateCombo ( "" , 115 , 165 , 295 , 25 , 3 )
+	GUICtrlSetData ( $RM_ModeControl , "Normal Optimize|Aggressive Release|Aggressive Smooth|Aggressive + Delete Temp" , $RM_ModeDefault )
 
 	GUICtrlSetOnEvent ( $RM_ModeControl , "RM_ModeChanged" )
 	$A3C21204863 = GUICtrlCreateButton ( $A2F80F00960 , 285 , 15 , 125 , 30 , 1 )
