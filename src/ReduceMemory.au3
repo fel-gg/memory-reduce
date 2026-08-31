@@ -107,6 +107,16 @@ Global $RM_OptimizeMode = 0
 Global $RM_ModeControl = 0
 Global $RM_LastAggressiveDetail = ""
 Global $RM_LastAggressiveOk = 0
+Global $RM_RecentActivePID = 0
+Global $RM_RecentActiveAt = 0
+Global $RM_ActiveShieldSeconds = Int ( Number ( A3560501B29 ( "ActiveShieldSeconds" , 10 ) ) )
+If $RM_ActiveShieldSeconds < 3 Then $RM_ActiveShieldSeconds = 3
+If $RM_ActiveShieldSeconds > 60 Then $RM_ActiveShieldSeconds = 60
+Global $RM_StablePending = 0
+Global $RM_StableBeforeFree = 0
+Global $RM_StableStartedAt = 0
+Global $RM_ImmediateGainMB = 0
+Global $RM_StablePressureText = ""
 Global $A3FF090012D = A5560304940 ( $A25F0A03415 , 1 , 0 , 1 )
 Global $A1DF0B03725 = A1160200452 ( $A45D0C00410 , $A2AF0C0551E , $A2DF0D02906 , $A5580E05E46 )
 $A1DF0B03725 = A5720304C54 ( $A1DF0B03725 , 1 )
@@ -155,7 +165,7 @@ Func A5A00100C3D ( )
 	Opt ( $A3B21805E0C , 0 )
 	$A59A0605008 = GUICreate ( $A2A90E0262F , $A3611106234 , $A5511204129 , - 1 , - 1 )
 	$RM_OptimizeMode = Int ( Number ( A3560501B29 ( "OptimizeMode" , 0 ) ) )
-	If $RM_OptimizeMode < 0 Or $RM_OptimizeMode > 3 Then $RM_OptimizeMode = 0
+	If $RM_OptimizeMode < 0 Or $RM_OptimizeMode > 4 Then $RM_OptimizeMode = 0
 	GUISetOnEvent ( - 3 , "A2E00E00137" )
 	GUISetOnEvent ( - 4 , "A5900F01A18" )
 	GUISetFont ( $A6301F02853 , 400 , 0 , $A2E01D02B1C )
@@ -181,8 +191,9 @@ Func A5A00100C3D ( )
 	If $RM_OptimizeMode = 1 Then $RM_ModeDefault = "Aggressive Release"
 	If $RM_OptimizeMode = 2 Then $RM_ModeDefault = "Aggressive Smooth"
 	If $RM_OptimizeMode = 3 Then $RM_ModeDefault = "Aggressive + Delete Temp"
+	If $RM_OptimizeMode = 4 Then $RM_ModeDefault = "Emergency Release"
 	$RM_ModeControl = GUICtrlCreateCombo ( "" , 115 , 165 , 295 , 25 , 3 )
-	GUICtrlSetData ( $RM_ModeControl , "Normal Optimize|Aggressive Release|Aggressive Smooth|Aggressive + Delete Temp" , $RM_ModeDefault )
+	GUICtrlSetData ( $RM_ModeControl , "Normal Optimize|Aggressive Release|Aggressive Smooth|Aggressive + Delete Temp|Emergency Release" , $RM_ModeDefault )
 
 	GUICtrlSetOnEvent ( $RM_ModeControl , "RM_ModeChanged" )
 	$A3C21204863 = GUICtrlCreateButton ( $A2F80F00960 , 285 , 15 , 125 , 30 , 1 )
@@ -317,6 +328,8 @@ Func A2700503407 ( $A1E41404E44 = 0 )
 		Global $SSA2700503407 = 1
 	EndIf
 	Local $A0141502E2D = MemGetStats ( )
+	$RM_StableBeforeFree = $A0141502E2D [ 2 ]
+	$RM_StablePressureText = RM_GetPressureSummary ( )
 	Local $A0441604F5B = A3800802059 ( $A0141502E2D [ 1 ] )
 	Local $A4041702E28 = A3800802059 ( $A0141502E2D [ 1 ] - $A0141502E2D [ 2 ] , 1 )
 	Local $A3741801E52 = A3800802059 ( $A0141502E2D [ 2 ] , 1 )
@@ -456,10 +469,39 @@ Func RM_ModeChanged ( )
 			$RM_OptimizeMode = 2
 		Case "Aggressive + Delete Temp"
 			$RM_OptimizeMode = 3
+		Case "Emergency Release"
+			$RM_OptimizeMode = 4
 		Case Else
 			$RM_OptimizeMode = 0
 	EndSwitch
 	IniWrite ( @ScriptDir & "\ReduceMemory.ini" , "Main" , "OptimizeMode" , $RM_OptimizeMode )
+EndFunc
+
+Func RM_GetPressureSummary ( )
+	Local $RM_Memory = DllStructCreate ( "dword Length;dword MemoryLoad;uint64 TotalPhys;uint64 AvailPhys;uint64 TotalPageFile;uint64 AvailPageFile;uint64 TotalVirtual;uint64 AvailVirtual;uint64 AvailExtendedVirtual" )
+	DllStructSetData ( $RM_Memory , "Length" , DllStructGetSize ( $RM_Memory ) )
+	Local $RM_Result = DllCall ( "kernel32.dll" , "bool" , "GlobalMemoryStatusEx" , "ptr" , DllStructGetPtr ( $RM_Memory ) )
+	If @error Or Not IsArray ( $RM_Result ) Or $RM_Result [ 0 ] = 0 Then Return "Pressure unavailable"
+	Local $RM_Load = DllStructGetData ( $RM_Memory , "MemoryLoad" )
+	Local $RM_TotalCommit = DllStructGetData ( $RM_Memory , "TotalPageFile" )
+	Local $RM_AvailCommit = DllStructGetData ( $RM_Memory , "AvailPageFile" )
+	Local $RM_CommitPercent = 0
+	If $RM_TotalCommit > 0 Then $RM_CommitPercent = Round ( ( ( $RM_TotalCommit - $RM_AvailCommit ) / $RM_TotalCommit ) * 100 )
+	Return "RAM load " & $RM_Load & "% | commit " & $RM_CommitPercent & "%"
+EndFunc
+
+Func RM_StableCheck ( )
+	If $RM_StablePending = 0 Or $RM_StableStartedAt = 0 Then Return
+	If TimerDiff ( $RM_StableStartedAt ) < 15000 Then Return
+	Local $RM_StableStats = MemGetStats ( )
+	Local $RM_StableGain = Round ( ( $RM_StableStats [ 2 ] - $RM_StableBeforeFree ) / 1024 )
+	If $RM_StableGain < 0 Then $RM_StableGain = 0
+	Local $RM_ReboundText = ""
+	If $RM_ImmediateGainMB > 0 And $RM_StableGain < $RM_ImmediateGainMB / 2 Then $RM_ReboundText = " | rebound detected"
+	GUICtrlSetData ( $A3411D0002B [ 4 ] , "Stable release: " & $RM_StableGain & " MB" & $RM_ReboundText & " | " & $RM_StablePressureText )
+	$RM_StablePending = 0
+	$RM_StableStartedAt = 0
+	AdlibUnRegister ( "RM_StableCheck" )
 EndFunc
 
 Func RM_DeleteTempFiles ( )
@@ -514,6 +556,13 @@ Func A4800704447 ( )
 	Local $RM_AggressiveResult = 0
 	If $RM_OptimizeMode = 1 Or $RM_OptimizeMode = 3 Then $RM_AggressiveResult = RM_RunAggressiveWorker ( 0 )
 	If $RM_OptimizeMode = 2 Then $RM_AggressiveResult = RM_RunAggressiveWorker ( 1 )
+	If $RM_OptimizeMode = 4 Then
+		If MsgBox ( 48 + 4 , "ReduceMemory", "Emergency Release akan melakukan pelepasan memory penuh dua kali dan dapat menyebabkan reload atau stutter sementara." & @CRLF & @CRLF & "Lanjutkan sekarang?" , 0 , $A59A0605008 ) = 6 Then
+			$RM_AggressiveResult = RM_RunAggressiveWorker ( 0 )
+			Sleep ( 1000 )
+			If $RM_AggressiveResult = 1 Then $RM_AggressiveResult = RM_RunAggressiveWorker ( 0 )
+		EndIf
+	EndIf
 	If $RM_OptimizeMode = 3 And $RM_AutoTrigger = 0 Then
 		If MsgBox ( 48 + 4 , "ReduceMemory", "Aggressive + Delete Temp akan menghapus file secara permanen dari %TEMP% dan C:\Windows\Temp." & @CRLF & @CRLF & "File yang sedang digunakan akan dilewati. Jangan jalankan saat instalasi atau Windows Update sedang berlangsung." & @CRLF & @CRLF & "Lanjutkan sekarang?" , 0 , $A59A0605008 ) = 6 Then RM_DeleteTempFiles ( )
 	EndIf
@@ -526,12 +575,18 @@ Func A4800704447 ( )
 	Local $A1F51B0452B = MemGetStats ( )
 	$A0141502E2D = Round ( ( $A1F51B0452B [ 2 ] - $A0141502E2D [ 2 ] ) / 1024 )
 	If $A0141502E2D < 1 Then $A0141502E2D = 0
+	$RM_ImmediateGainMB = $A0141502E2D
+	$RM_StablePending = 1
+	$RM_StableStartedAt = TimerInit ( )
+	AdlibUnRegister ( "RM_StableCheck" )
+	AdlibRegister ( "RM_StableCheck" , 1000 )
 	If $A2751A01544 = 0 And $RM_OptimizeMode = 0 Then $A0141502E2D = 0
 	If $RM_OptimizeMode = 0 Then
 		GUICtrlSetData ( $A3411D0002B [ 4 ] , "Normal released: " & $A0141502E2D & " MB" )
 	ElseIf $RM_AggressiveResult = 1 Then
 		Local $RM_ModeResultText = "Aggressive released: "
 		If $RM_OptimizeMode = 2 Then $RM_ModeResultText = "Smooth released: "
+		If $RM_OptimizeMode = 4 Then $RM_ModeResultText = "Emergency released: "
 		GUICtrlSetData ( $A3411D0002B [ 4 ] , $RM_ModeResultText & $A0141502E2D & " MB" )
 	Else
 		GUICtrlSetData ( $A3411D0002B [ 4 ] , "Aggressive cancelled or Administrator access denied" )
@@ -1214,6 +1269,10 @@ Func A2A20200810 ( $A3C42101753 = 0 , $A6242203763 = "" )
 	Local $A5E4240211A = ProcessList ( ) , $A17A0803B53 , $A2B42506363
 	Local $RM_ForegroundPID = 0
 	If $RM_ProtectForeground = 1 Then $RM_ForegroundPID = WinGetProcess ( "[ACTIVE]" )
+	If $RM_ForegroundPID > 0 Then
+		$RM_RecentActivePID = $RM_ForegroundPID
+		$RM_RecentActiveAt = TimerInit ( )
+	EndIf
 	For $A17A0803B53 = 1 To $A5E4240211A [ 0 ] [ 0 ]
 		$A2B42506363 = StringInStr ( $A6242203763 , $A5580E05E46 & $A5E4240211A [ $A17A0803B53 ] [ 0 ] & $A5580E05E46 )
 		If ( $A3C42101753 = 0 And $A2B42506363 = 0 ) Or ( $A3C42101753 = 1 And $A2B42506363 <> 0 ) Then
@@ -1233,9 +1292,16 @@ EndFunc
 ; available for advanced users who intentionally target a small process.
 Func RM_ShouldSkipProcess ( $RM_ProcessName , $RM_ProcessPID , $RM_ForegroundPID = 0 )
 	Local $RM_Name = StringLower ( StringStripWS ( $RM_ProcessName , 3 ) )
+	If $RM_ProcessPID = @AutoItPID Then Return 1
 	If $RM_ProtectForeground = 1 And $RM_ForegroundPID > 0 And $RM_ProcessPID = $RM_ForegroundPID Then Return 1
+	If $RM_RecentActivePID > 0 And $RM_ProcessPID = $RM_RecentActivePID And $RM_RecentActiveAt > 0 And TimerDiff ( $RM_RecentActiveAt ) < $RM_ActiveShieldSeconds * 1000 Then Return 1
 	Local $RM_Protected = "|system idle process|system|registry|memory compression|secure system|csrss.exe|smss.exe|wininit.exe|winlogon.exe|services.exe|lsass.exe|dwm.exe|audiodg.exe|fontdrvhost.exe|"
 	If StringInStr ( $RM_Protected , "|" & $RM_Name & "|" ) > 0 Then Return 1
+	Local $RM_Path = StringLower ( StringStripWS ( ProcessGetPath ( $RM_ProcessPID ) , 3 ) )
+	Local $RM_WindowsRoot = @WindowsDir
+	If StringRight ( $RM_WindowsRoot , 1 ) <> "\" Then $RM_WindowsRoot &= "\"
+	$RM_WindowsRoot = StringLower ( $RM_WindowsRoot )
+	If StringLen ( $RM_Path ) > 0 And StringLeft ( $RM_Path , StringLen ( $RM_WindowsRoot ) ) = $RM_WindowsRoot Then Return 1
 	Local $RM_Stats = ProcessGetStats ( $RM_ProcessPID , 0 )
 	If IsArray ( $RM_Stats ) And Number ( $RM_Stats [ 0 ] ) > 0 Then
 		If Number ( $RM_Stats [ 0 ] ) < $RM_MinProcessMB * 1024 * 1024 Then Return 1

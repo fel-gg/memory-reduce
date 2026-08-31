@@ -23,6 +23,11 @@ the AutoIt source for every intermediate binary.
   path for Aggressive Smooth.
 - Added permanent Temp cleanup with a warning and locked-file skipping.
 - Removed the post-Optimize result popup; status is shown in the main window.
+- Added a generic application shield: processes are evaluated dynamically, the
+  Windows directory and ReduceMemory itself are protected, and a recently
+  foreground process remains protected briefly after focus changes.
+- Added immediate versus stable memory reporting, rebound detection, pressure
+  summary (RAM load and commit), and the manual Emergency Release mode.
 
 ## Packaging and platform milestone
 

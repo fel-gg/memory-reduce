@@ -13,6 +13,11 @@ Intinya tetap sederhana: minta Windows melepas memori yang sedang tidak terlalu
 dibutuhkan. Program ini tidak membunuh aplikasi, bukan antivirus, dan bukan
 registry cleaner.
 
+Semua aplikasi Windows diperlakukan secara dinamis. Tidak ada daftar nama
+aplikasi yang harus diperbarui setiap kali ada software baru. Aplikasi yang baru
+di-install akan ikut terdeteksi otomatis; yang dilindungi hanya proses Windows,
+aplikasi yang sedang dipakai, dan proses yang baru saja aktif.
+
 ## Pilihan mode
 
 - **Normal Optimize** — pilihan aman untuk dipakai sehari-hari.
@@ -23,6 +28,8 @@ registry cleaner.
 - **Aggressive + Delete Temp** — menjalankan Aggressive Release lalu menawarkan
   penghapusan permanen file dari `%TEMP%` dan `C:\Windows\Temp`. File yang
   sedang dipakai akan dilewati.
+- **Emergency Release** — mode manual paling kuat dengan warning dan dua pass
+  pelepasan memory.
 
 Saat dibuka, program tidak langsung meminta izin administrator. Izin tersebut
 baru diminta ketika kamu memilih operasi yang memang membutuhkannya.
