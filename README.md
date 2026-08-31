@@ -1,39 +1,42 @@
 # Reduce Memory
 
-Reduce Memory adalah utilitas ringan untuk membantu Windows melepaskan memori
-yang sedang tidak diperlukan dari RAM.
+Reduce Memory adalah tool kecil buat membantu RAM terasa lebih lega saat
+Windows sedang banyak memakai memori.
 
-Proyek ini terinspirasi oleh **Reduce Memory v1.7 dari Sordum Team**. Repo ini
-bukan salinan baru yang dibuat dari nol; ini adalah pengembangan lanjutan dari
-alur dan tujuan aplikasi tersebut. Fokus utamanya tetap satu: membuat RAM lebih
-lega dengan meminta Windows memangkas working set aplikasi dan cache yang aman
-untuk dilepas. Ini bukan antivirus, bukan registry cleaner, dan bukan aplikasi
-yang mematikan proses sembarangan.
+Awalnya proyek ini terinspirasi dari **Reduce Memory v1.7 buatan Sordum Team**.
+Di repo ini, alur tersebut kita kembangkan lagi: pilihan mode diperjelas,
+Aggressive dibuat lebih kuat, ada versi Smooth supaya tidak gampang bikin lag,
+dan ada pilihan untuk membersihkan file Temp.
+
+Intinya tetap sederhana: minta Windows melepas memori yang sedang tidak terlalu
+dibutuhkan. Program ini tidak membunuh aplikasi, bukan antivirus, dan bukan
+registry cleaner.
 
 ## Pilihan mode
 
-- **Normal Optimize** — pembersihan ringan untuk pemakaian sehari-hari.
-- **Aggressive Smooth** — lebih kuat, tetapi dirancang agar kemungkinan lag
-  lebih kecil.
-- **Aggressive Release** — pelepasan RAM paling kuat; aplikasi mungkin perlu
-  memuat ulang cache setelahnya.
-- **Aggressive + Delete Temp** — menjalankan Aggressive Release lalu, setelah
-  warning, menghapus file temporary dari `%TEMP%` dan `C:\Windows\Temp` secara
-  permanen. File yang sedang dipakai akan dilewati.
+- **Normal Optimize** — pilihan aman untuk dipakai sehari-hari.
+- **Aggressive Smooth** — lebih kuat dari Normal, tetapi dibuat lebih halus
+  supaya kemungkinan stutter lebih kecil.
+- **Aggressive Release** — pelepasan RAM paling kuat. Beberapa aplikasi mungkin
+  perlu memuat ulang cache setelahnya.
+- **Aggressive + Delete Temp** — menjalankan Aggressive Release lalu menawarkan
+  penghapusan permanen file dari `%TEMP%` dan `C:\Windows\Temp`. File yang
+  sedang dipakai akan dilewati.
 
-Program tidak meminta administrator saat dibuka. Izin administrator hanya
-diminta ketika mode yang memang membutuhkan operasi memory Windows dijalankan.
+Saat dibuka, program tidak langsung meminta izin administrator. Izin tersebut
+baru diminta ketika kamu memilih operasi yang memang membutuhkannya.
 
-## Platform
+## Isi folder
 
 - [`windows/ReduceMemory_x64.exe`](windows/ReduceMemory_x64.exe) — Windows 64-bit.
 - [`windows/ReduceMemory.exe`](windows/ReduceMemory.exe) — Windows 32-bit (x86).
-- [`linux/ReduceMemory_Linux.sh`](linux/ReduceMemory_Linux.sh) — companion native
-  Linux dengan mode normal, smooth, dan aggressive.
+- [`windows/ReduceMemory.ini`](windows/ReduceMemory.ini) — pengaturan Windows.
+- [`src/ReduceMemory.au3`](src/ReduceMemory.au3) — source utama AutoIt.
+- [`linux/ReduceMemory_Linux.sh`](linux/ReduceMemory_Linux.sh) — script untuk
+  Linux.
+- [`docs/PROGRESS.md`](docs/PROGRESS.md) — catatan perkembangan upgrade.
 
-Source canonical ada di [`src/ReduceMemory.au3`](src/ReduceMemory.au3). Lihat
-[`docs/PROGRESS.md`](docs/PROGRESS.md) untuk perkembangan upgrade dan batas
-verifikasinya. Memory trimming tidak menghapus virus dan tidak menghapus data
-aplikasi yang sedang aktif; Windows atau aplikasi tetap dapat mengambil kembali
-halaman memori tersebut ketika diperlukan.
-
+Kalau RAM sedang benar-benar penuh, mode Aggressive bisa membantu cukup banyak.
+Kalau yang dicari adalah pemakaian rutin tanpa banyak gangguan, gunakan Smooth.
+Memory trimming tidak menghapus virus dan tidak menghapus data aplikasi yang
+sedang aktif; Windows bisa memakai kembali memori itu ketika dibutuhkan.
