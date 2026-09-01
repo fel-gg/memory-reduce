@@ -11,6 +11,8 @@ that idea with an upgraded source and new platform builds.
 - Added optional permanent Temp cleanup with locked-file skipping.
 - Added Windows x64 and x86 builds.
 - Added a native Linux companion script.
+- Added a simple Linux menu plus user-local application launcher, with root
+  requested only after Smooth or Aggressive is selected.
 - Fixed the optimizer dropdown so its items and default selection remain visible.
 - Removed the post-Optimize result popup and kept status in the main window.
 - Added foreground, recently-active, and CPU-activity shields without maintaining

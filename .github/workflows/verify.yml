@@ -26,6 +26,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Verify Bash syntax
-        run: bash -n linux/ReduceMemory_Linux.sh
+        run: |
+          bash -n linux/ReduceMemory_Linux.sh
+          bash -n linux/Install_ReduceMemory.sh
       - name: Run safe Linux self-check
         run: ./linux/ReduceMemory_Linux.sh check
+      - name: Verify user-local launcher installation
+        run: |
+          install_root="${RUNNER_TEMP}/reduce-memory-install"
+          REDUCE_MEMORY_BIN_DIR="${install_root}/bin" \
+          REDUCE_MEMORY_APP_DIR="${install_root}/applications" \
+            ./linux/Install_ReduceMemory.sh
+          test -x "${install_root}/bin/reduce-memory"
+          test -f "${install_root}/applications/reduce-memory.desktop"
+          grep -F 'Name=Reduce Memory' "${install_root}/applications/reduce-memory.desktop"
+          grep -F 'Terminal=true' "${install_root}/applications/reduce-memory.desktop"
+          "${install_root}/bin/reduce-memory" check

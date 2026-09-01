@@ -48,6 +48,8 @@ operasi juga disimpan di `windows/ReduceMemory.log` dengan ukuran terbatas.
 - [`src/ReduceMemory.au3`](src/ReduceMemory.au3) — source utama AutoIt.
 - [`linux/ReduceMemory_Linux.sh`](linux/ReduceMemory_Linux.sh) — script untuk
   Linux.
+- [`linux/Install_ReduceMemory.sh`](linux/Install_ReduceMemory.sh) — installer
+  user-local yang menambahkan Reduce Memory ke menu aplikasi Linux.
 - [`docs/PROGRESS.md`](docs/PROGRESS.md) — catatan perkembangan upgrade.
 
 ## Self-test aman
@@ -66,6 +68,17 @@ Di Linux, pemeriksaan environment yang aman bisa dijalankan dengan:
 ```bash
 ./linux/ReduceMemory_Linux.sh check
 ```
+
+Untuk pemakaian sederhana seperti aplikasi, pasang launcher satu kali:
+
+```bash
+cd linux
+chmod +x Install_ReduceMemory.sh ReduceMemory_Linux.sh
+./Install_ReduceMemory.sh
+```
+
+Setelah itu cari **Reduce Memory** dari menu aplikasi. Normal, Smooth,
+Aggressive, dan Check bisa dipilih tanpa menghafal command.
 
 Kalau RAM sedang benar-benar penuh, mode Aggressive bisa membantu cukup banyak.
 Kalau yang dicari adalah pemakaian rutin tanpa banyak gangguan, gunakan Smooth.

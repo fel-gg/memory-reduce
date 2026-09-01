@@ -46,6 +46,10 @@ the AutoIt source for every intermediate binary.
   that the final PE architectures match their filenames.
 - Added cross-platform CI: Windows runs both safe executable self-tests and
   Ubuntu runs the Bash syntax check plus the native Linux `check` mode.
+- Added an interactive Linux mode menu and a no-root, user-local installer that
+  creates a freedesktop application launcher without a daemon or startup task.
+- Added Ubuntu CI coverage for the installed Linux command and generated
+  desktop entry, while preserving all existing non-interactive mode commands.
 
 ## Deliberately not included
 
