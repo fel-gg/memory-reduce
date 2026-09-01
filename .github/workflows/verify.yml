@@ -42,3 +42,6 @@ jobs:
           grep -F 'Name=Reduce Memory' "${install_root}/applications/reduce-memory.desktop"
           grep -F 'Terminal=true' "${install_root}/applications/reduce-memory.desktop"
           "${install_root}/bin/reduce-memory" check
+          menu_output="$(printf '0\n' | "${install_root}/bin/reduce-memory" --menu)"
+          grep -F 'Reduce Memory 2.0 - Linux' <<< "${menu_output}"
+          grep -F '3. Aggressive' <<< "${menu_output}"
