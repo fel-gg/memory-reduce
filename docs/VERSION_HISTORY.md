@@ -10,6 +10,8 @@
 - Includes cross-platform GitHub Actions checks for Windows, Ubuntu desktop
   installation, and Ubuntu server installation.
 - Adds automated, tag-driven GitHub Release packages and SHA-256 checksums.
+- Separates the Desktop launcher and headless Server installer into distinct
+  source and package paths without duplicating the Linux memory engine.
 
 ## Reduce Memory 2.0 — 2026
 

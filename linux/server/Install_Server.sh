@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ "$(uname -s)" != "Linux" ]]; then
-  echo "Installer server ini harus dijalankan pada kernel Linux." >&2
+  echo "Installer Server harus dijalankan pada kernel Linux." >&2
   exit 3
 fi
 
@@ -13,17 +13,18 @@ if [[ "${EUID}" -ne 0 ]]; then
     echo "Meminta akses administrator untuk memasang command server..."
     exec sudo -- "${installer_path}" "$@"
   fi
-  echo "Installer server membutuhkan root. Jalankan: sudo ${installer_path}" >&2
+  echo "Installer Server membutuhkan root. Jalankan: sudo ${installer_path}" >&2
   exit 5
 fi
 
-script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-source_script="${script_directory}/ReduceMemory_Linux.sh"
+installer_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+linux_directory="$(cd -- "${installer_directory}/.." && pwd)"
+source_script="${linux_directory}/ReduceMemory_Linux.sh"
 install_directory="${REDUCE_MEMORY_SERVER_BIN_DIR:-/usr/local/bin}"
 installed_script="${install_directory}/reduce-memory-server"
 
 if [[ ! -f "${source_script}" ]]; then
-  echo "ReduceMemory_Linux.sh tidak ditemukan di samping installer." >&2
+  echo "Engine Linux tidak ditemukan: ${source_script}" >&2
   exit 4
 fi
 

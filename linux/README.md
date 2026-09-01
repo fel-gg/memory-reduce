@@ -1,12 +1,28 @@
 # Reduce Memory Linux
 
+## Desktop dan Server dipisahkan
+
+```text
+linux/
+├── ReduceMemory_Linux.sh
+├── desktop/
+│   └── Install_Desktop.sh
+├── server/
+│   └── Install_Server.sh
+└── README.md
+```
+
+`desktop` khusus application menu dan instalasi user-local. `server` khusus
+VPS/headless melalui SSH dan command global. Keduanya memakai satu engine agar
+fungsi Normal, Smooth, dan Aggressive selalu konsisten dan diuji bersama.
+
 ## Buka seperti aplikasi
 
 Pasang satu kali tanpa root:
 
 ```bash
-chmod +x Install_ReduceMemory.sh ReduceMemory_Linux.sh
-./Install_ReduceMemory.sh
+chmod +x ReduceMemory_Linux.sh desktop/Install_Desktop.sh
+./desktop/Install_Desktop.sh
 ```
 
 Setelah itu buka menu aplikasi Linux dan cari **Reduce Memory**. Aplikasi membuka
@@ -27,8 +43,8 @@ Tidak ada daemon, service, startup otomatis, atau perubahan sistem saat instalas
 Pada server headless, pasang command system-wide satu kali:
 
 ```bash
-chmod +x Install_Server.sh ReduceMemory_Linux.sh
-sudo ./Install_Server.sh
+chmod +x ReduceMemory_Linux.sh server/Install_Server.sh
+sudo ./server/Install_Server.sh
 ```
 
 Setelah itu melalui SSH:

@@ -4,8 +4,6 @@ on:
   push:
     tags:
       - "v*"
-    branches:
-      - release-publish
 
 permissions:
   contents: write
@@ -14,7 +12,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     env:
-      RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v2.2' }}
+      RELEASE_TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,7 +42,7 @@ jobs:
             --output="dist/ReduceMemory-Linux-Desktop-v${version}.tar.gz" \
             "${RELEASE_TAG}" \
             linux/ReduceMemory_Linux.sh \
-            linux/Install_ReduceMemory.sh \
+            linux/desktop/Install_Desktop.sh \
             linux/README.md \
             README.md \
             LICENSE
@@ -55,7 +53,7 @@ jobs:
             --output="dist/ReduceMemory-Linux-Server-v${version}.tar.gz" \
             "${RELEASE_TAG}" \
             linux/ReduceMemory_Linux.sh \
-            linux/Install_Server.sh \
+            linux/server/Install_Server.sh \
             linux/README.md \
             README.md \
             LICENSE
@@ -81,13 +79,15 @@ jobs:
           tar -xzf "dist/ReduceMemory-Linux-Desktop-v${version}.tar.gz" -C audit
           desktop_root="audit/ReduceMemory-Linux-Desktop-v${version}/linux"
           test -x "${desktop_root}/ReduceMemory_Linux.sh"
-          test -x "${desktop_root}/Install_ReduceMemory.sh"
+          test -x "${desktop_root}/desktop/Install_Desktop.sh"
+          test ! -e "${desktop_root}/server/Install_Server.sh"
           "${desktop_root}/ReduceMemory_Linux.sh" check
 
           tar -xzf "dist/ReduceMemory-Linux-Server-v${version}.tar.gz" -C audit
           server_root="audit/ReduceMemory-Linux-Server-v${version}/linux"
           test -x "${server_root}/ReduceMemory_Linux.sh"
-          test -x "${server_root}/Install_Server.sh"
+          test -x "${server_root}/server/Install_Server.sh"
+          test ! -e "${server_root}/desktop/Install_Desktop.sh"
           "${server_root}/ReduceMemory_Linux.sh" status
 
           (

@@ -54,6 +54,9 @@ the AutoIt source for every intermediate binary.
   desktop entry, while preserving all existing non-interactive mode commands.
 - Added a Linux Server/VPS installer that exposes the same canonical engine as
   `reduce-memory-server` through SSH, without duplicating optimization logic.
+- Separated Linux Desktop and Linux Server installers into explicit
+  `linux/desktop` and `linux/server` source directories while keeping one tested
+  engine for their shared memory operations.
 - Added CI coverage for server installation, safe status output, executable
   permissions, and the Linux Server interactive menu.
 - Added tag-driven GitHub Release packaging with audited Windows, Linux Desktop,

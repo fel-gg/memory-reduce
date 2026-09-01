@@ -48,9 +48,9 @@ operasi juga disimpan di `windows/ReduceMemory.log` dengan ukuran terbatas.
 - [`src/ReduceMemory.au3`](src/ReduceMemory.au3) — source utama AutoIt.
 - [`linux/ReduceMemory_Linux.sh`](linux/ReduceMemory_Linux.sh) — script untuk
   Linux.
-- [`linux/Install_ReduceMemory.sh`](linux/Install_ReduceMemory.sh) — installer
+- [`linux/desktop/Install_Desktop.sh`](linux/desktop/Install_Desktop.sh) — installer
   user-local yang menambahkan Reduce Memory ke menu aplikasi Linux.
-- [`linux/Install_Server.sh`](linux/Install_Server.sh) — installer command
+- [`linux/server/Install_Server.sh`](linux/server/Install_Server.sh) — installer command
   `reduce-memory-server` untuk VPS, server headless, dan SSH.
 - [`docs/PROGRESS.md`](docs/PROGRESS.md) — catatan perkembangan upgrade.
 
@@ -75,8 +75,8 @@ Untuk pemakaian sederhana seperti aplikasi, pasang launcher satu kali:
 
 ```bash
 cd linux
-chmod +x Install_ReduceMemory.sh ReduceMemory_Linux.sh
-./Install_ReduceMemory.sh
+chmod +x ReduceMemory_Linux.sh desktop/Install_Desktop.sh
+./desktop/Install_Desktop.sh
 ```
 
 Setelah itu cari **Reduce Memory** dari menu aplikasi. Normal, Smooth,
@@ -86,8 +86,8 @@ Untuk Linux Server/VPS:
 
 ```bash
 cd linux
-chmod +x Install_Server.sh ReduceMemory_Linux.sh
-sudo ./Install_Server.sh
+chmod +x ReduceMemory_Linux.sh server/Install_Server.sh
+sudo ./server/Install_Server.sh
 reduce-memory-server
 ```
 
