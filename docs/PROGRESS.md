@@ -38,6 +38,8 @@ the AutoIt source for every intermediate binary.
 
 ## Packaging and platform milestone
 
+- Promoted all maintained Windows, Linux Desktop, and Linux Server artifacts to
+  the consistent Reduce Memory 2.2 release identity.
 - Built and tested x64 and x86 Windows executables, including real Normal trim
   against a disposable process that remained alive after trimming.
 - Added a native Bash companion for Linux memory-cache release.

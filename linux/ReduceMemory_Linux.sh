@@ -2,9 +2,9 @@
 set -euo pipefail
 
 script_path="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
-program_title="Reduce Memory 2.0 - Linux"
+program_title="Reduce Memory 2.2 - Linux"
 if [[ "${script_path##*/}" == "reduce-memory-server" ]]; then
-  program_title="Reduce Memory 2.0 - Linux Server"
+  program_title="Reduce Memory 2.2 - Linux Server"
 fi
 
 if [[ "$(uname -s)" != "Linux" ]]; then

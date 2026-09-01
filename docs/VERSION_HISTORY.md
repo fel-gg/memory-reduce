@@ -1,5 +1,15 @@
 # Version history
 
+## Reduce Memory 2.2 — 2026
+
+- Promoted the maintained Windows, Linux Desktop, and Linux Server builds to
+  one consistent 2.2 version identity.
+- Includes the verified AutoIt 3.3.6.1 compatibility fix for Optimize.
+- Includes expanded Windows candidate-selection self-tests on x64 and x86.
+- Includes the Linux application launcher and headless Server/VPS installer.
+- Includes cross-platform GitHub Actions checks for Windows, Ubuntu desktop
+  installation, and Ubuntu server installation.
+
 ## Reduce Memory 2.0 — 2026
 
 This project is inspired by Reduce Memory v1.7 from Sordum Team and continues

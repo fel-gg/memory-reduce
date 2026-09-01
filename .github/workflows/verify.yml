@@ -44,7 +44,7 @@ jobs:
           grep -F 'Terminal=true' "${install_root}/applications/reduce-memory.desktop"
           "${install_root}/bin/reduce-memory" check
           menu_output="$(printf '0\n' | "${install_root}/bin/reduce-memory" --menu)"
-          grep -F 'Reduce Memory 2.0 - Linux' <<< "${menu_output}"
+          grep -F 'Reduce Memory 2.2 - Linux' <<< "${menu_output}"
           grep -F '3. Aggressive' <<< "${menu_output}"
       - name: Verify Linux server installation
         run: |
@@ -55,5 +55,5 @@ jobs:
           status_output="$("${server_bin}/reduce-memory-server" status)"
           grep -F 'Mode                    : status' <<< "${status_output}"
           server_menu="$(printf '0\n' | "${server_bin}/reduce-memory-server" --menu)"
-          grep -F 'Reduce Memory 2.0 - Linux Server' <<< "${server_menu}"
+          grep -F 'Reduce Memory 2.2 - Linux Server' <<< "${server_menu}"
           grep -F '3. Aggressive' <<< "${server_menu}"

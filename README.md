@@ -1,9 +1,9 @@
-# Reduce Memory 2.0
+# Reduce Memory 2.2
 
 Reduce Memory adalah tool kecil buat membantu RAM terasa lebih lega saat
 Windows sedang banyak memakai memori.
 
-Proyek ini adalah **Reduce Memory 2.0**, terinspirasi dari Reduce Memory v1.7
+Proyek ini adalah **Reduce Memory 2.2**, terinspirasi dari Reduce Memory v1.7
 buatan Sordum Team.
 Di repo ini, alur tersebut kita kembangkan lagi: pilihan mode diperjelas,
 Aggressive dibuat lebih kuat, ada versi Smooth supaya tidak gampang bikin lag,
