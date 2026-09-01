@@ -13,6 +13,25 @@ the AutoIt source for every intermediate binary.
 
 ## Completed source snapshot
 
+- Upgraded the existing engine in place to 2.6; no Windows or Linux path was
+  replaced with a from-scratch rewrite.
+- Split Windows candidate handling into Normal, Smooth, Aggressive, Emergency,
+  and AI Shield profiles while retaining the existing six visible choices.
+- Isolated AI process-tree protection to AI Shield instead of applying it to
+  every Optimize pass.
+- Added a Windows working-set fallback, broader elevated Aggressive pass, and
+  pre-action Emergency confirmation with two complete release passes.
+- Turned Linux Normal and Smooth into native application page-out profiles when
+  elevated, instead of limiting them to `sync` or cache-only work.
+- Expanded Linux Aggressive to all regular UIDs and Linux Server to non-root
+  service UIDs too, with smaller safe mapping/RSS thresholds, a larger bounded
+  cgroup request, and user-slice-first reclaim.
+- Kept the Linux implementation native to `/proc`, pidfds,
+  `process_madvise(MADV_PAGEOUT)`, `drop_caches`, and cgroup v2; no Windows
+  working-set code was copied into it.
+- Extended CI fixtures to reject AI/GPU filters outside AI Shield and verify the
+  exact Normal, Smooth, and Aggressive native profiles.
+
 - Added cross-platform AI Shield while preserving Normal, Smooth, Aggressive,
   Temp, Emergency, startup, and legacy command behavior.
 - Added configurable Windows AI process protection and Linux name/command-line,

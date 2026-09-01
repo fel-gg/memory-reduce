@@ -1,10 +1,10 @@
-# Reduce Memory 2.5
+# Reduce Memory 2.6
 
 Reduce Memory adalah tool kecil buat membantu RAM terasa lebih lega di Windows
 dan Linux. Keduanya punya engine terpisah karena cara Windows dan Linux
 mengelola memori memang berbeda.
 
-Proyek ini adalah **Reduce Memory 2.5**, terinspirasi dari Reduce Memory v1.7
+Proyek ini adalah **Reduce Memory 2.6**, terinspirasi dari Reduce Memory v1.7
 buatan Sordum Team.
 Di repo ini, alur tersebut kita kembangkan lagi: pilihan mode diperjelas,
 Aggressive dibuat lebih kuat, ada versi Smooth supaya tidak gampang bikin lag,
@@ -14,27 +14,29 @@ Intinya tetap sederhana: minta sistem operasi melepas memori yang sedang tidak
 terlalu dibutuhkan. Program ini tidak membunuh aplikasi, bukan antivirus, dan
 bukan registry cleaner.
 
-Semua aplikasi tetap ditemukan secara dinamis. Perlindungan umum melihat
-foreground dan aktivitas CPU. AI Shield menambahkan pola workload yang bisa
-diubah lewat konfigurasi; Linux juga melindungi proses pemilik GPU dan seluruh
+Semua aplikasi tetap ditemukan secara dinamis. Normal dan Smooth melihat
+foreground serta aktivitas CPU, sedangkan Aggressive memperluas kandidat ke
+aplikasi user/background yang lebih kecil. AI Shield sekarang benar-benar jalur
+terpisah: hanya mode itu yang menambahkan pola AI/GPU dan melindungi seluruh
 child process-nya. Proses inti milik root/system tetap di luar kandidat reclaim.
-Jadi software baru tetap ikut scan, sementara workload baru
-bisa dilindungi tanpa mengubah engine.
+Jadi software baru tetap ikut scan tanpa harus menunggu daftar nama diperbarui.
 
 ## Pilihan mode Windows
 
-- **Normal Optimize** — pilihan aman untuk dipakai sehari-hari.
+- **Normal Optimize** — satu pass konservatif untuk aplikasi background yang
+  cukup besar; aplikasi foreground dan proses yang sedang memakai CPU dilewati.
 - **AI Shield** — melindungi proses AI yang dikenali dan memangkas proses
   background yang idle tanpa menjalankan purge memory-list global.
-- **Aggressive Smooth** — lebih kuat dari Normal, tetapi dibuat lebih halus
-  supaya kemungkinan stutter lebih kecil.
-- **Aggressive Release** — pelepasan RAM paling kuat. Beberapa aplikasi mungkin
-  perlu memuat ulang cache setelahnya.
+- **Aggressive Smooth** — process trim konservatif ditambah pelepasan standby
+  prioritas rendah agar hasilnya lebih kuat tanpa full purge.
+- **Aggressive Release** — memangkas aplikasi user/background lebih luas dalam
+  pass biasa dan pass elevated, lalu melepas working set, modified list,
+  standby list, dan system file cache. Aplikasi aktif tetap dilindungi.
 - **Aggressive + Delete Temp** — menjalankan Aggressive Release lalu menawarkan
   penghapusan permanen file dari `%TEMP%` dan `C:\Windows\Temp`. File yang
   sedang dipakai akan dilewati.
-- **Emergency Release** — mode manual paling kuat dengan warning dan dua pass
-  pelepasan memory.
+- **Emergency Release** — mode manual paling kuat dengan warning dan dua pass;
+  aplikasi foreground juga dapat dipangkas, tetapi proses tidak dimatikan.
 
 Saat dibuka, program tidak langsung meminta izin administrator. Izin tersebut
 baru diminta ketika kamu memilih operasi yang memang membutuhkannya.
@@ -83,12 +85,13 @@ Normal, keenam mode, AI Shield, logika trigger 95%/re-arm 90%, dan penulisan log
 
 ## Versi Linux native
 
-Versi Linux bukan port dari `EmptyWorkingSet` Windows. Aggressive membaca proses
-dan mapping secara dinamis dari `/proc`, lalu memakai `pidfd_open` dan
+Versi Linux bukan port dari `EmptyWorkingSet` Windows. Engine membaca proses dan
+mapping secara dinamis dari `/proc`, lalu memakai `pidfd_open` dan
 `process_madvise(MADV_PAGEOUT)` untuk meminta kernel mereclaim resident pages
-aplikasi yang idle. Setelah itu engine melepas cache kernel dan menjalankan
-`memory.reclaim` cgroup v2 sebagai tahap tambahan/fallback. Aplikasi lama maupun
-software baru ikut tanpa daftar nama proses.
+aplikasi yang idle. Normal memakai batas konservatif, Smooth menambah pelepasan
+file cache ringan, dan Aggressive memeriksa semua UID non-system dengan batas
+mapping lebih rendah sebelum `drop_caches` dan `memory.reclaim` cgroup v2.
+Aplikasi lama maupun software baru ikut tanpa daftar nama proses.
 
 Pemeriksaan environment yang aman bisa dijalankan dengan:
 
@@ -121,10 +124,11 @@ Varian server membuka menu terminal melalui SSH dan tidak memasang desktop
 launcher, service, daemon, cron, atau automatic trigger.
 
 Di Linux, page-out native membutuhkan kernel 5.10+, Python 3, izin ptrace, dan
-`CAP_SYS_NICE`; mode AI Shield dan Aggressive menjalankannya melalui `sudo`. Swap yang aktif
-memberi kernel tempat untuk memindahkan anonymous pages aplikasi yang dingin.
-Proses aktif, foreground, process tree Reduce Memory, AI/GPU workload, locked
-memory, dan mapping khusus kernel dilewati.
+`CAP_SYS_NICE`; menu meminta `sudo` saat Normal, Smooth, AI Shield, atau
+Aggressive dipilih. Swap yang aktif memberi kernel tempat untuk memindahkan
+anonymous pages aplikasi yang dingin. Proses aktif/foreground, process tree
+Reduce Memory, locked memory, dan mapping khusus kernel dilewati. Perlindungan
+nama AI dan pemilik GPU hanya berlaku saat AI Shield dipilih.
 
 Kalau yang dicari adalah pemakaian rutin tanpa banyak gangguan, gunakan Smooth.
 Memory reclaim tidak menghapus virus dan tidak menghapus data aplikasi yang

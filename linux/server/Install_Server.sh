@@ -51,7 +51,7 @@ chmod 0755 -- "${installed_native}"
 printf '%s\n' 'Reduce Memory Linux Server berhasil dipasang.'
 printf 'Buka menu SSH       : %s\n' "${installed_script}"
 printf 'Periksa status      : %s status\n' "${installed_script}"
-printf 'Normal              : %s normal\n' "${installed_script}"
+printf 'Normal (native)     : sudo %s normal\n' "${installed_script}"
 printf 'Smooth              : sudo %s smooth\n' "${installed_script}"
 printf 'AI Shield           : sudo %s ai-shield\n' "${installed_script}"
 printf 'Aggressive (page-out): sudo %s aggressive\n' "${installed_script}"

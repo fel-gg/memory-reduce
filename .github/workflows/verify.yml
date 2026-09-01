@@ -24,6 +24,20 @@ jobs:
           if ($process.ExitCode -ne 0) { throw "x86 self-test failed with exit code $($process.ExitCode)" }
           $monitor = Start-Process -FilePath .\windows\ReduceMemory.exe -ArgumentList /RMMONITORSELFTEST -Wait -PassThru
           if ($monitor.ExitCode -ne 0) { throw "x86 monitor logic failed with exit code $($monitor.ExitCode)" }
+      - name: Verify real Windows working-set trim
+        shell: pwsh
+        run: |
+          $target = Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile','-WindowStyle','Hidden','-Command','Start-Sleep -Seconds 30' -PassThru
+          try {
+            Start-Sleep -Milliseconds 750
+            foreach ($binary in @('.\windows\ReduceMemory_x64.exe', '.\windows\ReduceMemory.exe')) {
+              $probe = Start-Process -FilePath $binary -ArgumentList '/RMTRIMTEST', $target.Id -Wait -PassThru
+              if ($probe.ExitCode -ne 0) { throw "$binary real trim failed with exit code $($probe.ExitCode)" }
+              if ($target.HasExited) { throw "$binary terminated the disposable target" }
+            }
+          } finally {
+            if (-not $target.HasExited) { Stop-Process -Id $target.Id -Force }
+          }
 
   linux:
     runs-on: ubuntu-latest
@@ -119,6 +133,9 @@ jobs:
             printf 'native_status=supported\n'
             exit 0
           fi
+          if [[ -n "${REDUCE_MEMORY_TEST_ARGS_FILE:-}" ]]; then
+            printf '%s\n' "$@" > "${REDUCE_MEMORY_TEST_ARGS_FILE}"
+          fi
           cat <<'RESULT'
           native_status=done
           processes_seen=12
@@ -140,10 +157,24 @@ jobs:
             "REDUCE_MEMORY_NATIVE_HELPER=${mock_root}/reduce-memory-native"
             "REDUCE_MEMORY_TARGET_UID=1000"
             "REDUCE_MEMORY_SETTLE_SECONDS=0"
+            "REDUCE_MEMORY_TEST_ARGS_FILE=${mock_root}/native-args"
           )
+
+          normal_output="$(sudo env "${common_env[@]}" ./linux/ReduceMemory_Linux.sh normal)"
+          grep -Fx -- '--min-rss-mb' "${mock_root}/native-args"
+          grep -Fx -- '256' "${mock_root}/native-args"
+          ! grep -Fx -- '--protect-gpu' "${mock_root}/native-args"
+          ! grep -Fx -- '--protect-pattern' "${mock_root}/native-args"
+          ! grep -Fx -- '--include-service-users' "${mock_root}/native-args"
+          grep -F 'Native process page-out : done' <<< "${normal_output}"
+          grep -F 'drop_caches             : not requested' <<< "${normal_output}"
 
           smooth_output="$(sudo env "${common_env[@]}" ./linux/ReduceMemory_Linux.sh smooth)"
           test "$(tr -d '\n' < "${mock_root}/vm/drop_caches")" = '1'
+          grep -Fx -- '128' "${mock_root}/native-args"
+          ! grep -Fx -- '--protect-gpu' "${mock_root}/native-args"
+          ! grep -Fx -- '--protect-pattern' "${mock_root}/native-args"
+          grep -F 'Native process page-out : done' <<< "${smooth_output}"
           grep -F 'drop_caches             : done (level 1)' <<< "${smooth_output}"
           grep -F 'cgroup memory.reclaim   : not requested' <<< "${smooth_output}"
 
@@ -154,6 +185,8 @@ jobs:
           grep -F 'AI/GPU workloads safe   : 2' <<< "${ai_output}"
           grep -F 'drop_caches             : not requested' <<< "${ai_output}"
           grep -F 'cgroup memory.reclaim   : not requested' <<< "${ai_output}"
+          grep -Fx -- '--protect-gpu' "${mock_root}/native-args"
+          grep -Fx -- '--protect-pattern' "${mock_root}/native-args"
 
           aggressive_output="$(sudo env "${common_env[@]}" REDUCE_MEMORY_RECLAIM_MB=1024 ./linux/ReduceMemory_Linux.sh aggressive)"
           test "$(tr -d '\n' < "${mock_root}/vm/drop_caches")" = '3'
@@ -163,6 +196,19 @@ jobs:
           grep -F 'Process RSS reduced     : 384 MB' <<< "${aggressive_output}"
           grep -F 'cgroup memory.reclaim   : done (1024 MB requested)' <<< "${aggressive_output}"
           grep -F "Reclaim scope           : ${mock_root}/cgroup" <<< "${aggressive_output}"
+          grep -Fx -- '--all-users' "${mock_root}/native-args"
+          grep -Fx -- '32' "${mock_root}/native-args"
+          grep -Fx -- '256' "${mock_root}/native-args"
+          ! grep -Fx -- '--protect-gpu' "${mock_root}/native-args"
+          ! grep -Fx -- '--protect-pattern' "${mock_root}/native-args"
+          ! grep -Fx -- '--include-service-users' "${mock_root}/native-args"
+
+          cp ./linux/ReduceMemory_Linux.sh "${mock_root}/reduce-memory-server"
+          chmod +x "${mock_root}/reduce-memory-server"
+          sudo env "${common_env[@]}" REDUCE_MEMORY_RECLAIM_MB=1024 \
+            "${mock_root}/reduce-memory-server" aggressive >/dev/null
+          grep -Fx -- '--all-users' "${mock_root}/native-args"
+          grep -Fx -- '--include-service-users' "${mock_root}/native-args"
       - name: Verify user-local launcher installation
         run: |
           install_root="${RUNNER_TEMP}/reduce-memory-install"
@@ -177,7 +223,7 @@ jobs:
           "${install_root}/bin/reduce-memory" check
           "${install_root}/bin/reduce-memory-native" check
           menu_output="$(printf '0\n' | "${install_root}/bin/reduce-memory" --menu)"
-          grep -F 'Reduce Memory 2.5 - Linux' <<< "${menu_output}"
+          grep -F 'Reduce Memory 2.6 - Linux' <<< "${menu_output}"
           ! grep -F 'Linux Server' <<< "${menu_output}"
           grep -F '3. AI Shield' <<< "${menu_output}"
           grep -F '4. Aggressive' <<< "${menu_output}"
@@ -194,6 +240,6 @@ jobs:
           grep -F 'Mode                    : status' <<< "${status_output}"
           grep -F 'Native process page-out : supported' <<< "${status_output}"
           server_menu="$(printf '0\n' | "${server_bin}/reduce-memory-server" --menu)"
-          grep -F 'Reduce Memory 2.5 - Linux Server' <<< "${server_menu}"
+          grep -F 'Reduce Memory 2.6 - Linux Server' <<< "${server_menu}"
           grep -F '3. AI Shield' <<< "${server_menu}"
           grep -F '4. Aggressive' <<< "${server_menu}"

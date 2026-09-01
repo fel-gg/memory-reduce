@@ -5,7 +5,7 @@ If Not IsDeclared ( "Os" ) Then Global $OS
 Global $A3380B02A2C = "MustDeclareVars" , $A2790402500 = "GUI_RUNDEFMSG" , $A0B90601C20 = "GUIDataSeparatorChar" , $A5B90705434 = "WinDetectHiddenText" , $A1090900A56 = "1.7" , $A3A90B05762 = "ReduceMemory" , $A4890D04726 = "Reduce Memory" , $A36A0000608 = " - Author by BlueLife" , $A0CA0202515 = "[CLASS:_MReduce:v" , $A58A030490B = "]" , $A19A050611A = "2013-2024" , $A1FA0B0155D = " @UserName " , $A30A0F0565F = " @Compiled " , $A14B0102331 = " @AutoItExe " , $A19B0303F03 = " @OSArch " , $A1FB050530A = " @AutoItX64 " , $A24B0704245 = " @AutoItPID " , $A41B0904162 = " @OSVersion " , $A4EB0B05206 = "AutoIt.Error" , $A53B0E04938 = "_(XP|200(0|3))" , $A42C0005F35 = " @WindowsDir " , $A34C0203522 = "System32\" , $A17C0505B2A = " @WorkingDir " , $A48C0804D4D = "kernel32.dll" , $A23C0A04F06 = "user32.dll" , $A0CC0C01F2E = "advapi32.dll" , $A55C0E01626 = "shell32.dll" , _
 $A16D000163E = "ole32.dll" , $A57D020482F = "comctl32.dll" , $A54D0402622 = "gdi32.dll" , $A0BD0604C48 = "psapi.dll" , $A34D090231C = " @ScriptDir " , $A18D0B05E2E = "Icons\" , $A12D0D0163B = ".ini" , $A5CE0702436 = "HideWindowOnStartup" , $A4DE0905E47 = "HideWhenMinimized" , $A54E0B00A4B = "WinSetOnTop" , $A05E0D01131 = "SystemUser" , $A63E0F04B1C = "TrayIconPack" , $A45F020231C = "TaskOptions" , $A5EF040325E = "UsedMemory" , $A27F050091E = "75%" , $A57F0603C63 = "[^0-9]" , $A26F080043F = "CountDown" , $A25F0A03415 = "ExclusionOpt" , $A2AF0C0551E = "Main" , $A2DF0D02906 = "Exclusions" , $A07F0F00236 = "Main" , $A3001000F39 = "Processes" , $A1C0130371A = "HKLM" , $A0601502317 = "HKCU" , $A2001601838 = "64" , $A1C0170504E = "64" , $A0E01E04600 = "Tahoma"
 ; Reduce Memory project version (the original table entry is retained for provenance)
-$A1090900A56 = "2.5"
+$A1090900A56 = "2.6"
 Opt ( $A3380B02A2C , 1 )
 Global Const $A4080C05448 = Chr ( 92 )
 Global Const $A2280D04544 = Chr ( 47 )
@@ -457,16 +457,21 @@ Func RM_MemoryListCommand ( $RM_CommandValue )
 	Return $RM_Result [ 0 ]
 EndFunc
 
-Func RM_AggressiveRelease ( $RM_Smooth = 0 )
+Func RM_AggressiveRelease ( $RM_Smooth = 0 , $RM_ProcessProfile = 2 )
 	Local $RM_ProfilePrivilege = RM_EnablePrivilege ( "SeProfileSingleProcessPrivilege" )
 	Local $RM_QuotaPrivilege = RM_EnablePrivilege ( "SeIncreaseQuotaPrivilege" )
 	Local $RM_EmptyStatus = - 2 , $RM_FlushStatus = - 2 , $RM_PurgeStatus = - 2
-	Local $RM_CacheOk = 0
+	Local $RM_CacheOk = 0 , $RM_ProcessTrimmed = 0
 	If $RM_Smooth = 1 Then
 		; Low-priority standby pages only. This avoids the heavier modified-list
 		; and system file-cache flush used by full Aggressive mode.
 		$RM_PurgeStatus = RM_MemoryListCommand ( 5 )
 	Else
+		; A full Aggressive pass has its own broad process phase. It ignores the
+		; AI/CPU shields used by Normal, while foreground/recent applications and
+		; Windows system processes remain protected. This second elevated pass
+		; also catches processes that could not be opened by the non-admin UI.
+		$RM_ProcessTrimmed = RM_RunConfiguredTrim ( $RM_ProcessProfile )
 		$RM_EmptyStatus = RM_MemoryListCommand ( 2 )
 		$RM_FlushStatus = RM_MemoryListCommand ( 3 )
 		$RM_PurgeStatus = RM_MemoryListCommand ( 4 )
@@ -475,6 +480,7 @@ Func RM_AggressiveRelease ( $RM_Smooth = 0 )
 	EndIf
 	$RM_LastAggressiveOk = ( $RM_PurgeStatus = 0 Or $RM_EmptyStatus = 0 Or $RM_CacheOk = 1 )
 	$RM_LastAggressiveDetail = "Privilege profile/quota: " & $RM_ProfilePrivilege & "/" & $RM_QuotaPrivilege & @CRLF & _
+		"User/background processes trimmed: " & $RM_ProcessTrimmed & @CRLF & _
 		"Empty working sets status: " & $RM_EmptyStatus & @CRLF & _
 		"Flush modified list status: " & $RM_FlushStatus & @CRLF & _
 		"Purge standby list status: " & $RM_PurgeStatus & @CRLF & _
@@ -483,9 +489,12 @@ Func RM_AggressiveRelease ( $RM_Smooth = 0 )
 EndFunc
 
 Func RM_EmergencyRelease ( )
-	Local $RM_FirstPass = RM_AggressiveRelease ( 0 )
+	; Emergency intentionally uses profile 3: only ReduceMemory and Windows
+	; system processes are protected. It remains manual and never terminates an
+	; application; pages can be faulted back when applications use them again.
+	Local $RM_FirstPass = RM_AggressiveRelease ( 0 , 3 )
 	Sleep ( 1000 )
-	Local $RM_SecondPass = RM_AggressiveRelease ( 0 )
+	Local $RM_SecondPass = RM_AggressiveRelease ( 0 , 3 )
 	Return ( $RM_FirstPass = 1 Or $RM_SecondPass = 1 )
 EndFunc
 
@@ -515,8 +524,11 @@ Func RM_RunAggressiveWorker ( $RM_Smooth = 0 )
 	Local $RM_WorkerParameters = $RM_WorkerArgument & ' /RMRESULT="' & $RM_ResultPath & '"'
 	Local $RM_WorkerPid = ShellExecute ( @AutoItExe , $RM_WorkerParameters , @ScriptDir , "runas" , @SW_HIDE )
 	If @error Or $RM_WorkerPid = 0 Then Return 0
+	Local $RM_WorkerTimeoutMs = 45000
+	If $RM_Smooth = 1 Then $RM_WorkerTimeoutMs = 30000
+	If $RM_Smooth = 2 Then $RM_WorkerTimeoutMs = 90000
 	Local $RM_WorkerTimer = TimerInit ( )
-	While ProcessExists ( $RM_WorkerPid ) And TimerDiff ( $RM_WorkerTimer ) < 15000
+	While ProcessExists ( $RM_WorkerPid ) And TimerDiff ( $RM_WorkerTimer ) < $RM_WorkerTimeoutMs
 		Sleep ( 50 )
 	WEnd
 	If ProcessExists ( $RM_WorkerPid ) Then Return 0
@@ -754,6 +766,13 @@ Func A4800704447 ( )
 		Return
 	EndIf
 	If $RM_ReboundAt > 0 And TimerDiff ( $RM_ReboundAt ) >= $RM_ReboundCooldownSeconds * 1000 Then $RM_ReboundAt = 0
+	; Ask before Stage 1 so cancelling Emergency never trims anything first.
+	If $RM_OptimizeMode = 4 And $RM_AutoTrigger = 0 Then
+		If MsgBox ( 48 + 4 , "ReduceMemory", "Emergency Release akan memangkas aplikasi user termasuk aplikasi aktif, lalu melakukan pelepasan memory Windows penuh dua kali." & @CRLF & @CRLF & "Aplikasi tidak akan ditutup, tetapi reload atau stutter sementara dapat terjadi." & @CRLF & @CRLF & "Lanjutkan sekarang?" , 0 , $A59A0605008 ) <> 6 Then
+			GUICtrlSetData ( $A3411D0002B [ 4 ] , "Emergency cancelled - no memory was changed" )
+			Return
+		EndIf
+	EndIf
 	GUISetState ( Execute ( $A1251701F38 ) , $A59A0605008 )
 	GUICtrlSetOnEvent ( $A3C21204863 , "" )
 	A4F00B01B0E ( 1 )
@@ -761,27 +780,18 @@ Func A4800704447 ( )
 	$RM_StableBeforeFree = $A0141502E2D [ 2 ]
 	$RM_StablePressureText = RM_GetPressureSummary ( )
 	$RM_LastModeName = RM_GetModeName ( )
-	GUICtrlSetData ( $A3411D0002B [ 4 ] , "Stage 1/3 - protecting active applications" )
-	Local $A2651804725 = 0
-	Local $A1B5190023C = $A0B9010005E
-	If $A3FF090012D = 0 Then
-		If StringLen ( $A10F0E03A56 ) > 1 Then
-			$A2651804725 = 1
-			$A1B5190023C = $A10F0E03A56
-		EndIf
-	Else
-		$A1B5190023C = $A1DF0B03725
-	EndIf
-	Local $A2751A01544 = A2A20200810 ( $A2651804725 , $A1B5190023C )
+	Local $RM_CurrentTrimProfile = RM_GetTrimProfile ( )
+	Local $RM_StageOneText = "Stage 1/3 - trimming safe background applications"
+	If $RM_CurrentTrimProfile = 2 Then $RM_StageOneText = "Stage 1/3 - trimming broad user/background set"
+	If $RM_CurrentTrimProfile = 3 Then $RM_StageOneText = "Stage 1/3 - trimming all eligible user applications"
+	If $RM_CurrentTrimProfile = 4 Then $RM_StageOneText = "Stage 1/3 - protecting AI and trimming other background apps"
+	GUICtrlSetData ( $A3411D0002B [ 4 ] , $RM_StageOneText )
+	Local $A2751A01544 = RM_RunConfiguredTrim ( $RM_CurrentTrimProfile )
 	Local $RM_AggressiveResult = 0
 	If RM_ModeUsesSystemRelease ( ) Then GUICtrlSetData ( $A3411D0002B [ 4 ] , "Stage 2/3 - releasing Windows memory" )
 	If $RM_OptimizeMode = 1 Or $RM_OptimizeMode = 3 Then $RM_AggressiveResult = RM_RunAggressiveWorker ( 0 )
 	If $RM_OptimizeMode = 2 Then $RM_AggressiveResult = RM_RunAggressiveWorker ( 1 )
-	If $RM_OptimizeMode = 4 Then
-		If MsgBox ( 48 + 4 , "ReduceMemory", "Emergency Release akan melakukan pelepasan memory penuh dua kali dan dapat menyebabkan reload atau stutter sementara." & @CRLF & @CRLF & "Lanjutkan sekarang?" , 0 , $A59A0605008 ) = 6 Then
-			$RM_AggressiveResult = RM_RunAggressiveWorker ( 2 )
-		EndIf
-	EndIf
+	If $RM_OptimizeMode = 4 Then $RM_AggressiveResult = RM_RunAggressiveWorker ( 2 )
 	If $RM_OptimizeMode = 3 And $RM_AutoTrigger = 0 Then
 		If MsgBox ( 48 + 4 , "ReduceMemory", "Aggressive + Delete Temp akan menghapus file secara permanen dari %TEMP% dan C:\Windows\Temp." & @CRLF & @CRLF & "File yang sedang digunakan akan dilewati. Jangan jalankan saat instalasi atau Windows Update sedang berlangsung." & @CRLF & @CRLF & "Lanjutkan sekarang?" , 0 , $A59A0605008 ) = 6 Then RM_DeleteTempFiles ( )
 	EndIf
@@ -811,7 +821,7 @@ Func A4800704447 ( )
 		Local $RM_ModeResultText = "Aggressive released: "
 		If $RM_OptimizeMode = 2 Then $RM_ModeResultText = "Smooth released: "
 		If $RM_OptimizeMode = 4 Then $RM_ModeResultText = "Emergency released: "
-		GUICtrlSetData ( $A3411D0002B [ 4 ] , $RM_ModeResultText & $A0141502E2D & " MB" )
+		GUICtrlSetData ( $A3411D0002B [ 4 ] , $RM_ModeResultText & $A0141502E2D & " MB | first-pass trimmed: " & $A2751A01544 )
 	Else
 		GUICtrlSetData ( $A3411D0002B [ 4 ] , "Aggressive cancelled or Administrator access denied" )
 	EndIf
@@ -933,9 +943,11 @@ Func A2C10200057 ( )
 		If RM_IsAIProcessName ( "ollama.exe" ) <> 1 Then Exit 17
 		If RM_IsAIProcessName ( "notepad.exe" ) <> 0 Then Exit 18
 		Local $RM_SelfOriginalMode = $RM_OptimizeMode
+		Local $RM_SelfExpectedProfiles [ 6 ] = [ 0 , 2 , 1 , 2 , 3 , 4 ]
 		For $RM_SelfModeIndex = 0 To 5
 			$RM_OptimizeMode = $RM_SelfModeIndex
 			If StringLen ( RM_GetModeName ( ) ) = 0 Then Exit 12
+			If RM_GetTrimProfile ( ) <> $RM_SelfExpectedProfiles [ $RM_SelfModeIndex ] Then Exit 19
 		Next
 		$RM_OptimizeMode = $RM_SelfOriginalMode
 		$RM_LastModeName = "Self Test"
@@ -947,6 +959,15 @@ Func A2C10200057 ( )
 	If $CMDLINE [ 1 ] = "/RMMONITORSELFTEST" Then
 		If RM_StartupMonitorSelfTest ( ) = 1 Then Exit 0
 		Exit 16
+	EndIf
+	; CI-only targeted probe: trims one disposable process and proves the process
+	; remains alive. It never enumerates or changes any other process.
+	If $CMDLINE [ 1 ] = "/RMTRIMTEST" Then
+		If $CMDLINE [ 0 ] < 2 Then Exit 20
+		Local $RM_TrimTestPID = Int ( Number ( $CMDLINE [ 2 ] ) )
+		If $RM_TrimTestPID <= 0 Or $RM_TrimTestPID = @AutoItPID Then Exit 20
+		If A502000511B ( $RM_TrimTestPID ) = 1 And ProcessExists ( $RM_TrimTestPID ) Then Exit 0
+		Exit 21
 	EndIf
 	; /H remains an alias so existing startup shortcuts automatically receive
 	; the new silent cleanup + 95% monitor after the executable is updated.
@@ -1505,7 +1526,13 @@ Func A502000511B ( $A3822F01F2E = 0 )
 	Local $A0D3210155D = DllCall ( $A55C0703122 , $A5A32202E2C , $A033230552B , $A4E32404148 , $A4301102A51 , $A3632503E29 , 0 , $A2132605706 , $A3822F01F2E )
 	If ( @error ) Or ( Not $A0D3210155D [ 0 ] ) Then Return SetError ( 1 , 0 , 0 )
 	Local $A1132703101 = DllCall ( $A29D0503B5E , $A5432802A34 , $A2B32900D63 , $A0632A0541B , $A0D3210155D [ 0 ] )
-	If ( @error ) Or ( Not $A1132703101 [ 0 ] ) Then $A1132703101 = 0
+	If ( @error ) Or ( Not IsArray ( $A1132703101 ) ) Or ( Not $A1132703101 [ 0 ] ) Then
+		; EmptyWorkingSet is the primary path. SetProcessWorkingSetSizeEx with
+		; minimum/maximum -1 is the documented Windows fallback for processes
+		; whose working set can be adjusted but whose PSAPI call was unavailable.
+		$A1132703101 = DllCall ( $A55C0703122 , "bool" , "SetProcessWorkingSetSizeEx" , "handle" , $A0D3210155D [ 0 ] , "ulong_ptr" , - 1 , "ulong_ptr" , - 1 , "dword" , 0 )
+		If @error Or Not IsArray ( $A1132703101 ) Or $A1132703101 [ 0 ] = 0 Then $A1132703101 = 0
+	EndIf
 	DllCall ( $A55C0703122 , $A1532B04830 , $A2D32C00F3F , $A6032D01255 , $A0D3210155D [ 0 ] )
 	If Not IsArray ( $A1132703101 ) Then Return SetError ( 1 , 0 , 0 )
 	Return 1
@@ -1628,21 +1655,63 @@ Func RM_GetProcessPath ( $RM_ProcessPID )
 	Return DllStructGetData ( $RM_PathBuffer , 1 )
 EndFunc
 
-Func A2A20200810 ( $A3C42101753 = 0 , $A6242203763 = "" )
+; Internal trim profiles keep the visible mode list simple while giving every
+; mode a genuinely different engine:
+;   0 Normal, 1 Smooth, 2 Aggressive, 3 Emergency, 4 AI Shield.
+Func RM_GetTrimProfile ( )
+	Switch $RM_OptimizeMode
+		Case 1 , 3
+			Return 2
+		Case 2
+			Return 1
+		Case 4
+			Return 3
+		Case 5
+			Return 4
+		Case Else
+			Return 0
+	EndSwitch
+EndFunc
+
+Func RM_RunConfiguredTrim ( $RM_Profile = - 1 )
+	Local $RM_IncludeOnly = 0
+	Local $RM_ProcessFilter = $A0B9010005E
+	If $A3FF090012D = 0 Then
+		If StringLen ( $A10F0E03A56 ) > 1 Then
+			$RM_IncludeOnly = 1
+			$RM_ProcessFilter = $A10F0E03A56
+		EndIf
+	Else
+		$RM_ProcessFilter = $A1DF0B03725
+	EndIf
+	Return A2A20200810 ( $RM_IncludeOnly , $RM_ProcessFilter , $RM_Profile )
+EndFunc
+
+Func A2A20200810 ( $A3C42101753 = 0 , $A6242203763 = "" , $RM_Profile = - 1 )
 	Local $A2A4230391F = 0
-	RM_BuildAIShield ( )
+	If $RM_Profile < 0 Then $RM_Profile = RM_GetTrimProfile ( )
+	If $RM_Profile = 4 Then
+		RM_BuildAIShield ( )
+	Else
+		$RM_AIShieldPIDs = "|"
+		$RM_AIProtectedCount = 0
+	EndIf
 	If $A3C42101753 <> 1 Then $A3C42101753 = 0
 	$A6242203763 = A5720304C54 ( $A6242203763 , 1 )
 	Local $A5E4240211A = ProcessList ( ) , $A17A0803B53 , $A2B42506363
 	Local $RM_ForegroundPID = 0
 	RM_TrackActiveProcess ( )
-	If $A3C42101753 = 0 Then RM_BuildCPUShield ( )
+	If $A3C42101753 = 0 And ( $RM_Profile = 0 Or $RM_Profile = 1 Or $RM_Profile = 4 ) Then
+		RM_BuildCPUShield ( )
+	Else
+		$RM_CPUShieldPIDs = "|"
+	EndIf
 	If $RM_ProtectForeground = 1 Then $RM_ForegroundPID = WinGetProcess ( "[ACTIVE]" )
 	For $A17A0803B53 = 1 To $A5E4240211A [ 0 ] [ 0 ]
 		$A2B42506363 = StringInStr ( $A6242203763 , $A5580E05E46 & $A5E4240211A [ $A17A0803B53 ] [ 0 ] & $A5580E05E46 )
 		If ( $A3C42101753 = 0 And $A2B42506363 = 0 ) Or ( $A3C42101753 = 1 And $A2B42506363 <> 0 ) Then
 
-			If ( $A3C42101753 = 0 Or $RM_OptimizeMode = 5 ) And RM_ShouldSkipProcess ( $A5E4240211A [ $A17A0803B53 ] [ 0 ] , $A5E4240211A [ $A17A0803B53 ] [ 1 ] , $RM_ForegroundPID ) Then ContinueLoop
+			If RM_ShouldSkipProcess ( $A5E4240211A [ $A17A0803B53 ] [ 0 ] , $A5E4240211A [ $A17A0803B53 ] [ 1 ] , $RM_ForegroundPID , $RM_Profile ) Then ContinueLoop
 			If $A26B0601541 = $A5E4240211A [ $A17A0803B53 ] [ 1 ] Then
 				If A5B20104156 ( ) = 1 Then $A2A4230391F += 1
 			Else
@@ -1655,13 +1724,10 @@ EndFunc
 ; Return true for processes that should not be trimmed during the normal
 ; (all-processes-except-exclusions) pass. Explicit include mode remains
 ; available for advanced users who intentionally target a small process.
-Func RM_ShouldSkipProcess ( $RM_ProcessName , $RM_ProcessPID , $RM_ForegroundPID = 0 )
+Func RM_ShouldSkipProcess ( $RM_ProcessName , $RM_ProcessPID , $RM_ForegroundPID = 0 , $RM_Profile = 0 )
 	Local $RM_Name = StringLower ( StringStripWS ( $RM_ProcessName , 3 ) )
 	If $RM_ProcessPID = @AutoItPID Then Return 1
-	If StringInStr ( $RM_AIShieldPIDs , "|" & $RM_ProcessPID & "|" ) > 0 Then Return 1
-	If $RM_ProtectForeground = 1 And $RM_ForegroundPID > 0 And $RM_ProcessPID = $RM_ForegroundPID Then Return 1
-	If $RM_RecentActivePID > 0 And $RM_ProcessPID = $RM_RecentActivePID And $RM_RecentActiveAt > 0 And TimerDiff ( $RM_RecentActiveAt ) < $RM_ActiveShieldSeconds * 1000 Then Return 1
-	If StringInStr ( $RM_CPUShieldPIDs , "|" & $RM_ProcessPID & "|" ) > 0 Then Return 1
+	If $RM_Profile = 4 And StringInStr ( $RM_AIShieldPIDs , "|" & $RM_ProcessPID & "|" ) > 0 Then Return 1
 	Local $RM_Protected = "|system idle process|system|registry|memory compression|secure system|csrss.exe|smss.exe|wininit.exe|winlogon.exe|services.exe|lsass.exe|dwm.exe|audiodg.exe|fontdrvhost.exe|"
 	If StringInStr ( $RM_Protected , "|" & $RM_Name & "|" ) > 0 Then Return 1
 	Local $RM_Path = StringLower ( StringStripWS ( RM_GetProcessPath ( $RM_ProcessPID ) , 3 ) )
@@ -1669,9 +1735,21 @@ Func RM_ShouldSkipProcess ( $RM_ProcessName , $RM_ProcessPID , $RM_ForegroundPID
 	If StringRight ( $RM_WindowsRoot , 1 ) <> "\" Then $RM_WindowsRoot &= "\"
 	$RM_WindowsRoot = StringLower ( $RM_WindowsRoot )
 	If StringLen ( $RM_Path ) > 0 And StringLeft ( $RM_Path , StringLen ( $RM_WindowsRoot ) ) = $RM_WindowsRoot Then Return 1
+	; Emergency is intentionally the only profile that may trim the foreground
+	; or a recently busy user application. Critical Windows processes above are
+	; still never touched.
+	If $RM_Profile <> 3 Then
+		If $RM_ProtectForeground = 1 And $RM_ForegroundPID > 0 And $RM_ProcessPID = $RM_ForegroundPID Then Return 1
+		If $RM_RecentActivePID > 0 And $RM_ProcessPID = $RM_RecentActivePID And $RM_RecentActiveAt > 0 And TimerDiff ( $RM_RecentActiveAt ) < $RM_ActiveShieldSeconds * 1000 Then Return 1
+	EndIf
+	If ( $RM_Profile = 0 Or $RM_Profile = 1 Or $RM_Profile = 4 ) And StringInStr ( $RM_CPUShieldPIDs , "|" & $RM_ProcessPID & "|" ) > 0 Then Return 1
 	Local $RM_Stats = ProcessGetStats ( $RM_ProcessPID , 0 )
 	If IsArray ( $RM_Stats ) And Number ( $RM_Stats [ 0 ] ) > 0 Then
-		If Number ( $RM_Stats [ 0 ] ) < $RM_MinProcessMB * 1024 * 1024 Then Return 1
+		Local $RM_ProfileMinimumMB = $RM_MinProcessMB
+		If $RM_Profile = 1 Then $RM_ProfileMinimumMB = Int ( $RM_MinProcessMB / 2 )
+		If $RM_Profile = 2 Then $RM_ProfileMinimumMB = 4
+		If $RM_ProfileMinimumMB < 8 And $RM_Profile = 1 Then $RM_ProfileMinimumMB = 8
+		If $RM_Profile <> 3 And Number ( $RM_Stats [ 0 ] ) < $RM_ProfileMinimumMB * 1024 * 1024 Then Return 1
 	EndIf
 	Return 0
 EndFunc

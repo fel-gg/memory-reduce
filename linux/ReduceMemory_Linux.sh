@@ -3,10 +3,10 @@ set -euo pipefail
 
 script_path="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
 script_directory="$(cd -- "$(dirname -- "${script_path}")" && pwd)"
-program_title="Reduce Memory 2.5 - Linux"
+program_title="Reduce Memory 2.6 - Linux"
 server_mode=0
 if [[ "${script_path##*/}" == "reduce-memory-server" ]]; then
-  program_title="Reduce Memory 2.5 - Linux Server"
+  program_title="Reduce Memory 2.6 - Linux Server"
   server_mode=1
 fi
 
@@ -134,7 +134,7 @@ find_reclaim_file() {
   local cgroup_root
   local current_path
   local candidate
-  local original_uid="${SUDO_UID:-}"
+  local original_uid="${REDUCE_MEMORY_TARGET_UID:-${SUDO_UID:-}}"
 
   if [[ -n "${REDUCE_MEMORY_TARGET_CGROUP:-}" ]]; then
     candidate="${REDUCE_MEMORY_TARGET_CGROUP%/}/memory.reclaim"
@@ -145,9 +145,9 @@ find_reclaim_file() {
 
   cgroup_root="$(detect_cgroup2_root)" || return 1
 
-  # The root cgroup covers all current and future applications, which is the
-  # closest native Linux equivalent to a system-wide aggressive reclaim.
-  candidate="${cgroup_root}/memory.reclaim"
+  # Prefer the user slice so an aggressive desktop/server pass reclaims user
+  # applications without applying the request to kernel/system services.
+  candidate="${cgroup_root}/user.slice/memory.reclaim"
   if [[ -e "${candidate}" ]]; then
     printf '%s\n' "${candidate}"
     return 0
@@ -169,6 +169,14 @@ find_reclaim_file() {
       printf '%s\n' "${candidate}"
       return 0
     fi
+  fi
+
+  # Last-resort cgroup v2 fallback. The kernel still decides which reclaimable
+  # pages can be released and the write never terminates a process.
+  candidate="${cgroup_root}/memory.reclaim"
+  if [[ -e "${candidate}" ]]; then
+    printf '%s\n' "${candidate}"
+    return 0
   fi
 
   return 1
@@ -225,11 +233,11 @@ default_reclaim_mb() {
   local target_mb
   total_mb=$(( $(require_numeric_meminfo MemTotal) / 1024 ))
 
-  # Request roughly 1/16 of physical RAM, bounded so small machines remain
-  # responsive and large machines do not receive an excessive blind request.
-  target_mb=$((total_mb / 16))
-  (( target_mb < 256 )) && target_mb=256
-  (( target_mb > 2048 )) && target_mb=2048
+  # Aggressive asks cgroup v2 for roughly 1/8 of physical RAM. This is a reclaim
+  # request, not a reservation: the kernel may safely reclaim less than asked.
+  target_mb=$((total_mb / 8))
+  (( target_mb < 512 )) && target_mb=512
+  (( target_mb > 4096 )) && target_mb=4096
   printf '%s\n' "${target_mb}"
 }
 
@@ -249,9 +257,9 @@ reclaim_target_mb() {
   fi
 
   total_mb=$(( $(require_numeric_meminfo MemTotal) / 1024 ))
-  maximum_mb=$((total_mb / 4))
+  maximum_mb=$((total_mb / 2))
   (( maximum_mb < 64 )) && maximum_mb=64
-  (( maximum_mb > 4096 )) && maximum_mb=4096
+  (( maximum_mb > 8192 )) && maximum_mb=8192
   if (( requested_mb > maximum_mb )); then
     requested_mb="${maximum_mb}"
   fi
@@ -297,6 +305,11 @@ run_native_pageout() {
   local native_output=""
   local native_exit=0
   local arguments=(pageout)
+  local minimum_rss_mb
+  local minimum_mapping_kb
+  local activity_ms
+  local active_ticks
+  local native_settle_ms
 
   if ! command -v python3 >/dev/null 2>&1; then
     stage_native_pageout="unavailable; python3 not installed"
@@ -307,7 +320,10 @@ run_native_pageout() {
     return 0
   fi
 
-  if [[ "${REDUCE_MEMORY_ALL_USERS:-0}" == "1" || ( "${profile}" == "ai-shield" && "${server_mode}" == "1" ) ]]; then
+  # Aggressive is system-wide for normal user accounts. The dedicated Server
+  # build additionally scans non-root service UIDs below 1000; Desktop
+  # Normal/Smooth/AI stay on the invoking account unless explicitly expanded.
+  if [[ "${REDUCE_MEMORY_ALL_USERS:-0}" == "1" || "${REDUCE_MEMORY_INCLUDE_SERVICE_USERS:-0}" == "1" || "${profile}" == "aggressive" || "${server_mode}" == "1" ]]; then
     arguments+=(--all-users)
   elif [[ "${target_uid}" =~ ^[0-9]+$ ]] && (( target_uid > 0 )); then
     arguments+=(--uid "${target_uid}")
@@ -315,22 +331,63 @@ run_native_pageout() {
     stage_native_pageout="skipped; target UID unavailable"
     return 0
   fi
+  if [[ "${server_mode}" == "1" || "${REDUCE_MEMORY_INCLUDE_SERVICE_USERS:-0}" == "1" ]]; then
+    arguments+=(--include-service-users)
+  fi
+
+  case "${profile}" in
+    normal)
+      minimum_rss_mb="${REDUCE_MEMORY_NORMAL_MIN_RSS_MB:-256}"
+      minimum_mapping_kb="${REDUCE_MEMORY_NORMAL_MIN_MAPPING_KB:-4096}"
+      activity_ms="${REDUCE_MEMORY_NORMAL_ACTIVITY_MS:-700}"
+      active_ticks="${REDUCE_MEMORY_NORMAL_ACTIVE_TICKS:-0}"
+      native_settle_ms="${REDUCE_MEMORY_NORMAL_SETTLE_MS:-350}"
+      ;;
+    smooth)
+      minimum_rss_mb="${REDUCE_MEMORY_SMOOTH_MIN_RSS_MB:-128}"
+      minimum_mapping_kb="${REDUCE_MEMORY_SMOOTH_MIN_MAPPING_KB:-2048}"
+      activity_ms="${REDUCE_MEMORY_SMOOTH_ACTIVITY_MS:-500}"
+      active_ticks="${REDUCE_MEMORY_SMOOTH_ACTIVE_TICKS:-0}"
+      native_settle_ms="${REDUCE_MEMORY_SMOOTH_SETTLE_MS:-500}"
+      ;;
+    aggressive)
+      minimum_rss_mb="${REDUCE_MEMORY_AGGRESSIVE_MIN_RSS_MB:-32}"
+      minimum_mapping_kb="${REDUCE_MEMORY_AGGRESSIVE_MIN_MAPPING_KB:-256}"
+      activity_ms="${REDUCE_MEMORY_AGGRESSIVE_ACTIVITY_MS:-150}"
+      active_ticks="${REDUCE_MEMORY_AGGRESSIVE_ACTIVE_TICKS:-1}"
+      native_settle_ms="${REDUCE_MEMORY_AGGRESSIVE_SETTLE_MS:-750}"
+      ;;
+    ai-shield|*)
+      minimum_rss_mb="${REDUCE_MEMORY_MIN_RSS_MB:-64}"
+      minimum_mapping_kb="${REDUCE_MEMORY_MIN_MAPPING_KB:-1024}"
+      activity_ms="${REDUCE_MEMORY_ACTIVITY_MS:-300}"
+      active_ticks="${REDUCE_MEMORY_ACTIVE_TICKS:-0}"
+      native_settle_ms="${REDUCE_MEMORY_NATIVE_SETTLE_MS:-500}"
+      ;;
+  esac
 
   arguments+=(
-    --min-rss-mb "${REDUCE_MEMORY_MIN_RSS_MB:-64}"
-    --min-mapping-kb "${REDUCE_MEMORY_MIN_MAPPING_KB:-1024}"
-    --activity-ms "${REDUCE_MEMORY_ACTIVITY_MS:-300}"
-    --settle-ms "${REDUCE_MEMORY_NATIVE_SETTLE_MS:-500}"
+    --min-rss-mb "${minimum_rss_mb}"
+    --min-mapping-kb "${minimum_mapping_kb}"
+    --activity-ms "${activity_ms}"
+    --active-ticks "${active_ticks}"
+    --settle-ms "${native_settle_ms}"
   )
-  if [[ "${REDUCE_MEMORY_PROTECT_GPU:-1}" == "1" ]]; then
-    arguments+=(--protect-gpu)
+
+  # AI/GPU recognition belongs only to AI Shield. Normal, Smooth and
+  # Aggressive remain application-agnostic so present and future software is
+  # handled from kernel/process state instead of a hard-coded name list.
+  if [[ "${profile}" == "ai-shield" ]]; then
+    if [[ "${REDUCE_MEMORY_PROTECT_GPU:-1}" == "1" ]]; then
+      arguments+=(--protect-gpu)
+    fi
+    local ai_pattern
+    local ai_pattern_list=()
+    IFS='|' read -r -a ai_pattern_list <<< "${ai_patterns}"
+    for ai_pattern in "${ai_pattern_list[@]}"; do
+      [[ -n "${ai_pattern}" ]] && arguments+=(--protect-pattern "${ai_pattern}")
+    done
   fi
-  local ai_pattern
-  local ai_pattern_list=()
-  IFS='|' read -r -a ai_pattern_list <<< "${ai_patterns}"
-  for ai_pattern in "${ai_pattern_list[@]}"; do
-    [[ -n "${ai_pattern}" ]] && arguments+=(--protect-pattern "${ai_pattern}")
-  done
   if [[ "${protected_pid}" =~ ^[0-9]+$ ]] && (( protected_pid > 1 )); then
     arguments+=(--exclude-pid "${protected_pid}")
   fi
@@ -482,13 +539,21 @@ perform_mode() {
       fi
       ;;
     normal)
-      # Make dirty data reclaimable while leaving useful caches and app pages
-      # under the normal Linux memory manager policy.
+      # Normal remains safe for scripts without root (sync only), but when the
+      # launcher has elevated it the native engine also pages out only large,
+      # clearly idle applications using its conservative Linux profile.
       run_sync
+      if [[ "${EUID}" -eq 0 ]]; then
+        run_native_pageout normal
+      else
+        stage_native_pageout="root not granted; sync-only fallback"
+      fi
       ;;
     smooth)
       require_root "${selected_mode}"
       require_drop_caches
+      run_sync
+      run_native_pageout smooth
       run_sync
       run_drop_caches 1
       ;;
@@ -501,7 +566,7 @@ perform_mode() {
       require_root "${selected_mode}"
       require_drop_caches
       run_sync
-      run_native_pageout
+      run_native_pageout aggressive
       run_sync
       run_drop_caches 3
       run_cgroup_reclaim
@@ -533,7 +598,7 @@ run_privileged_mode() {
   local detected_active_pid=""
   local extra_arguments=()
 
-  if [[ "${selected_mode}" == "aggressive" || "${selected_mode}" == "ai-shield" ]]; then
+  if [[ "${selected_mode}" == "normal" || "${selected_mode}" == "smooth" || "${selected_mode}" == "aggressive" || "${selected_mode}" == "ai-shield" ]]; then
     detected_active_pid="$(detect_active_application_pid)"
     if [[ "${detected_active_pid}" =~ ^[0-9]+$ ]]; then
       extra_arguments+=(--protect-pid "${detected_active_pid}")
@@ -577,8 +642,8 @@ show_menu() {
       "$(( $(require_numeric_meminfo MemAvailable) / 1024 ))" \
       "$(( $(require_numeric_meminfo AnonPages) / 1024 ))" \
       "$(( $(cache_kb) / 1024 ))"
-    printf '%s\n' '1. Normal     - sync saja; cache dan aplikasi tetap hangat'
-    printf '%s\n' '2. Smooth     - melepas file cache saja (butuh password)'
+    printf '%s\n' '1. Normal     - page-out aplikasi besar yang benar-benar idle (butuh password)'
+    printf '%s\n' '2. Smooth     - page-out konservatif + file cache ringan (butuh password)'
     printf '%s\n' '3. AI Shield  - lindungi AI/GPU, page-out background idle (butuh password)'
     printf '%s\n' '4. Aggressive - page-out aplikasi + cache + cgroup (butuh password)'
     printf '%s\n' '5. Status     - metrik dan dukungan kernel, tanpa perubahan'
@@ -592,7 +657,7 @@ show_menu() {
 
     case "${selection}" in
       1|normal)
-        perform_mode normal || true
+        run_privileged_mode normal || true
         pause_menu
         ;;
       2|smooth)
@@ -641,8 +706,9 @@ Usage:
   reduce-memory --menu           Paksa buka menu
   reduce-memory check            Metrik dan dukungan kernel; read-only
   reduce-memory status           Alias read-only untuk server
-  reduce-memory normal           Sync tanpa membuang cache atau app pages
-  sudo reduce-memory smooth      Lepaskan Linux file/page cache
+  reduce-memory normal           Sync-only fallback tanpa root
+  sudo reduce-memory normal      Page-out konservatif aplikasi besar yang idle
+  sudo reduce-memory smooth      Page-out konservatif + file cache ringan
   sudo reduce-memory ai-shield   Lindungi AI/GPU; page-out background idle
   sudo reduce-memory aggressive  Process page-out + cache + cgroup reclaim
 

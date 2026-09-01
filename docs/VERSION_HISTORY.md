@@ -1,5 +1,30 @@
 # Version history
 
+## Reduce Memory 2.6 — 2026
+
+- Separated AI Shield from every general optimization profile. Normal, Smooth,
+  Aggressive, Temp, and Emergency no longer inherit AI-name or GPU protection.
+- Added distinct Windows trim profiles instead of sending nearly every mode
+  through the same process filter.
+- Added a documented `SetProcessWorkingSetSizeEx` fallback when the primary
+  Windows `EmptyWorkingSet` call cannot trim an otherwise accessible process.
+- Made Windows Aggressive perform a broad elevated user/background pass before
+  the memory-list and system-file-cache release; foreground/recent applications
+  and Windows system processes remain protected.
+- Made Emergency confirm before any change, then use its dedicated process
+  profile and two complete elevated release passes without killing processes.
+- Reworked Linux Normal, Smooth, and Aggressive as separate native profiles:
+  conservative large-idle page-out, conservative page-out plus light cache
+  release, and all-non-system-user page-out plus cache/cgroup reclaim.
+- Increased the default Linux Aggressive cgroup request from roughly 1/16 to
+  1/8 of physical RAM, bounded from 512 MB through 4 GB, while still accepting
+  a smaller kernel result as valid.
+- Preferred the cgroup v2 user slice before root-cgroup fallback and made the
+  Server build scan regular plus non-root service UIDs for every native profile
+  while keeping root and core daemon names protected.
+- Added CI assertions proving AI/GPU flags appear only in AI Shield and proving
+  every Linux profile receives its own thresholds and target scope.
+
 ## Reduce Memory 2.5 — 2026
 
 - Added AI Shield on Windows, Linux Desktop, and Linux Server while keeping all

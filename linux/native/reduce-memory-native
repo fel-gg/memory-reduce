@@ -38,15 +38,28 @@ SUPPORTED_ARCHITECTURES = {
 }
 
 SYSTEM_PROTECTED_NAMES = {
+    "accounts-daemon",
+    "avahi-daemon",
+    "chronyd",
+    "colord",
+    "cron",
+    "crond",
     "systemd",
     "init",
     "sshd",
+    "dbus-broker",
     "systemd-journald",
     "systemd-udevd",
     "systemd-logind",
     "systemd-network",
     "systemd-resolve",
+    "systemd-timesyncd",
     "dbus-daemon",
+    "networkmanager",
+    "polkitd",
+    "rsyslogd",
+    "rtkit-daemon",
+    "wpa_supplicant",
     "containerd",
     "dockerd",
 }
@@ -238,7 +251,14 @@ def matches_workload(snapshot: ProcessSnapshot, patterns: list[str]) -> bool:
     return any(pattern.casefold() in searchable for pattern in patterns if pattern)
 
 
-def snapshot_processes(target_uid: int | None, all_users: bool) -> list[ProcessSnapshot]:
+def is_system_protected(snapshot: ProcessSnapshot) -> bool:
+    process_name = snapshot.name.casefold()
+    return process_name in SYSTEM_PROTECTED_NAMES or process_name.startswith("systemd-")
+
+
+def snapshot_processes(
+    target_uid: int | None, all_users: bool, include_service_users: bool = False
+) -> list[ProcessSnapshot]:
     snapshots: list[ProcessSnapshot] = []
     for entry in os.scandir("/proc"):
         if not entry.name.isdigit():
@@ -253,8 +273,11 @@ def snapshot_processes(target_uid: int | None, all_users: bool) -> list[ProcessS
         uid, rss_kb, ppid, name = parsed
         if not all_users and target_uid is not None and uid != target_uid:
             continue
-        if all_users and uid < 1000:
-            continue
+        if all_users:
+            if uid == 0:
+                continue
+            if uid < 1000 and not include_service_users:
+                continue
         snapshots.append(
             ProcessSnapshot(
                 pid, uid, rss_kb, ticks, ppid, name, process_command_line(pid)
@@ -328,6 +351,9 @@ def parse_smaps(pid: int, minimum_mapping_kb: int) -> list[Mapping]:
         finish(current)
     except (FileNotFoundError, PermissionError, ProcessLookupError, ValueError):
         return []
+    # Large resident mappings first reduces syscall churn early in the pass and
+    # stays application-agnostic, so new software needs no name-list update.
+    mappings.sort(key=lambda mapping: mapping.rss_kb, reverse=True)
     return mappings
 
 
@@ -368,7 +394,8 @@ def command_check() -> int:
     emit("architecture", platform.machine())
     emit("process_madvise_syscall", SYS_PROCESS_MADVISE)
     emit("probe_errno", probe_errno)
-    emit("root", 1 if os.geteuid() == 0 else 0)
+    effective_uid = getattr(os, "geteuid", lambda: -1)()
+    emit("root", 1 if effective_uid == 0 else 0)
     emit("python", platform.python_version())
     return 0 if supported else 3
 
@@ -382,12 +409,27 @@ def command_pageout(arguments: argparse.Namespace) -> int:
         emit("native_status", "root_required")
         return 4
 
+    if (
+        arguments.min_rss_mb < 1
+        or arguments.min_mapping_kb < 4
+        or arguments.activity_ms < 0
+        or arguments.active_ticks < 0
+        or arguments.settle_ms < 0
+    ):
+        emit("native_status", "invalid_arguments")
+        return 2
+
     target_uid = arguments.uid
     if arguments.pid is None and not arguments.all_users and target_uid is None:
         emit("native_status", "target_required")
         return 2
+    if arguments.include_service_users and not arguments.all_users:
+        emit("native_status", "invalid_arguments")
+        return 2
 
-    initial = snapshot_processes(target_uid, arguments.all_users)
+    initial = snapshot_processes(
+        target_uid, arguments.all_users, arguments.include_service_users
+    )
     by_pid = {snapshot.pid: snapshot for snapshot in initial}
     if arguments.pid is not None:
         by_pid = {
@@ -429,7 +471,7 @@ def command_pageout(arguments: argparse.Namespace) -> int:
     protected.update(
         snapshot.pid
         for snapshot in by_pid.values()
-        if snapshot.name.casefold() in SYSTEM_PROTECTED_NAMES
+        if is_system_protected(snapshot)
     )
     workload_tree = descendant_pids(workload_roots, list(by_pid.values()))
     result.workloads_protected = len(workload_tree)
@@ -453,6 +495,9 @@ def command_pageout(arguments: argparse.Namespace) -> int:
                 continue
         eligible.append(snapshot)
 
+    # Work from the largest resident applications down. Every eligible process
+    # is still visited; this is ordering for efficiency, not a stop condition.
+    eligible.sort(key=lambda snapshot: snapshot.rss_kb, reverse=True)
     result.processes_eligible = len(eligible)
     before_by_pid = {item.pid: read_rss_kb(item.pid) for item in eligible}
     result.rss_before_kb = sum(before_by_pid.values())
@@ -528,6 +573,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--all-users",
         action="store_true",
         help="target non-system UIDs (1000 and above)",
+    )
+    pageout.add_argument(
+        "--include-service-users",
+        action="store_true",
+        help="with --all-users, include non-root service UIDs below 1000",
     )
     pageout.add_argument("--exclude-pid", type=int, action="append", default=[])
     pageout.add_argument(

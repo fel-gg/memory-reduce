@@ -8,3 +8,7 @@ Finalize-Upgrade.ps1
 *.tmp
 *.log
 build/
+
+# Python bytecode produced while checking the native Linux helper
+__pycache__/
+*.py[cod]

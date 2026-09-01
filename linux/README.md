@@ -4,7 +4,7 @@ Versi Linux memakai jalur yang dibuat khusus untuk kernel Linux. Ia tidak
 menyalin `EmptyWorkingSet` Windows karena Linux tidak mempunyai API global yang
 sama.
 
-Aggressive sekarang menggabungkan tiga mekanisme yang berbeda:
+Engine Linux 2.6 menggabungkan tiga mekanisme native yang berbeda:
 
 ```text
 pidfd_open + process_madvise(MADV_PAGEOUT)
@@ -37,12 +37,12 @@ Jalur Aggressive terbaru:
 
 ```text
 1. sync pending filesystem writes
-2. scan proses milik user melalui /proc
+2. scan semua proses UID non-system melalui /proc
 3. lindungi proses aktif, foreground, dan process tree Reduce Memory
 4. MADV_PAGEOUT pada mapping yang aman dan resident
 5. ukur pengurangan RSS proses
 6. drop page cache + reclaimable slab
-7. jalankan cgroup v2 proactive reclaim sebagai tahap tambahan/fallback
+7. jalankan cgroup v2 proactive reclaim (default sekitar 1/8 RAM, dibatasi)
 8. ukur MemAvailable, cache, anonymous RAM, dan swap
 ```
 
@@ -52,27 +52,30 @@ storage. Aplikasi tetap hidup dan memuat page itu kembali saat diperlukan.
 
 ## Mode
 
-- `normal`: hanya `sync`; cache dan aplikasi tetap hangat.
-- `smooth`: `sync` lalu melepas file/page cache. Tidak melakukan page-out
-  terhadap proses aplikasi.
+- `normal`: dengan root, page-out hanya aplikasi besar (minimal 256 MB) yang
+  benar-benar idle; tanpa root tetap punya fallback `sync` yang aman.
+- `smooth`: page-out konservatif aplikasi idle (minimal 128 MB), lalu melepas
+  file/page cache ringan.
 - `ai-shield`: melindungi AI/GPU workload lalu melakukan page-out hanya pada
   proses background yang idle. Tidak membuang cache global atau menjalankan
   root-cgroup reclaim.
-- `aggressive`: page-out mapping proses yang idle, lalu drop page cache,
-  reclaimable slab, dan cgroup v2 reclaim.
+- `aggressive`: scan semua UID non-system, page-out aplikasi idle mulai 32 MB
+  dan mapping mulai 256 KB, lalu drop page cache, reclaimable slab, dan cgroup
+  v2 reclaim. Tidak memakai daftar nama AI/GPU.
 - `status` atau `check`: hanya membaca metrik dan kemampuan kernel. Tidak
   mengubah RAM atau cache.
 
-## Perlindungan Aggressive
+## Perlindungan engine
 
 Engine tidak membunuh proses. Sebelum page-out, ia melewati:
 
 - PID sistem awal dan kernel thread;
-- proses yang RSS-nya di bawah 64 MB;
-- proses yang memakai CPU selama sampling 300 ms;
+- proses di bawah batas RSS profil (256 MB Normal, 128 MB Smooth, 64 MB AI
+  Shield, dan 32 MB Aggressive);
+- proses yang aktif selama sampling profil;
 - aplikasi foreground yang dapat dideteksi melalui X11/Cinnamon;
 - child process dari aplikasi yang dilindungi;
-- proses AI/GPU dan seluruh child process-nya;
+- proses AI/GPU dan seluruh child process-nya, **hanya pada AI Shield**;
 - terminal, `sudo`, Reduce Memory, dan seluruh ancestor process-nya;
 - locked memory;
 - device/PFN/IO mappings;
@@ -114,7 +117,8 @@ chmod +x ReduceMemory_Linux.sh native/reduce-memory-native desktop/Install_Deskt
 ```
 
 Setelah itu cari **Reduce Memory** dari application menu. Password administrator
-baru diminta setelah Smooth, AI Shield, atau Aggressive dipilih.
+baru diminta setelah Normal, Smooth, AI Shield, atau Aggressive dipilih.
+Menjalankan `reduce-memory normal` tanpa root tetap memakai fallback `sync`.
 
 Installer Desktop membuat:
 
@@ -152,21 +156,19 @@ Lalu:
 
 ```bash
 reduce-memory-server status
-reduce-memory-server normal
+sudo reduce-memory-server normal
 sudo reduce-memory-server smooth
 sudo reduce-memory-server ai-shield
 sudo reduce-memory-server aggressive
 ```
 
-Jika server dijalankan melalui `sudo`, Aggressive menargetkan UID user pemanggil.
-AI Shield pada varian server memeriksa semua UID non-system (UID 1000 ke atas).
-Proses milik root/system tetap tidak menjadi kandidat reclaim, sehingga AI yang
-dijalankan sebagai root juga tidak disentuh. Untuk memaksa Aggressive memeriksa
-semua UID non-system:
-
-```bash
-sudo REDUCE_MEMORY_ALL_USERS=1 reduce-memory-server aggressive
-```
+Varian Server membuat semua profil native memeriksa UID aplikasi biasa sekaligus
+akun service non-root di bawah UID 1000. Ini mencakup workload seperti web worker
+atau database yang tidak berjalan sebagai login user. UID root, kernel thread,
+dan nama daemon inti tetap dilindungi. Aggressive Desktop memeriksa semua UID
+1000 ke atas; Normal, Smooth, dan AI Shield Desktop tetap dibatasi ke akun
+pemanggil kecuali `REDUCE_MEMORY_ALL_USERS=1` diberikan. Service UID Desktop
+dapat disertakan secara eksplisit dengan `REDUCE_MEMORY_INCLUDE_SERVICE_USERS=1`.
 
 Varian Server tidak membuat desktop launcher, daemon, cron, atau systemd
 service.
@@ -177,6 +179,7 @@ service.
 ./native/reduce-memory-native check
 ./ReduceMemory_Linux.sh status
 ./ReduceMemory_Linux.sh normal
+sudo ./ReduceMemory_Linux.sh normal
 sudo ./ReduceMemory_Linux.sh smooth
 sudo ./ReduceMemory_Linux.sh ai-shield
 sudo ./ReduceMemory_Linux.sh aggressive
@@ -186,7 +189,8 @@ Pengaturan optional:
 
 ```bash
 sudo REDUCE_MEMORY_RECLAIM_MB=1024 ./ReduceMemory_Linux.sh aggressive
-sudo REDUCE_MEMORY_MIN_RSS_MB=128 ./ReduceMemory_Linux.sh aggressive
+sudo REDUCE_MEMORY_AGGRESSIVE_MIN_RSS_MB=64 ./ReduceMemory_Linux.sh aggressive
+sudo REDUCE_MEMORY_INCLUDE_SERVICE_USERS=1 ./ReduceMemory_Linux.sh aggressive
 sudo REDUCE_MEMORY_AI_PATTERNS='my-ai-worker|future-model-server' ./ReduceMemory_Linux.sh ai-shield
 ```
 
@@ -195,7 +199,7 @@ sudo REDUCE_MEMORY_AI_PATTERNS='my-ai-worker|future-model-server' ./ReduceMemory
 - UI Bash membutuhkan kernel Linux, Bash, `awk`, dan `sync`.
 - Native process page-out membutuhkan Python 3, kernel Linux 5.10 atau lebih
   baru, `CONFIG_ADVISE_SYSCALLS`, akses ptrace yang diizinkan, dan
-  `CAP_SYS_NICE`. Menjalankan Aggressive melalui `sudo` menyediakan capability
+  `CAP_SYS_NICE`. Menjalankan mode native melalui `sudo` menyediakan capability
   tersebut pada instalasi Linux biasa.
 - Anonymous/private application pages membutuhkan swap agar bisa dipindahkan
   keluar dari RAM tanpa menghilangkan datanya.
