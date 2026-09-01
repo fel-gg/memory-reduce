@@ -50,6 +50,8 @@ operasi juga disimpan di `windows/ReduceMemory.log` dengan ukuran terbatas.
   Linux.
 - [`linux/Install_ReduceMemory.sh`](linux/Install_ReduceMemory.sh) — installer
   user-local yang menambahkan Reduce Memory ke menu aplikasi Linux.
+- [`linux/Install_Server.sh`](linux/Install_Server.sh) — installer command
+  `reduce-memory-server` untuk VPS, server headless, dan SSH.
 - [`docs/PROGRESS.md`](docs/PROGRESS.md) — catatan perkembangan upgrade.
 
 ## Self-test aman
@@ -79,6 +81,18 @@ chmod +x Install_ReduceMemory.sh ReduceMemory_Linux.sh
 
 Setelah itu cari **Reduce Memory** dari menu aplikasi. Normal, Smooth,
 Aggressive, dan Check bisa dipilih tanpa menghafal command.
+
+Untuk Linux Server/VPS:
+
+```bash
+cd linux
+chmod +x Install_Server.sh ReduceMemory_Linux.sh
+sudo ./Install_Server.sh
+reduce-memory-server
+```
+
+Varian server membuka menu terminal melalui SSH dan tidak memasang desktop
+launcher, service, daemon, cron, atau automatic trigger.
 
 Kalau RAM sedang benar-benar penuh, mode Aggressive bisa membantu cukup banyak.
 Kalau yang dicari adalah pemakaian rutin tanpa banyak gangguan, gunakan Smooth.

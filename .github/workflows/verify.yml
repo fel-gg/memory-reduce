@@ -29,6 +29,7 @@ jobs:
         run: |
           bash -n linux/ReduceMemory_Linux.sh
           bash -n linux/Install_ReduceMemory.sh
+          bash -n linux/Install_Server.sh
       - name: Run safe Linux self-check
         run: ./linux/ReduceMemory_Linux.sh check
       - name: Verify user-local launcher installation
@@ -45,3 +46,14 @@ jobs:
           menu_output="$(printf '0\n' | "${install_root}/bin/reduce-memory" --menu)"
           grep -F 'Reduce Memory 2.0 - Linux' <<< "${menu_output}"
           grep -F '3. Aggressive' <<< "${menu_output}"
+      - name: Verify Linux server installation
+        run: |
+          server_bin="${RUNNER_TEMP}/reduce-memory-server/bin"
+          sudo env REDUCE_MEMORY_SERVER_BIN_DIR="${server_bin}" \
+            ./linux/Install_Server.sh
+          test -x "${server_bin}/reduce-memory-server"
+          status_output="$("${server_bin}/reduce-memory-server" status)"
+          grep -F 'Mode                    : status' <<< "${status_output}"
+          server_menu="$(printf '0\n' | "${server_bin}/reduce-memory-server" --menu)"
+          grep -F 'Reduce Memory 2.0 - Linux Server' <<< "${server_menu}"
+          grep -F '3. Aggressive' <<< "${server_menu}"

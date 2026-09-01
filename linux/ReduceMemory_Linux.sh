@@ -2,6 +2,10 @@
 set -euo pipefail
 
 script_path="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+program_title="Reduce Memory 2.0 - Linux"
+if [[ "${script_path##*/}" == "reduce-memory-server" ]]; then
+  program_title="Reduce Memory 2.0 - Linux Server"
+fi
 
 if [[ "$(uname -s)" != "Linux" ]]; then
   echo "Script ini membutuhkan kernel Linux asli atau WSL2, bukan Git Bash/MSYS." >&2
@@ -72,7 +76,7 @@ perform_mode() {
   before_kb="$(read_available_kb)"
 
   case "${selected_mode}" in
-    check)
+    check|status)
       # Safe environment check. No cache or memory state is changed.
       ;;
     normal)
@@ -136,13 +140,13 @@ show_menu() {
     if [[ -t 1 ]]; then
       printf '\033[2J\033[H'
     fi
-    printf '%s\n' 'Reduce Memory 2.0 - Linux'
+    printf '%s\n' "${program_title}"
     printf '%s\n' '========================='
     printf 'Available memory: %d MB\n\n' "$(($(read_available_kb) / 1024))"
     printf '%s\n' '1. Normal     - aman, tidak membuang page cache'
     printf '%s\n' '2. Smooth     - melepas page cache (butuh password)'
     printf '%s\n' '3. Aggressive - cache penuh + memory compaction (butuh password)'
-    printf '%s\n' '4. Check      - pemeriksaan aman'
+    printf '%s\n' '4. Status     - pemeriksaan aman'
     printf '%s\n' '0. Exit'
     printf '\nPilih mode [1]: '
 
@@ -171,8 +175,8 @@ show_menu() {
         fi
         pause_menu
         ;;
-      4|check)
-        perform_mode check || true
+      4|check|status)
+        perform_mode status || true
         pause_menu
         ;;
       0|q|Q|exit)
@@ -187,13 +191,13 @@ show_menu() {
 }
 
 show_usage() {
+  printf '%s\n\n' "${program_title}"
   cat <<'EOF'
-Reduce Memory 2.0 - Linux
-
 Usage:
   reduce-memory                  Buka menu jika terminal interaktif
   reduce-memory --menu           Paksa buka menu
   reduce-memory check            Periksa tanpa mengubah cache
+  reduce-memory status           Alias pemeriksaan aman untuk server
   reduce-memory normal           Sinkronkan write tanpa membuang cache
   sudo reduce-memory smooth      Lepaskan page cache
   sudo reduce-memory aggressive  Lepaskan cache dan compact memory
@@ -216,7 +220,7 @@ case "$1" in
   --help|-h|help)
     show_usage
     ;;
-  check|normal|smooth|aggressive)
+  check|status|normal|smooth|aggressive)
     perform_mode "$1"
     ;;
   *)

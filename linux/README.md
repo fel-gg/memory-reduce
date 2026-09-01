@@ -22,11 +22,41 @@ Installer hanya menambahkan dua file milik user:
 
 Tidak ada daemon, service, startup otomatis, atau perubahan sistem saat instalasi.
 
+## Linux Server atau VPS
+
+Pada server headless, pasang command system-wide satu kali:
+
+```bash
+chmod +x Install_Server.sh ReduceMemory_Linux.sh
+sudo ./Install_Server.sh
+```
+
+Setelah itu melalui SSH:
+
+```bash
+reduce-memory-server
+reduce-memory-server status
+reduce-memory-server normal
+sudo reduce-memory-server smooth
+sudo reduce-memory-server aggressive
+```
+
+Tanpa argumen membuka menu terminal bertuliskan **Linux Server**. Installer
+server hanya menyalin engine yang sama ke:
+
+```text
+/usr/local/bin/reduce-memory-server
+```
+
+Tidak ada GUI, desktop entry, daemon, cron, systemd service, atau automatic
+trigger pada varian server.
+
 ## Tetap bisa lewat terminal
 
 ```bash
 ./ReduceMemory_Linux.sh
 ./ReduceMemory_Linux.sh check
+./ReduceMemory_Linux.sh status
 ./ReduceMemory_Linux.sh normal
 sudo ./ReduceMemory_Linux.sh smooth
 sudo ./ReduceMemory_Linux.sh aggressive

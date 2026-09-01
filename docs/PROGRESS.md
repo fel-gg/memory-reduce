@@ -50,6 +50,10 @@ the AutoIt source for every intermediate binary.
   creates a freedesktop application launcher without a daemon or startup task.
 - Added Ubuntu CI coverage for the installed Linux command and generated
   desktop entry, while preserving all existing non-interactive mode commands.
+- Added a Linux Server/VPS installer that exposes the same canonical engine as
+  `reduce-memory-server` through SSH, without duplicating optimization logic.
+- Added CI coverage for server installation, safe status output, executable
+  permissions, and the Linux Server interactive menu.
 
 ## Deliberately not included
 
