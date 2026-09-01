@@ -36,6 +36,8 @@ jobs:
           grep -F 'Mode                    : check' <<< "${check_output}"
           grep -F 'File cache released     :' <<< "${check_output}"
           grep -F 'Anonymous RAM change    :' <<< "${check_output}"
+          grep -F 'Swap current            :' <<< "${check_output}"
+          grep -F 'Default Aggressive ask  :' <<< "${check_output}"
           grep -F 'cgroup memory.reclaim   :' <<< "${check_output}"
       - name: Exercise native Smooth and Aggressive paths
         run: |

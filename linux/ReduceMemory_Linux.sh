@@ -267,6 +267,8 @@ print_result() {
   local cache_released_kb=$((before_cache_kb - after_cache_kb))
   local anon_released_kb=$((before_anon_kb - after_anon_kb))
   local swap_delta_kb=$((after_swap_used_kb - before_swap_used_kb))
+  local current_swap_total_kb
+  current_swap_total_kb="$(require_numeric_meminfo SwapTotal)"
 
   printf '\nSystem                  : %s\n' "$(distribution_name)"
   printf 'Kernel                  : %s\n' "$(uname -r)"
@@ -277,6 +279,11 @@ print_result() {
   printf 'File cache released     : %s\n' "$(signed_mb "${cache_released_kb}")"
   printf 'Anonymous RAM change    : %s\n' "$(signed_mb "${anon_released_kb}")"
   printf 'Swap usage change       : %s\n' "$(signed_mb "${swap_delta_kb}")"
+  printf 'Swap current            : %d / %d MB used\n' \
+    "$((after_swap_used_kb / 1024))" "$((current_swap_total_kb / 1024))"
+  if [[ "${selected_mode}" == "check" || "${selected_mode}" == "status" ]]; then
+    printf 'Default Aggressive ask  : %d MB\n' "$(default_reclaim_mb)"
+  fi
   printf 'Kernel sync             : %s\n' "${stage_sync}"
   printf 'drop_caches             : %s\n' "${stage_drop_caches}"
   printf 'cgroup memory.reclaim   : %s\n' "${stage_cgroup_reclaim}"
