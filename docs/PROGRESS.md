@@ -29,10 +29,17 @@ the AutoIt source for every intermediate binary.
   summary (RAM load and commit), and the manual Emergency Release mode.
 - Added a 60-second rebound guard, rotating result log, three-stage status, and
   one-elevation Emergency worker with two full passes.
+- Fixed the Optimize runtime crash on the original AutoIt 3.3.6.1 engine by
+  replacing unsupported `ProcessGetPath()` with `QueryFullProcessImageNameW`.
+- Expanded `/RMSELFTEST` to traverse the complete Normal process-selection path
+  without trimming, preventing GUI-only compatibility failures from hiding.
+- Cleaned the canonical AutoIt source to `0 error(s), 0 warning(s)` under the
+  matching AutoIt 3.3.6.1 syntax checker.
 
 ## Packaging and platform milestone
 
-- Built and smoke-tested x64 and x86 Windows executables.
+- Built and tested x64 and x86 Windows executables, including real Normal trim
+  against a disposable process that remained alive after trimming.
 - Added a native Bash companion for Linux memory-cache release.
 - Verified the Linux script with `bash -n`.
 - Verified that both Windows architectures use the same canonical source and

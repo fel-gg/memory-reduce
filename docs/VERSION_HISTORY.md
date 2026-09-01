@@ -20,6 +20,10 @@ that idea with an upgraded source and new platform builds.
 - Added worker result verification so cancelled or failed privileged operations
   are no longer reported as successful.
 - Added safe built-in self-tests and Windows/Linux GitHub Actions verification.
+- Fixed an Optimize crash caused by the unsupported AutoIt 3.3.6.1
+  `ProcessGetPath()` function and replaced it with a compatible Windows API.
+- Expanded self-test coverage to execute the complete Normal candidate-selection
+  path on both x64 and x86 before a build is accepted.
 
 ## Earlier foundation
 

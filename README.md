@@ -52,8 +52,9 @@ operasi juga disimpan di `windows/ReduceMemory.log` dengan ukuran terbatas.
 
 ## Self-test aman
 
-Self-test tidak memangkas RAM atau membersihkan cache. Ia hanya memeriksa
-pembacaan RAM/commit, CPU time, kelima mode, dan penulisan log:
+Self-test tidak memangkas RAM atau membersihkan cache. Ia memeriksa pembacaan
+RAM/commit, CPU time, process-path WinAPI, seluruh jalur pemilihan kandidat
+Normal, kelima mode, dan penulisan log:
 
 ```powershell
 .\windows\ReduceMemory_x64.exe /RMSELFTEST

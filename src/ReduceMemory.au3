@@ -27,6 +27,7 @@ Global Const $A23A0102302 = $A0CA0202515 & $A4990803F52 & $A58A030490B
 Global Const $A2FA0403447 = $A19A050611A
 Global $A59A0605008 , $A02A0704B51 , $A17A0803B53
 Global $A28A0903157 [ 1 ] = [ 0 ]
+Global $A2847903C1A = 0
 AutoItWinSetTitle ( $A2A90E0262F )
 Global Const $A0AA0A03206 = Execute ( $A1FA0B0155D )
 Global Const $A2FA0C0483E = Number ( IsAdmin ( ) )
@@ -784,6 +785,9 @@ Func A2C10200057 ( )
 		Local $RM_SelfPressure = RM_GetPressureSummary ( )
 		If StringInStr ( $RM_SelfPressure , "RAM load" ) = 0 Then Exit 10
 		If RM_GetProcessCpuTime ( @AutoItPID ) < 0 Then Exit 11
+		If StringLen ( RM_GetProcessPath ( @AutoItPID ) ) = 0 Then Exit 14
+		If RM_ValidateNormalSelection ( ) < 1 Then Exit 15
+		If StringLeft ( $RM_CPUShieldPIDs , 1 ) <> "|" Then Exit 15
 		Local $RM_SelfOriginalMode = $RM_OptimizeMode
 		For $RM_SelfModeIndex = 0 To 4
 			$RM_OptimizeMode = $RM_SelfModeIndex
@@ -1402,6 +1406,22 @@ Func RM_BuildCPUShield ( )
 	Next
 EndFunc
 
+; ProcessGetPath() does not exist in the AutoIt 3.3.6.1 runtime used by the
+; original application. QueryFullProcessImageNameW provides the same process
+; path information on supported Windows versions without requiring a newer
+; AutoIt runtime. An empty path is a safe fallback when access is denied.
+Func RM_GetProcessPath ( $RM_ProcessPID )
+	Local $RM_ProcessHandle = DllCall ( "kernel32.dll" , "handle" , "OpenProcess" , "dword" , 0x1000 , "bool" , False , "dword" , $RM_ProcessPID )
+	If @error Or Not IsArray ( $RM_ProcessHandle ) Or $RM_ProcessHandle [ 0 ] = 0 Then Return ""
+	Local $RM_PathCapacity = 32768
+	Local $RM_PathBuffer = DllStructCreate ( "wchar[" & $RM_PathCapacity & "]" )
+	Local $RM_PathResult = DllCall ( "kernel32.dll" , "bool" , "QueryFullProcessImageNameW" , "handle" , $RM_ProcessHandle [ 0 ] , "dword" , 0 , "ptr" , DllStructGetPtr ( $RM_PathBuffer ) , "dword*" , $RM_PathCapacity )
+	Local $RM_PathError = @error
+	DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_ProcessHandle [ 0 ] )
+	If $RM_PathError Or Not IsArray ( $RM_PathResult ) Or $RM_PathResult [ 0 ] = 0 Then Return ""
+	Return DllStructGetData ( $RM_PathBuffer , 1 )
+EndFunc
+
 Func A2A20200810 ( $A3C42101753 = 0 , $A6242203763 = "" )
 	Local $A2A4230391F = 0
 	If $A3C42101753 <> 1 Then $A3C42101753 = 0
@@ -1436,7 +1456,7 @@ Func RM_ShouldSkipProcess ( $RM_ProcessName , $RM_ProcessPID , $RM_ForegroundPID
 	If StringInStr ( $RM_CPUShieldPIDs , "|" & $RM_ProcessPID & "|" ) > 0 Then Return 1
 	Local $RM_Protected = "|system idle process|system|registry|memory compression|secure system|csrss.exe|smss.exe|wininit.exe|winlogon.exe|services.exe|lsass.exe|dwm.exe|audiodg.exe|fontdrvhost.exe|"
 	If StringInStr ( $RM_Protected , "|" & $RM_Name & "|" ) > 0 Then Return 1
-	Local $RM_Path = StringLower ( StringStripWS ( ProcessGetPath ( $RM_ProcessPID ) , 3 ) )
+	Local $RM_Path = StringLower ( StringStripWS ( RM_GetProcessPath ( $RM_ProcessPID ) , 3 ) )
 	Local $RM_WindowsRoot = @WindowsDir
 	If StringRight ( $RM_WindowsRoot , 1 ) <> "\" Then $RM_WindowsRoot &= "\"
 	$RM_WindowsRoot = StringLower ( $RM_WindowsRoot )
@@ -1446,6 +1466,22 @@ Func RM_ShouldSkipProcess ( $RM_ProcessName , $RM_ProcessPID , $RM_ForegroundPID
 		If Number ( $RM_Stats [ 0 ] ) < $RM_MinProcessMB * 1024 * 1024 Then Return 1
 	EndIf
 	Return 0
+EndFunc
+
+; Exercise the complete Normal candidate-selection path without trimming any
+; process. This is used by /RMSELFTEST so unsupported runtime functions cannot
+; hide behind a GUI-only code path again.
+Func RM_ValidateNormalSelection ( )
+	Local $RM_Processes = ProcessList ( )
+	If Not IsArray ( $RM_Processes ) Then Return 0
+	Local $RM_ForegroundPID = 0
+	RM_TrackActiveProcess ( )
+	RM_BuildCPUShield ( )
+	If $RM_ProtectForeground = 1 Then $RM_ForegroundPID = WinGetProcess ( "[ACTIVE]" )
+	For $RM_ProcessIndex = 1 To $RM_Processes [ 0 ] [ 0 ]
+		RM_ShouldSkipProcess ( $RM_Processes [ $RM_ProcessIndex ] [ 0 ] , $RM_Processes [ $RM_ProcessIndex ] [ 1 ] , $RM_ForegroundPID )
+	Next
+	Return $RM_Processes [ 0 ] [ 0 ]
 EndFunc
 
 Func A5720304C54 ( $A3642601F53 , $A2542704416 = 1 )
@@ -3288,7 +3324,7 @@ Func A3F60C01A5A ( )
 		Global $SSA3F60C01A5A = 1
 	EndIf
 	If Not A0660B00D4E ( $A4347601D15 ) Then Global $A3E47702B52 = 0
-	If Not A0660B00D4E ( $A0A47805E14 ) Then Global $A2847903C1A = 0
+	If Not A0660B00D4E ( $A0A47805E14 ) Then $A2847903C1A = 0
 	If Not A0660B00D4E ( $A4547A0623C ) Then Global $A2747B04C07 = 0
 	If $A2847903C1A = 0 Then Return SetError ( - 1 , - 1 , False )
 	$A3E47702B52 -= 1
@@ -3305,7 +3341,7 @@ Func A5060D0303A ( )
 		Global $SSA5060D0303A = 1
 	EndIf
 	If Not A0660B00D4E ( $A2047F0634E ) Then Global $A3E47702B52 = 0
-	If Not A0660B00D4E ( $A1057001C61 ) Then Global $A2847903C1A = 0
+	If Not A0660B00D4E ( $A1057001C61 ) Then $A2847903C1A = 0
 	If Not A0660B00D4E ( $A2D57103F5F ) Then Global $A2747B04C07 = 0
 	$A3E47702B52 += 1
 	If $A3E47702B52 > 1 Then Return True
