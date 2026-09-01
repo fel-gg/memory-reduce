@@ -60,9 +60,12 @@ jobs:
           done
           test -f "${ready_file}"
           rss_before="$(awk '/^VmRSS:/ { print $2 }' "/proc/${target_pid}/status")"
+          native_exit=0
           native_output="$(sudo linux/native/reduce-memory-native pageout \
             --pid "${target_pid}" --min-rss-mb 1 --min-mapping-kb 64 \
-            --activity-ms 0 --settle-ms 750)"
+            --activity-ms 0 --settle-ms 750)" || native_exit=$?
+          printf '%s\n' "${native_output}"
+          test "${native_exit}" -eq 0
           rss_after="$(awk '/^VmRSS:/ { print $2 }' "/proc/${target_pid}/status")"
           bytes_advised="$(awk -F= '$1 == "bytes_advised" { print $2 }' <<< "${native_output}")"
           rss_reduced="$(awk -F= '$1 == "rss_reduced_kb" { print $2 }' <<< "${native_output}")"

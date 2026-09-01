@@ -353,7 +353,12 @@ def command_pageout(arguments: argparse.Namespace) -> int:
 
     result = Result(processes_seen=len(by_pid))
     protected_roots = set(arguments.exclude_pid)
-    protected_roots.update(ancestor_pids(os.getpid()))
+    # Automatic scans protect the terminal/sudo/helper ancestry and everything
+    # launched underneath it. An explicit --pid is an intentional manual/test
+    # target and must not be silently excluded merely because it is a sibling
+    # process under the same shell.
+    if arguments.pid is None:
+        protected_roots.update(ancestor_pids(os.getpid()))
     protected = descendant_pids(protected_roots, list(by_pid.values()))
 
     if arguments.activity_ms > 0 and arguments.pid is None:
