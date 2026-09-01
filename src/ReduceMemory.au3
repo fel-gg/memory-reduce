@@ -5,7 +5,7 @@ If Not IsDeclared ( "Os" ) Then Global $OS
 Global $A3380B02A2C = "MustDeclareVars" , $A2790402500 = "GUI_RUNDEFMSG" , $A0B90601C20 = "GUIDataSeparatorChar" , $A5B90705434 = "WinDetectHiddenText" , $A1090900A56 = "1.7" , $A3A90B05762 = "ReduceMemory" , $A4890D04726 = "Reduce Memory" , $A36A0000608 = " - Author by BlueLife" , $A0CA0202515 = "[CLASS:_MReduce:v" , $A58A030490B = "]" , $A19A050611A = "2013-2024" , $A1FA0B0155D = " @UserName " , $A30A0F0565F = " @Compiled " , $A14B0102331 = " @AutoItExe " , $A19B0303F03 = " @OSArch " , $A1FB050530A = " @AutoItX64 " , $A24B0704245 = " @AutoItPID " , $A41B0904162 = " @OSVersion " , $A4EB0B05206 = "AutoIt.Error" , $A53B0E04938 = "_(XP|200(0|3))" , $A42C0005F35 = " @WindowsDir " , $A34C0203522 = "System32\" , $A17C0505B2A = " @WorkingDir " , $A48C0804D4D = "kernel32.dll" , $A23C0A04F06 = "user32.dll" , $A0CC0C01F2E = "advapi32.dll" , $A55C0E01626 = "shell32.dll" , _
 $A16D000163E = "ole32.dll" , $A57D020482F = "comctl32.dll" , $A54D0402622 = "gdi32.dll" , $A0BD0604C48 = "psapi.dll" , $A34D090231C = " @ScriptDir " , $A18D0B05E2E = "Icons\" , $A12D0D0163B = ".ini" , $A5CE0702436 = "HideWindowOnStartup" , $A4DE0905E47 = "HideWhenMinimized" , $A54E0B00A4B = "WinSetOnTop" , $A05E0D01131 = "SystemUser" , $A63E0F04B1C = "TrayIconPack" , $A45F020231C = "TaskOptions" , $A5EF040325E = "UsedMemory" , $A27F050091E = "75%" , $A57F0603C63 = "[^0-9]" , $A26F080043F = "CountDown" , $A25F0A03415 = "ExclusionOpt" , $A2AF0C0551E = "Main" , $A2DF0D02906 = "Exclusions" , $A07F0F00236 = "Main" , $A3001000F39 = "Processes" , $A1C0130371A = "HKLM" , $A0601502317 = "HKCU" , $A2001601838 = "64" , $A1C0170504E = "64" , $A0E01E04600 = "Tahoma"
 ; Reduce Memory project version (the original table entry is retained for provenance)
-$A1090900A56 = "2.4"
+$A1090900A56 = "2.5"
 Opt ( $A3380B02A2C , 1 )
 Global Const $A4080C05448 = Chr ( 92 )
 Global Const $A2280D04544 = Chr ( 47 )
@@ -112,6 +112,10 @@ Global $RM_RecentActivePID = 0
 Global $RM_RecentActiveAt = 0
 Global $RM_LastObservedActivePID = 0
 Global $RM_CPUShieldPIDs = "|"
+Global $RM_AIShieldEnabled = A5560304940 ( "AIShield" , 1 , 0 , 1 )
+Global $RM_AIProcessPatterns = A3560501B29 ( "AIProcessPatterns" , "ollama.exe|ollama_llama_server.exe|python.exe|pythonw.exe|llama-server.exe|llama.exe|vllm.exe|torchrun.exe|tritonserver.exe|comfyui.exe|stable-diffusion.exe|local-ai.exe|koboldcpp.exe" )
+Global $RM_AIProtectedCount = 0
+Global $RM_AIShieldPIDs = "|"
 Global $RM_ActiveShieldSeconds = Int ( Number ( A3560501B29 ( "ActiveShieldSeconds" , 10 ) ) )
 If $RM_ActiveShieldSeconds < 3 Then $RM_ActiveShieldSeconds = 3
 If $RM_ActiveShieldSeconds > 60 Then $RM_ActiveShieldSeconds = 60
@@ -193,7 +197,7 @@ Func A5A00100C3D ( )
 	Opt ( $A3B21805E0C , 0 )
 	$A59A0605008 = GUICreate ( $A2A90E0262F , $A3611106234 , $A5511204129 , - 1 , - 1 )
 	$RM_OptimizeMode = Int ( Number ( A3560501B29 ( "OptimizeMode" , 0 ) ) )
-	If $RM_OptimizeMode < 0 Or $RM_OptimizeMode > 4 Then $RM_OptimizeMode = 0
+	If $RM_OptimizeMode < 0 Or $RM_OptimizeMode > 5 Then $RM_OptimizeMode = 0
 	GUISetOnEvent ( - 3 , "A2E00E00137" )
 	GUISetOnEvent ( - 4 , "A5900F01A18" )
 	GUISetFont ( $A6301F02853 , 400 , 0 , $A2E01D02B1C )
@@ -220,8 +224,9 @@ Func A5A00100C3D ( )
 	If $RM_OptimizeMode = 2 Then $RM_ModeDefault = "Aggressive Smooth"
 	If $RM_OptimizeMode = 3 Then $RM_ModeDefault = "Aggressive + Delete Temp"
 	If $RM_OptimizeMode = 4 Then $RM_ModeDefault = "Emergency Release"
+	If $RM_OptimizeMode = 5 Then $RM_ModeDefault = "AI Shield"
 	$RM_ModeControl = GUICtrlCreateCombo ( "" , 115 , 165 , 295 , 25 , 3 )
-	GUICtrlSetData ( $RM_ModeControl , "Normal Optimize|Aggressive Release|Aggressive Smooth|Aggressive + Delete Temp|Emergency Release" , $RM_ModeDefault )
+	GUICtrlSetData ( $RM_ModeControl , "Normal Optimize|AI Shield|Aggressive Release|Aggressive Smooth|Aggressive + Delete Temp|Emergency Release" , $RM_ModeDefault )
 
 	GUICtrlSetOnEvent ( $RM_ModeControl , "RM_ModeChanged" )
 	$A3C21204863 = GUICtrlCreateButton ( $A2F80F00960 , 285 , 15 , 125 , 30 , 1 )
@@ -536,6 +541,8 @@ Func RM_ModeChanged ( )
 			$RM_OptimizeMode = 3
 		Case "Emergency Release"
 			$RM_OptimizeMode = 4
+		Case "AI Shield"
+			$RM_OptimizeMode = 5
 		Case Else
 			$RM_OptimizeMode = 0
 	EndSwitch
@@ -552,9 +559,15 @@ Func RM_GetModeName ( )
 			Return "Aggressive + Delete Temp"
 		Case 4
 			Return "Emergency Release"
+		Case 5
+			Return "AI Shield"
 		Case Else
 			Return "Normal Optimize"
 	EndSwitch
+EndFunc
+
+Func RM_ModeUsesSystemRelease ( )
+	Return ( $RM_OptimizeMode >= 1 And $RM_OptimizeMode <= 4 )
 EndFunc
 
 Func RM_WriteLog ( $RM_StableGain , $RM_ReboundDetected )
@@ -736,7 +749,7 @@ Func A4800704447 ( )
 		Global $A1251701F38 = " @SW_DISABLE " , $A5251C01F41 = "#SIZE" , $A0A51D04231 = " @SW_ENABLE "
 		Global $SSA4800704447 = 1
 	EndIf
-	If $RM_OptimizeMode >= 1 And $RM_ReboundAt > 0 And TimerDiff ( $RM_ReboundAt ) < $RM_ReboundCooldownSeconds * 1000 Then
+	If RM_ModeUsesSystemRelease ( ) And $RM_ReboundAt > 0 And TimerDiff ( $RM_ReboundAt ) < $RM_ReboundCooldownSeconds * 1000 Then
 		GUICtrlSetData ( $A3411D0002B [ 4 ] , "Rebound protection active - wait " & Ceiling ( $RM_ReboundCooldownSeconds - TimerDiff ( $RM_ReboundAt ) / 1000 ) & " seconds" )
 		Return
 	EndIf
@@ -761,7 +774,7 @@ Func A4800704447 ( )
 	EndIf
 	Local $A2751A01544 = A2A20200810 ( $A2651804725 , $A1B5190023C )
 	Local $RM_AggressiveResult = 0
-	If $RM_OptimizeMode >= 1 Then GUICtrlSetData ( $A3411D0002B [ 4 ] , "Stage 2/3 - releasing Windows memory" )
+	If RM_ModeUsesSystemRelease ( ) Then GUICtrlSetData ( $A3411D0002B [ 4 ] , "Stage 2/3 - releasing Windows memory" )
 	If $RM_OptimizeMode = 1 Or $RM_OptimizeMode = 3 Then $RM_AggressiveResult = RM_RunAggressiveWorker ( 0 )
 	If $RM_OptimizeMode = 2 Then $RM_AggressiveResult = RM_RunAggressiveWorker ( 1 )
 	If $RM_OptimizeMode = 4 Then
@@ -772,7 +785,7 @@ Func A4800704447 ( )
 	If $RM_OptimizeMode = 3 And $RM_AutoTrigger = 0 Then
 		If MsgBox ( 48 + 4 , "ReduceMemory", "Aggressive + Delete Temp akan menghapus file secara permanen dari %TEMP% dan C:\Windows\Temp." & @CRLF & @CRLF & "File yang sedang digunakan akan dilewati. Jangan jalankan saat instalasi atau Windows Update sedang berlangsung." & @CRLF & @CRLF & "Lanjutkan sekarang?" , 0 , $A59A0605008 ) = 6 Then RM_DeleteTempFiles ( )
 	EndIf
-	If $RM_OptimizeMode >= 1 Then
+	If RM_ModeUsesSystemRelease ( ) Then
 		Sleep ( 500 )
 	Else
 		Sleep ( 25 )
@@ -783,15 +796,17 @@ Func A4800704447 ( )
 	$A0141502E2D = Round ( ( $A1F51B0452B [ 2 ] - $A0141502E2D [ 2 ] ) / 1024 )
 	If $A0141502E2D < 1 Then $A0141502E2D = 0
 	$RM_ImmediateGainMB = $A0141502E2D
-	If $RM_OptimizeMode = 0 Or $RM_AggressiveResult = 1 Then
+	If $RM_OptimizeMode = 0 Or $RM_OptimizeMode = 5 Or $RM_AggressiveResult = 1 Then
 		$RM_StablePending = 1
 		$RM_StableStartedAt = TimerInit ( )
 		AdlibUnRegister ( "RM_StableCheck" )
 		AdlibRegister ( "RM_StableCheck" , 1000 )
 	EndIf
-	If $A2751A01544 = 0 And $RM_OptimizeMode = 0 Then $A0141502E2D = 0
+	If $A2751A01544 = 0 And ( $RM_OptimizeMode = 0 Or $RM_OptimizeMode = 5 ) Then $A0141502E2D = 0
 	If $RM_OptimizeMode = 0 Then
 		GUICtrlSetData ( $A3411D0002B [ 4 ] , "Normal released: " & $A0141502E2D & " MB | trimmed: " & $A2751A01544 )
+	ElseIf $RM_OptimizeMode = 5 Then
+		GUICtrlSetData ( $A3411D0002B [ 4 ] , "AI Shield released: " & $A0141502E2D & " MB | trimmed: " & $A2751A01544 & " | AI protected: " & $RM_AIProtectedCount )
 	ElseIf $RM_AggressiveResult = 1 Then
 		Local $RM_ModeResultText = "Aggressive released: "
 		If $RM_OptimizeMode = 2 Then $RM_ModeResultText = "Smooth released: "
@@ -915,8 +930,10 @@ Func A2C10200057 ( )
 		If RM_ValidateNormalSelection ( ) < 1 Then Exit 15
 		If StringLeft ( $RM_CPUShieldPIDs , 1 ) <> "|" Then Exit 15
 		If RM_StartupMonitorSelfTest ( ) <> 1 Then Exit 16
+		If RM_IsAIProcessName ( "ollama.exe" ) <> 1 Then Exit 17
+		If RM_IsAIProcessName ( "notepad.exe" ) <> 0 Then Exit 18
 		Local $RM_SelfOriginalMode = $RM_OptimizeMode
-		For $RM_SelfModeIndex = 0 To 4
+		For $RM_SelfModeIndex = 0 To 5
 			$RM_OptimizeMode = $RM_SelfModeIndex
 			If StringLen ( RM_GetModeName ( ) ) = 0 Then Exit 12
 		Next
@@ -1539,6 +1556,62 @@ Func RM_BuildCPUShield ( )
 	Next
 EndFunc
 
+Func RM_IsAIProcessName ( $RM_ProcessName )
+	If $RM_AIShieldEnabled <> 1 Then Return 0
+	Local $RM_Name = StringLower ( StringStripWS ( $RM_ProcessName , 3 ) )
+	If StringLen ( $RM_Name ) = 0 Then Return 0
+	Local $RM_Patterns = StringSplit ( StringLower ( $RM_AIProcessPatterns ) , "|" , 1 )
+	If Not IsArray ( $RM_Patterns ) Then Return 0
+	For $RM_PatternIndex = 1 To $RM_Patterns [ 0 ]
+		Local $RM_Pattern = StringStripWS ( $RM_Patterns [ $RM_PatternIndex ] , 3 )
+		If StringLen ( $RM_Pattern ) > 0 And StringInStr ( $RM_Name , $RM_Pattern ) > 0 Then Return 1
+	Next
+	Return 0
+EndFunc
+
+Func RM_BuildAIShield ( )
+	$RM_AIShieldPIDs = "|"
+	$RM_AIProtectedCount = 0
+	If $RM_AIShieldEnabled <> 1 Then Return
+	Local $RM_Processes = ProcessList ( )
+	If Not IsArray ( $RM_Processes ) Then Return
+	For $RM_AIIndex = 1 To $RM_Processes [ 0 ] [ 0 ]
+		If RM_IsAIProcessName ( $RM_Processes [ $RM_AIIndex ] [ 0 ] ) Then $RM_AIShieldPIDs &= $RM_Processes [ $RM_AIIndex ] [ 1 ] & "|"
+	Next
+	Local $RM_Snapshot = DllCall ( "kernel32.dll" , "handle" , "CreateToolhelp32Snapshot" , "dword" , 2 , "dword" , 0 )
+	If @error Or Not IsArray ( $RM_Snapshot ) Or $RM_Snapshot [ 0 ] = - 1 Then Return
+	Local $RM_Entry = DllStructCreate ( "dword Size;dword Usage;dword ProcessID;ulong_ptr DefaultHeapID;dword ModuleID;dword Threads;dword ParentProcessID;long PriClassBase;dword Flags;wchar ExeFile[260]" )
+	DllStructSetData ( $RM_Entry , "Size" , DllStructGetSize ( $RM_Entry ) )
+	Local $RM_Capacity = $RM_Processes [ 0 ] [ 0 ] + 128 , $RM_Count = 0
+	Local $RM_PIDs [ $RM_Capacity ] , $RM_Parents [ $RM_Capacity ]
+	Local $RM_Next = DllCall ( "kernel32.dll" , "bool" , "Process32FirstW" , "handle" , $RM_Snapshot [ 0 ] , "ptr" , DllStructGetPtr ( $RM_Entry ) )
+	While Not @error And IsArray ( $RM_Next ) And $RM_Next [ 0 ] <> 0
+		$RM_Count += 1
+		If $RM_Count >= $RM_Capacity Then
+			$RM_Capacity += 128
+			ReDim $RM_PIDs [ $RM_Capacity ]
+			ReDim $RM_Parents [ $RM_Capacity ]
+		EndIf
+		$RM_PIDs [ $RM_Count ] = DllStructGetData ( $RM_Entry , "ProcessID" )
+		$RM_Parents [ $RM_Count ] = DllStructGetData ( $RM_Entry , "ParentProcessID" )
+		$RM_Next = DllCall ( "kernel32.dll" , "bool" , "Process32NextW" , "handle" , $RM_Snapshot [ 0 ] , "ptr" , DllStructGetPtr ( $RM_Entry ) )
+	WEnd
+	DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_Snapshot [ 0 ] )
+	Local $RM_Changed = 1
+	While $RM_Changed = 1
+		$RM_Changed = 0
+		For $RM_AIIndex = 1 To $RM_Count
+			If StringInStr ( $RM_AIShieldPIDs , "|" & $RM_PIDs [ $RM_AIIndex ] & "|" ) = 0 And StringInStr ( $RM_AIShieldPIDs , "|" & $RM_Parents [ $RM_AIIndex ] & "|" ) > 0 Then
+				$RM_AIShieldPIDs &= $RM_PIDs [ $RM_AIIndex ] & "|"
+				$RM_Changed = 1
+			EndIf
+		Next
+	WEnd
+	For $RM_AIIndex = 1 To $RM_Count
+		If StringInStr ( $RM_AIShieldPIDs , "|" & $RM_PIDs [ $RM_AIIndex ] & "|" ) > 0 Then $RM_AIProtectedCount += 1
+	Next
+EndFunc
+
 ; ProcessGetPath() does not exist in the AutoIt 3.3.6.1 runtime used by the
 ; original application. QueryFullProcessImageNameW provides the same process
 ; path information on supported Windows versions without requiring a newer
@@ -1557,6 +1630,7 @@ EndFunc
 
 Func A2A20200810 ( $A3C42101753 = 0 , $A6242203763 = "" )
 	Local $A2A4230391F = 0
+	RM_BuildAIShield ( )
 	If $A3C42101753 <> 1 Then $A3C42101753 = 0
 	$A6242203763 = A5720304C54 ( $A6242203763 , 1 )
 	Local $A5E4240211A = ProcessList ( ) , $A17A0803B53 , $A2B42506363
@@ -1568,7 +1642,7 @@ Func A2A20200810 ( $A3C42101753 = 0 , $A6242203763 = "" )
 		$A2B42506363 = StringInStr ( $A6242203763 , $A5580E05E46 & $A5E4240211A [ $A17A0803B53 ] [ 0 ] & $A5580E05E46 )
 		If ( $A3C42101753 = 0 And $A2B42506363 = 0 ) Or ( $A3C42101753 = 1 And $A2B42506363 <> 0 ) Then
 
-			If $A3C42101753 = 0 And RM_ShouldSkipProcess ( $A5E4240211A [ $A17A0803B53 ] [ 0 ] , $A5E4240211A [ $A17A0803B53 ] [ 1 ] , $RM_ForegroundPID ) Then ContinueLoop
+			If ( $A3C42101753 = 0 Or $RM_OptimizeMode = 5 ) And RM_ShouldSkipProcess ( $A5E4240211A [ $A17A0803B53 ] [ 0 ] , $A5E4240211A [ $A17A0803B53 ] [ 1 ] , $RM_ForegroundPID ) Then ContinueLoop
 			If $A26B0601541 = $A5E4240211A [ $A17A0803B53 ] [ 1 ] Then
 				If A5B20104156 ( ) = 1 Then $A2A4230391F += 1
 			Else
@@ -1584,6 +1658,7 @@ EndFunc
 Func RM_ShouldSkipProcess ( $RM_ProcessName , $RM_ProcessPID , $RM_ForegroundPID = 0 )
 	Local $RM_Name = StringLower ( StringStripWS ( $RM_ProcessName , 3 ) )
 	If $RM_ProcessPID = @AutoItPID Then Return 1
+	If StringInStr ( $RM_AIShieldPIDs , "|" & $RM_ProcessPID & "|" ) > 0 Then Return 1
 	If $RM_ProtectForeground = 1 And $RM_ForegroundPID > 0 And $RM_ProcessPID = $RM_ForegroundPID Then Return 1
 	If $RM_RecentActivePID > 0 And $RM_ProcessPID = $RM_RecentActivePID And $RM_RecentActiveAt > 0 And TimerDiff ( $RM_RecentActiveAt ) < $RM_ActiveShieldSeconds * 1000 Then Return 1
 	If StringInStr ( $RM_CPUShieldPIDs , "|" & $RM_ProcessPID & "|" ) > 0 Then Return 1

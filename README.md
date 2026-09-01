@@ -1,10 +1,10 @@
-# Reduce Memory 2.4
+# Reduce Memory 2.5
 
 Reduce Memory adalah tool kecil buat membantu RAM terasa lebih lega di Windows
 dan Linux. Keduanya punya engine terpisah karena cara Windows dan Linux
 mengelola memori memang berbeda.
 
-Proyek ini adalah **Reduce Memory 2.4**, terinspirasi dari Reduce Memory v1.7
+Proyek ini adalah **Reduce Memory 2.5**, terinspirasi dari Reduce Memory v1.7
 buatan Sordum Team.
 Di repo ini, alur tersebut kita kembangkan lagi: pilihan mode diperjelas,
 Aggressive dibuat lebih kuat, ada versi Smooth supaya tidak gampang bikin lag,
@@ -14,15 +14,18 @@ Intinya tetap sederhana: minta sistem operasi melepas memori yang sedang tidak
 terlalu dibutuhkan. Program ini tidak membunuh aplikasi, bukan antivirus, dan
 bukan registry cleaner.
 
-Semua aplikasi Windows diperlakukan secara dinamis. Tidak ada daftar nama
-aplikasi yang harus diperbarui setiap kali ada software baru. Aplikasi yang baru
-di-install akan ikut terdeteksi otomatis; yang dilindungi hanya proses Windows,
-aplikasi yang sedang dipakai, proses yang baru saja aktif, dan proses yang
-sedang memakai CPU cukup tinggi.
+Semua aplikasi tetap ditemukan secara dinamis. Perlindungan umum melihat
+foreground dan aktivitas CPU. AI Shield menambahkan pola workload yang bisa
+diubah lewat konfigurasi; Linux juga melindungi proses pemilik GPU dan seluruh
+child process-nya. Proses inti milik root/system tetap di luar kandidat reclaim.
+Jadi software baru tetap ikut scan, sementara workload baru
+bisa dilindungi tanpa mengubah engine.
 
 ## Pilihan mode Windows
 
 - **Normal Optimize** — pilihan aman untuk dipakai sehari-hari.
+- **AI Shield** — melindungi proses AI yang dikenali dan memangkas proses
+  background yang idle tanpa menjalankan purge memory-list global.
 - **Aggressive Smooth** — lebih kuat dari Normal, tetapi dibuat lebih halus
   supaya kemungkinan stutter lebih kecil.
 - **Aggressive Release** — pelepasan RAM paling kuat. Beberapa aplikasi mungkin
@@ -69,7 +72,7 @@ operasi juga disimpan di `windows/ReduceMemory.log` dengan ukuran terbatas.
 
 Self-test tidak memangkas RAM atau membersihkan cache. Ia memeriksa pembacaan
 RAM/commit, CPU time, process-path WinAPI, seluruh jalur pemilihan kandidat
-Normal, kelima mode, logika trigger 95%/re-arm 90%, dan penulisan log:
+Normal, keenam mode, AI Shield, logika trigger 95%/re-arm 90%, dan penulisan log:
 
 ```powershell
 .\windows\ReduceMemory_x64.exe /RMSELFTEST
@@ -101,7 +104,7 @@ chmod +x ReduceMemory_Linux.sh desktop/Install_Desktop.sh
 ./desktop/Install_Desktop.sh
 ```
 
-Setelah itu cari **Reduce Memory** dari menu aplikasi. Normal, Smooth,
+Setelah itu cari **Reduce Memory** dari menu aplikasi. Normal, Smooth, AI Shield,
 Aggressive, dan Status bisa dipilih tanpa menghafal command.
 
 Untuk Linux Server/VPS:
@@ -111,16 +114,17 @@ cd linux
 chmod +x ReduceMemory_Linux.sh server/Install_Server.sh
 sudo ./server/Install_Server.sh
 reduce-memory-server
+sudo reduce-memory-server ai-shield
 ```
 
 Varian server membuka menu terminal melalui SSH dan tidak memasang desktop
 launcher, service, daemon, cron, atau automatic trigger.
 
 Di Linux, page-out native membutuhkan kernel 5.10+, Python 3, izin ptrace, dan
-`CAP_SYS_NICE`; mode Aggressive menjalankannya melalui `sudo`. Swap yang aktif
+`CAP_SYS_NICE`; mode AI Shield dan Aggressive menjalankannya melalui `sudo`. Swap yang aktif
 memberi kernel tempat untuk memindahkan anonymous pages aplikasi yang dingin.
-Proses aktif, foreground, process tree Reduce Memory, locked memory, dan mapping
-khusus kernel dilewati tanpa daftar nama aplikasi.
+Proses aktif, foreground, process tree Reduce Memory, AI/GPU workload, locked
+memory, dan mapping khusus kernel dilewati.
 
 Kalau yang dicari adalah pemakaian rutin tanpa banyak gangguan, gunakan Smooth.
 Memory reclaim tidak menghapus virus dan tidak menghapus data aplikasi yang

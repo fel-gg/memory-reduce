@@ -16,6 +16,11 @@ Helper page-out membaca `/proc` secara dinamis. Tidak ada daftar Firefox,
 Chrome, Discord, Steam, atau nama software lain. Aplikasi yang nanti baru
 di-install tetap terdeteksi sebagai proses Linux biasa.
 
+AI Shield menambahkan perlindungan khusus di atas scan dinamis itu: proses yang
+memegang device GPU, pola nama/command line AI, dan seluruh child process-nya
+tidak dipage-out. Polanya bisa diganti lewat `REDUCE_MEMORY_AI_PATTERNS` untuk
+software baru tanpa mengubah source.
+
 ## Kenapa versi lama cuma mengurangi sekitar 100 MB?
 
 Jalur lama hanya:
@@ -50,6 +55,9 @@ storage. Aplikasi tetap hidup dan memuat page itu kembali saat diperlukan.
 - `normal`: hanya `sync`; cache dan aplikasi tetap hangat.
 - `smooth`: `sync` lalu melepas file/page cache. Tidak melakukan page-out
   terhadap proses aplikasi.
+- `ai-shield`: melindungi AI/GPU workload lalu melakukan page-out hanya pada
+  proses background yang idle. Tidak membuang cache global atau menjalankan
+  root-cgroup reclaim.
 - `aggressive`: page-out mapping proses yang idle, lalu drop page cache,
   reclaimable slab, dan cgroup v2 reclaim.
 - `status` atau `check`: hanya membaca metrik dan kemampuan kernel. Tidak
@@ -64,12 +72,14 @@ Engine tidak membunuh proses. Sebelum page-out, ia melewati:
 - proses yang memakai CPU selama sampling 300 ms;
 - aplikasi foreground yang dapat dideteksi melalui X11/Cinnamon;
 - child process dari aplikasi yang dilindungi;
+- proses AI/GPU dan seluruh child process-nya;
 - terminal, `sudo`, Reduce Memory, dan seluruh ancestor process-nya;
 - locked memory;
 - device/PFN/IO mappings;
 - stack, VDSO, VVAR, dan mapping khusus kernel.
 
-Proteksi ini tidak bergantung pada nama aplikasi. Untuk Wayland/compositor yang
+Proteksi umum tidak bergantung pada nama aplikasi. AI Shield menambahkan pola
+yang dapat dikonfigurasi dan deteksi pemilik GPU. Untuk Wayland/compositor yang
 tidak mengekspos active-window PID, CPU activity shield dan process-tree shield
 tetap bekerja, tetapi deteksi foreground tidak selalu tersedia.
 
@@ -104,7 +114,7 @@ chmod +x ReduceMemory_Linux.sh native/reduce-memory-native desktop/Install_Deskt
 ```
 
 Setelah itu cari **Reduce Memory** dari application menu. Password administrator
-baru diminta setelah Smooth atau Aggressive dipilih.
+baru diminta setelah Smooth, AI Shield, atau Aggressive dipilih.
 
 Installer Desktop membuat:
 
@@ -127,6 +137,7 @@ Jalankan mode kuat:
 
 ```bash
 sudo reduce-memory aggressive
+sudo reduce-memory ai-shield
 ```
 
 ## Linux Server atau VPS
@@ -143,11 +154,15 @@ Lalu:
 reduce-memory-server status
 reduce-memory-server normal
 sudo reduce-memory-server smooth
+sudo reduce-memory-server ai-shield
 sudo reduce-memory-server aggressive
 ```
 
 Jika server dijalankan melalui `sudo`, Aggressive menargetkan UID user pemanggil.
-Untuk semua user non-system dengan UID 1000 ke atas:
+AI Shield pada varian server memeriksa semua UID non-system (UID 1000 ke atas).
+Proses milik root/system tetap tidak menjadi kandidat reclaim, sehingga AI yang
+dijalankan sebagai root juga tidak disentuh. Untuk memaksa Aggressive memeriksa
+semua UID non-system:
 
 ```bash
 sudo REDUCE_MEMORY_ALL_USERS=1 reduce-memory-server aggressive
@@ -163,6 +178,7 @@ service.
 ./ReduceMemory_Linux.sh status
 ./ReduceMemory_Linux.sh normal
 sudo ./ReduceMemory_Linux.sh smooth
+sudo ./ReduceMemory_Linux.sh ai-shield
 sudo ./ReduceMemory_Linux.sh aggressive
 ```
 
@@ -171,6 +187,7 @@ Pengaturan optional:
 ```bash
 sudo REDUCE_MEMORY_RECLAIM_MB=1024 ./ReduceMemory_Linux.sh aggressive
 sudo REDUCE_MEMORY_MIN_RSS_MB=128 ./ReduceMemory_Linux.sh aggressive
+sudo REDUCE_MEMORY_AI_PATTERNS='my-ai-worker|future-model-server' ./ReduceMemory_Linux.sh ai-shield
 ```
 
 ## Dukungan dan batas nyata

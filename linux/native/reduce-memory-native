@@ -37,6 +37,20 @@ SUPPORTED_ARCHITECTURES = {
     "s390x",
 }
 
+SYSTEM_PROTECTED_NAMES = {
+    "systemd",
+    "init",
+    "sshd",
+    "systemd-journald",
+    "systemd-udevd",
+    "systemd-logind",
+    "systemd-network",
+    "systemd-resolve",
+    "dbus-daemon",
+    "containerd",
+    "dockerd",
+}
+
 MAP_HEADER = re.compile(
     r"^([0-9a-fA-F]+)-([0-9a-fA-F]+)\s+([rwxps-]{4})\s+"
     r"[0-9a-fA-F]+\s+\S+\s+\d+(?:\s+(.*))?$"
@@ -47,8 +61,9 @@ class IOVec(ctypes.Structure):
     _fields_ = [("iov_base", ctypes.c_void_p), ("iov_len", ctypes.c_size_t)]
 
 
-LIBC = ctypes.CDLL(None, use_errno=True)
-LIBC.syscall.restype = ctypes.c_long
+LIBC = ctypes.CDLL(None, use_errno=True) if platform.system() == "Linux" else None
+if LIBC is not None:
+    LIBC.syscall.restype = ctypes.c_long
 
 
 @dataclass
@@ -59,6 +74,7 @@ class ProcessSnapshot:
     cpu_ticks: int
     ppid: int
     name: str
+    command_line: str
 
 
 @dataclass
@@ -80,6 +96,7 @@ class Result:
     processes_failed: int = 0
     processes_active_skipped: int = 0
     processes_protected: int = 0
+    workloads_protected: int = 0
     mappings_advised: int = 0
     mappings_failed: int = 0
     bytes_advised: int = 0
@@ -96,6 +113,7 @@ def syscall_supported() -> tuple[bool, int]:
         return False, errno.ENOSYS
     if platform.machine().lower() not in SUPPORTED_ARCHITECTURES:
         return False, errno.ENOSYS
+    assert LIBC is not None
 
     ctypes.set_errno(0)
     result = LIBC.syscall(
@@ -116,6 +134,7 @@ def pidfd_open(pid: int) -> int:
     if hasattr(os, "pidfd_open"):
         return os.pidfd_open(pid, 0)
 
+    assert LIBC is not None
     ctypes.set_errno(0)
     result = LIBC.syscall(
         ctypes.c_long(SYS_PIDFD_OPEN), ctypes.c_int(pid), ctypes.c_uint(0)
@@ -127,6 +146,7 @@ def pidfd_open(pid: int) -> int:
 
 
 def process_madvise_pageout(pidfd: int, start: int, length: int) -> int:
+    assert LIBC is not None
     vector = IOVec(ctypes.c_void_p(start), ctypes.c_size_t(length))
     ctypes.set_errno(0)
     result = LIBC.syscall(
@@ -188,6 +208,36 @@ def process_has_executable(pid: int) -> bool:
         return False
 
 
+def process_command_line(pid: int) -> str:
+    """Return a searchable, bounded command line without failing the scan."""
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()[:65536]
+        return raw.replace(b"\0", b" ").decode("utf-8", errors="replace").strip()
+    except (FileNotFoundError, PermissionError, ProcessLookupError, OSError):
+        return ""
+
+
+def process_uses_gpu(pid: int) -> bool:
+    """Detect open NVIDIA/DRM render devices without vendor-specific tools."""
+    try:
+        with os.scandir(f"/proc/{pid}/fd") as descriptors:
+            for descriptor in descriptors:
+                try:
+                    target = os.readlink(descriptor.path)
+                except (FileNotFoundError, PermissionError, ProcessLookupError, OSError):
+                    continue
+                if target.startswith("/dev/nvidia") or target.startswith("/dev/dri/renderD"):
+                    return True
+    except (FileNotFoundError, PermissionError, ProcessLookupError, OSError):
+        return False
+    return False
+
+
+def matches_workload(snapshot: ProcessSnapshot, patterns: list[str]) -> bool:
+    searchable = f"{snapshot.name} {snapshot.command_line}".casefold()
+    return any(pattern.casefold() in searchable for pattern in patterns if pattern)
+
+
 def snapshot_processes(target_uid: int | None, all_users: bool) -> list[ProcessSnapshot]:
     snapshots: list[ProcessSnapshot] = []
     for entry in os.scandir("/proc"):
@@ -205,7 +255,11 @@ def snapshot_processes(target_uid: int | None, all_users: bool) -> list[ProcessS
             continue
         if all_users and uid < 1000:
             continue
-        snapshots.append(ProcessSnapshot(pid, uid, rss_kb, ticks, ppid, name))
+        snapshots.append(
+            ProcessSnapshot(
+                pid, uid, rss_kb, ticks, ppid, name, process_command_line(pid)
+            )
+        )
     return snapshots
 
 
@@ -218,7 +272,6 @@ def ancestor_pids(start_pid: int) -> set[int]:
         if parsed is None:
             break
         current = parsed[2]
-    ancestors.add(1)
     return ancestors
 
 
@@ -348,11 +401,24 @@ def command_pageout(arguments: argparse.Namespace) -> int:
             if parsed is not None and ticks is not None:
                 uid, rss_kb, ppid, name = parsed
                 by_pid[arguments.pid] = ProcessSnapshot(
-                    arguments.pid, uid, rss_kb, ticks, ppid, name
+                    arguments.pid,
+                    uid,
+                    rss_kb,
+                    ticks,
+                    ppid,
+                    name,
+                    process_command_line(arguments.pid),
                 )
 
     result = Result(processes_seen=len(by_pid))
     protected_roots = set(arguments.exclude_pid)
+    workload_roots = {
+        snapshot.pid
+        for snapshot in by_pid.values()
+        if matches_workload(snapshot, arguments.protect_pattern)
+        or (arguments.protect_gpu and process_uses_gpu(snapshot.pid))
+    }
+    protected_roots.update(workload_roots)
     # Automatic scans protect the terminal/sudo/helper ancestry and everything
     # launched underneath it. An explicit --pid is an intentional manual/test
     # target and must not be silently excluded merely because it is a sibling
@@ -360,6 +426,13 @@ def command_pageout(arguments: argparse.Namespace) -> int:
     if arguments.pid is None:
         protected_roots.update(ancestor_pids(os.getpid()))
     protected = descendant_pids(protected_roots, list(by_pid.values()))
+    protected.update(
+        snapshot.pid
+        for snapshot in by_pid.values()
+        if snapshot.name.casefold() in SYSTEM_PROTECTED_NAMES
+    )
+    workload_tree = descendant_pids(workload_roots, list(by_pid.values()))
+    result.workloads_protected = len(workload_tree)
 
     if arguments.activity_ms > 0 and arguments.pid is None:
         time.sleep(arguments.activity_ms / 1000.0)
@@ -430,6 +503,7 @@ def command_pageout(arguments: argparse.Namespace) -> int:
     emit("processes_failed", result.processes_failed)
     emit("processes_active_skipped", result.processes_active_skipped)
     emit("processes_protected", result.processes_protected)
+    emit("workloads_protected", result.workloads_protected)
     emit("mappings_advised", result.mappings_advised)
     emit("mappings_failed", result.mappings_failed)
     emit("bytes_advised", result.bytes_advised)
@@ -456,6 +530,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="target non-system UIDs (1000 and above)",
     )
     pageout.add_argument("--exclude-pid", type=int, action="append", default=[])
+    pageout.add_argument(
+        "--protect-pattern",
+        action="append",
+        default=[],
+        help="protect matching process name/command line and its descendants",
+    )
+    pageout.add_argument(
+        "--protect-gpu",
+        action="store_true",
+        help="protect processes holding NVIDIA or DRM render-device handles",
+    )
     pageout.add_argument("--min-rss-mb", type=int, default=64)
     pageout.add_argument("--min-mapping-kb", type=int, default=1024)
     pageout.add_argument("--activity-ms", type=int, default=300)

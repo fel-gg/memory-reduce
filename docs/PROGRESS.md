@@ -13,6 +13,16 @@ the AutoIt source for every intermediate binary.
 
 ## Completed source snapshot
 
+- Added cross-platform AI Shield while preserving Normal, Smooth, Aggressive,
+  Temp, Emergency, startup, and legacy command behavior.
+- Added configurable Windows AI process protection and Linux name/command-line,
+  GPU-owner, and descendant protection.
+- Fixed the Linux PID-tree boundary so PID 1 no longer causes a nearly
+  system-wide false protection set.
+- Added a VPS-safe AI Shield path that scans non-system UIDs while keeping root
+  and system services outside reclaim; it does not run global `drop_caches` or
+  root-cgroup reclaim.
+
 - Removed the embedded Sordum website reference from the upgraded source/build.
 - Kept startup non-elevated; elevation is deferred until a privileged mode is
   actually selected.

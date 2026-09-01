@@ -3,9 +3,11 @@ set -euo pipefail
 
 script_path="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
 script_directory="$(cd -- "$(dirname -- "${script_path}")" && pwd)"
-program_title="Reduce Memory 2.4 - Linux"
+program_title="Reduce Memory 2.5 - Linux"
+server_mode=0
 if [[ "${script_path##*/}" == "reduce-memory-server" ]]; then
-  program_title="Reduce Memory 2.4 - Linux Server"
+  program_title="Reduce Memory 2.5 - Linux Server"
+  server_mode=1
 fi
 
 # Alternate roots let CI execute the real reclaim paths against disposable
@@ -15,8 +17,11 @@ meminfo_file="${REDUCE_MEMORY_MEMINFO_FILE:-${proc_root}/meminfo}"
 vm_root="${REDUCE_MEMORY_VM_ROOT:-${proc_root}/sys/vm}"
 settle_seconds="${REDUCE_MEMORY_SETTLE_SECONDS:-1}"
 protected_pid="${REDUCE_MEMORY_PROTECT_PID:-}"
+default_ai_patterns="ollama|vllm|llama-server|llama.cpp|text-generation|tritonserver|torchrun|stable-diffusion|comfyui|automatic1111|invokeai|localai|koboldcpp|open-webui"
+ai_patterns="${REDUCE_MEMORY_AI_PATTERNS:-${default_ai_patterns}}"
 
-if [[ "$(uname -s)" != "Linux" ]]; then
+kernel_name="${REDUCE_MEMORY_KERNEL_NAME:-$(uname -s)}"
+if [[ "${kernel_name}" != "Linux" ]]; then
   echo "Script ini membutuhkan kernel Linux asli atau WSL2, bukan Git Bash/MSYS." >&2
   exit 3
 fi
@@ -253,19 +258,24 @@ reclaim_target_mb() {
   printf '%s\n' "${requested_mb}"
 }
 
-stage_sync="not requested"
-stage_drop_caches="not requested"
-stage_cgroup_reclaim="not requested"
-stage_native_pageout="not requested"
-reclaim_scope="-"
-reclaim_request_mb=0
-native_processes_seen=0
-native_processes_advised=0
-native_processes_active_skipped=0
-native_processes_protected=0
-native_mappings_advised=0
-native_bytes_advised=0
-native_rss_reduced_kb=0
+reset_stage_state() {
+  stage_sync="not requested"
+  stage_drop_caches="not requested"
+  stage_cgroup_reclaim="not requested"
+  stage_native_pageout="not requested"
+  reclaim_scope="-"
+  reclaim_request_mb=0
+  native_processes_seen=0
+  native_processes_advised=0
+  native_processes_active_skipped=0
+  native_processes_protected=0
+  native_workloads_protected=0
+  native_mappings_advised=0
+  native_bytes_advised=0
+  native_rss_reduced_kb=0
+}
+
+reset_stage_state
 
 run_sync() {
   sync
@@ -281,6 +291,7 @@ run_drop_caches() {
 }
 
 run_native_pageout() {
+  local profile="${1:-default}"
   local native_helper
   local target_uid="${REDUCE_MEMORY_TARGET_UID:-${SUDO_UID:-}}"
   local native_output=""
@@ -296,7 +307,7 @@ run_native_pageout() {
     return 0
   fi
 
-  if [[ "${REDUCE_MEMORY_ALL_USERS:-0}" == "1" ]]; then
+  if [[ "${REDUCE_MEMORY_ALL_USERS:-0}" == "1" || ( "${profile}" == "ai-shield" && "${server_mode}" == "1" ) ]]; then
     arguments+=(--all-users)
   elif [[ "${target_uid}" =~ ^[0-9]+$ ]] && (( target_uid > 0 )); then
     arguments+=(--uid "${target_uid}")
@@ -311,6 +322,15 @@ run_native_pageout() {
     --activity-ms "${REDUCE_MEMORY_ACTIVITY_MS:-300}"
     --settle-ms "${REDUCE_MEMORY_NATIVE_SETTLE_MS:-500}"
   )
+  if [[ "${REDUCE_MEMORY_PROTECT_GPU:-1}" == "1" ]]; then
+    arguments+=(--protect-gpu)
+  fi
+  local ai_pattern
+  local ai_pattern_list=()
+  IFS='|' read -r -a ai_pattern_list <<< "${ai_patterns}"
+  for ai_pattern in "${ai_pattern_list[@]}"; do
+    [[ -n "${ai_pattern}" ]] && arguments+=(--protect-pattern "${ai_pattern}")
+  done
   if [[ "${protected_pid}" =~ ^[0-9]+$ ]] && (( protected_pid > 1 )); then
     arguments+=(--exclude-pid "${protected_pid}")
   fi
@@ -322,6 +342,7 @@ run_native_pageout() {
   native_processes_advised="$(native_value "${native_output}" processes_advised)"
   native_processes_active_skipped="$(native_value "${native_output}" processes_active_skipped)"
   native_processes_protected="$(native_value "${native_output}" processes_protected)"
+  native_workloads_protected="$(native_value "${native_output}" workloads_protected)"
   native_mappings_advised="$(native_value "${native_output}" mappings_advised)"
   native_bytes_advised="$(native_value "${native_output}" bytes_advised)"
   native_rss_reduced_kb="$(native_value "${native_output}" rss_reduced_kb)"
@@ -330,6 +351,7 @@ run_native_pageout() {
   native_processes_advised="${native_processes_advised:-0}"
   native_processes_active_skipped="${native_processes_active_skipped:-0}"
   native_processes_protected="${native_processes_protected:-0}"
+  native_workloads_protected="${native_workloads_protected:-0}"
   native_mappings_advised="${native_mappings_advised:-0}"
   native_bytes_advised="${native_bytes_advised:-0}"
   native_rss_reduced_kb="${native_rss_reduced_kb:-0}"
@@ -402,6 +424,7 @@ print_result() {
     printf 'Processes paged out     : %s\n' "${native_processes_advised}"
     printf 'Active processes skipped: %s\n' "${native_processes_active_skipped}"
     printf 'Protected processes     : %s\n' "${native_processes_protected}"
+    printf 'AI/GPU workloads safe   : %s\n' "${native_workloads_protected}"
     printf 'Mappings advised        : %s\n' "${native_mappings_advised}"
     printf 'Bytes advised           : %d MB\n' "$((native_bytes_advised / 1024 / 1024))"
     printf 'Process RSS reduced     : %d MB\n' "$((native_rss_reduced_kb / 1024))"
@@ -432,19 +455,7 @@ perform_mode() {
   local native_helper
   local native_check_output
 
-  stage_sync="not requested"
-  stage_drop_caches="not requested"
-  stage_cgroup_reclaim="not requested"
-  stage_native_pageout="not requested"
-  reclaim_scope="-"
-  reclaim_request_mb=0
-  native_processes_seen=0
-  native_processes_advised=0
-  native_processes_active_skipped=0
-  native_processes_protected=0
-  native_mappings_advised=0
-  native_bytes_advised=0
-  native_rss_reduced_kb=0
+  reset_stage_state
 
   before_available_kb="$(require_numeric_meminfo MemAvailable)"
   before_cache_kb="$(cache_kb)"
@@ -480,6 +491,11 @@ perform_mode() {
       require_drop_caches
       run_sync
       run_drop_caches 1
+      ;;
+    ai-shield)
+      require_root "${selected_mode}"
+      run_sync
+      run_native_pageout ai-shield
       ;;
     aggressive)
       require_root "${selected_mode}"
@@ -517,7 +533,7 @@ run_privileged_mode() {
   local detected_active_pid=""
   local extra_arguments=()
 
-  if [[ "${selected_mode}" == "aggressive" ]]; then
+  if [[ "${selected_mode}" == "aggressive" || "${selected_mode}" == "ai-shield" ]]; then
     detected_active_pid="$(detect_active_application_pid)"
     if [[ "${detected_active_pid}" =~ ^[0-9]+$ ]]; then
       extra_arguments+=(--protect-pid "${detected_active_pid}")
@@ -563,8 +579,9 @@ show_menu() {
       "$(( $(cache_kb) / 1024 ))"
     printf '%s\n' '1. Normal     - sync saja; cache dan aplikasi tetap hangat'
     printf '%s\n' '2. Smooth     - melepas file cache saja (butuh password)'
-    printf '%s\n' '3. Aggressive - page-out aplikasi + cache + cgroup (butuh password)'
-    printf '%s\n' '4. Status     - metrik dan dukungan kernel, tanpa perubahan'
+    printf '%s\n' '3. AI Shield  - lindungi AI/GPU, page-out background idle (butuh password)'
+    printf '%s\n' '4. Aggressive - page-out aplikasi + cache + cgroup (butuh password)'
+    printf '%s\n' '5. Status     - metrik dan dukungan kernel, tanpa perubahan'
     printf '%s\n' '0. Exit'
     printf '\nPilih mode [1]: '
 
@@ -582,7 +599,13 @@ show_menu() {
         run_privileged_mode smooth || true
         pause_menu
         ;;
-      3|aggressive)
+      3|ai|ai-shield)
+        printf '\nAI Shield melindungi proses AI/GPU dan child process-nya.\n'
+        printf 'Hanya proses background idle yang diminta keluar dari RAM; cache global tidak dibuang.\n'
+        run_privileged_mode ai-shield || true
+        pause_menu
+        ;;
+      4|aggressive)
         printf '\nAggressive meminta Linux melakukan page-out pada aplikasi idle, lalu mereclaim cache.\n'
         printf 'Jika swap aktif, aplikasi bisa terasa lambat saat halaman itu dipakai kembali.\n'
         printf 'Aplikasi aktif dan process tree-nya dilindungi; tidak ada proses yang dimatikan.\n'
@@ -595,7 +618,7 @@ show_menu() {
         fi
         pause_menu
         ;;
-      4|check|status)
+      5|check|status)
         perform_mode status || true
         pause_menu
         ;;
@@ -620,6 +643,7 @@ Usage:
   reduce-memory status           Alias read-only untuk server
   reduce-memory normal           Sync tanpa membuang cache atau app pages
   sudo reduce-memory smooth      Lepaskan Linux file/page cache
+  sudo reduce-memory ai-shield   Lindungi AI/GPU; page-out background idle
   sudo reduce-memory aggressive  Process page-out + cache + cgroup reclaim
 
 Optional Aggressive setting:
@@ -662,7 +686,7 @@ case "${requested_command}" in
   --help|-h|help)
     show_usage
     ;;
-  check|status|normal|smooth|aggressive)
+  check|status|normal|smooth|ai-shield|aggressive)
     perform_mode "${requested_command}"
     ;;
   *)

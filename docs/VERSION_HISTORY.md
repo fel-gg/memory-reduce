@@ -1,5 +1,20 @@
 # Version history
 
+## Reduce Memory 2.5 — 2026
+
+- Added AI Shield on Windows, Linux Desktop, and Linux Server while keeping all
+  existing mode commands compatible.
+- Protected known AI processes on Windows and protected Linux AI command lines,
+  GPU-device owners, and their complete child-process trees.
+- Kept AI Shield away from global standby/cache purge so active models are less
+  likely to reload or stutter.
+- Fixed Linux automatic protection accidentally including PID 1, which could
+  cause almost every server process to be skipped.
+- Made Linux Server AI Shield scan all non-system UIDs while keeping root and
+  system services outside the reclaim candidate set.
+- Centralized repeated Linux per-pass state initialization and expanded CI for
+  AI-pattern protection, mode compatibility, and Desktop/Server menus.
+
 ## Reduce Memory 2.4 — 2026
 
 - Added Windows login cleanup through the existing startup option: wait for the

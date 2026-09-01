@@ -78,6 +78,12 @@ jobs:
           test "${bytes_advised}" -gt 0
           test "${rss_reduced}" -gt 16384
           test "${rss_after}" -lt "${rss_before}"
+
+          protected_output="$(sudo linux/native/reduce-memory-native pageout \
+            --pid "${target_pid}" --min-rss-mb 1 --activity-ms 0 --settle-ms 0 \
+            --protect-pattern reduce-memory-native-target.bin)"
+          grep -F 'native_status=no_candidates' <<< "${protected_output}"
+          grep -F 'workloads_protected=1' <<< "${protected_output}"
           kill "${target_pid}"
           wait "${target_pid}" || true
           trap - EXIT
@@ -119,6 +125,7 @@ jobs:
           processes_advised=4
           processes_active_skipped=3
           processes_protected=2
+          workloads_protected=2
           mappings_advised=28
           bytes_advised=536870912
           rss_reduced_kb=393216
@@ -139,6 +146,14 @@ jobs:
           test "$(tr -d '\n' < "${mock_root}/vm/drop_caches")" = '1'
           grep -F 'drop_caches             : done (level 1)' <<< "${smooth_output}"
           grep -F 'cgroup memory.reclaim   : not requested' <<< "${smooth_output}"
+
+          ai_output="$(sudo env "${common_env[@]}" ./linux/ReduceMemory_Linux.sh ai-shield)"
+          test "$(tr -d '\n' < "${mock_root}/vm/drop_caches")" = '1'
+          test ! -s "${mock_root}/cgroup/memory.reclaim"
+          grep -F 'Mode                    : ai-shield' <<< "${ai_output}"
+          grep -F 'AI/GPU workloads safe   : 2' <<< "${ai_output}"
+          grep -F 'drop_caches             : not requested' <<< "${ai_output}"
+          grep -F 'cgroup memory.reclaim   : not requested' <<< "${ai_output}"
 
           aggressive_output="$(sudo env "${common_env[@]}" REDUCE_MEMORY_RECLAIM_MB=1024 ./linux/ReduceMemory_Linux.sh aggressive)"
           test "$(tr -d '\n' < "${mock_root}/vm/drop_caches")" = '3'
@@ -162,9 +177,10 @@ jobs:
           "${install_root}/bin/reduce-memory" check
           "${install_root}/bin/reduce-memory-native" check
           menu_output="$(printf '0\n' | "${install_root}/bin/reduce-memory" --menu)"
-          grep -F 'Reduce Memory 2.4 - Linux' <<< "${menu_output}"
+          grep -F 'Reduce Memory 2.5 - Linux' <<< "${menu_output}"
           ! grep -F 'Linux Server' <<< "${menu_output}"
-          grep -F '3. Aggressive' <<< "${menu_output}"
+          grep -F '3. AI Shield' <<< "${menu_output}"
+          grep -F '4. Aggressive' <<< "${menu_output}"
       - name: Verify Linux server installation
         run: |
           server_bin="${RUNNER_TEMP}/reduce-memory-server/bin"
@@ -178,5 +194,6 @@ jobs:
           grep -F 'Mode                    : status' <<< "${status_output}"
           grep -F 'Native process page-out : supported' <<< "${status_output}"
           server_menu="$(printf '0\n' | "${server_bin}/reduce-memory-server" --menu)"
-          grep -F 'Reduce Memory 2.4 - Linux Server' <<< "${server_menu}"
-          grep -F '3. Aggressive' <<< "${server_menu}"
+          grep -F 'Reduce Memory 2.5 - Linux Server' <<< "${server_menu}"
+          grep -F '3. AI Shield' <<< "${server_menu}"
+          grep -F '4. Aggressive' <<< "${server_menu}"
