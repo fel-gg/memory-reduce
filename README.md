@@ -1,10 +1,10 @@
-# Reduce Memory 2.3
+# Reduce Memory 2.4
 
 Reduce Memory adalah tool kecil buat membantu RAM terasa lebih lega di Windows
 dan Linux. Keduanya punya engine terpisah karena cara Windows dan Linux
 mengelola memori memang berbeda.
 
-Proyek ini adalah **Reduce Memory 2.3**, terinspirasi dari Reduce Memory v1.7
+Proyek ini adalah **Reduce Memory 2.4**, terinspirasi dari Reduce Memory v1.7
 buatan Sordum Team.
 Di repo ini, alur tersebut kita kembangkan lagi: pilihan mode diperjelas,
 Aggressive dibuat lebih kuat, ada versi Smooth supaya tidak gampang bikin lag,
@@ -36,6 +36,14 @@ sedang memakai CPU cukup tinggi.
 Saat dibuka, program tidak langsung meminta izin administrator. Izin tersebut
 baru diminta ketika kamu memilih operasi yang memang membutuhkannya.
 
+Kalau **Automatically start at Windows startup** diaktifkan dari Options,
+program menunggu 10 detik setelah login, menjalankan satu **Normal** pass tanpa
+jendela/UAC, lalu tetap menjadi monitor tersembunyi. Saat RAM mencapai 95% pada
+dua pemeriksaan berturut-turut, Normal pass dijalankan lagi. Cooldown 5 menit
+dan titik re-arm 90% mencegah loop trim berulang. Mode manual yang dipilih di
+dropdown tidak diubah; startup sengaja tidak menjalankan Emergency/Aggressive
+supaya login tidak tersendat.
+
 Setelah Optimize, hasil langsung tampil di jendela utama. Lima belas detik
 kemudian hasil stabil dihitung ulang. Kalau memori langsung diambil kembali,
 rebound protection menahan operasi berat selama 60 detik. Ringkasan setiap
@@ -61,11 +69,13 @@ operasi juga disimpan di `windows/ReduceMemory.log` dengan ukuran terbatas.
 
 Self-test tidak memangkas RAM atau membersihkan cache. Ia memeriksa pembacaan
 RAM/commit, CPU time, process-path WinAPI, seluruh jalur pemilihan kandidat
-Normal, kelima mode, dan penulisan log:
+Normal, kelima mode, logika trigger 95%/re-arm 90%, dan penulisan log:
 
 ```powershell
 .\windows\ReduceMemory_x64.exe /RMSELFTEST
 .\windows\ReduceMemory.exe /RMSELFTEST
+.\windows\ReduceMemory_x64.exe /RMMONITORSELFTEST
+.\windows\ReduceMemory.exe /RMMONITORSELFTEST
 ```
 
 ## Versi Linux native

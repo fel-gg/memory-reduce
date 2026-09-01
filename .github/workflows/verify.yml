@@ -15,11 +15,15 @@ jobs:
         run: |
           $process = Start-Process -FilePath .\windows\ReduceMemory_x64.exe -ArgumentList /RMSELFTEST -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "x64 self-test failed with exit code $($process.ExitCode)" }
+          $monitor = Start-Process -FilePath .\windows\ReduceMemory_x64.exe -ArgumentList /RMMONITORSELFTEST -Wait -PassThru
+          if ($monitor.ExitCode -ne 0) { throw "x64 monitor logic failed with exit code $($monitor.ExitCode)" }
       - name: Verify x86 self-test
         shell: pwsh
         run: |
           $process = Start-Process -FilePath .\windows\ReduceMemory.exe -ArgumentList /RMSELFTEST -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "x86 self-test failed with exit code $($process.ExitCode)" }
+          $monitor = Start-Process -FilePath .\windows\ReduceMemory.exe -ArgumentList /RMMONITORSELFTEST -Wait -PassThru
+          if ($monitor.ExitCode -ne 0) { throw "x86 monitor logic failed with exit code $($monitor.ExitCode)" }
 
   linux:
     runs-on: ubuntu-latest
@@ -158,7 +162,7 @@ jobs:
           "${install_root}/bin/reduce-memory" check
           "${install_root}/bin/reduce-memory-native" check
           menu_output="$(printf '0\n' | "${install_root}/bin/reduce-memory" --menu)"
-          grep -F 'Reduce Memory 2.3 - Linux' <<< "${menu_output}"
+          grep -F 'Reduce Memory 2.4 - Linux' <<< "${menu_output}"
           ! grep -F 'Linux Server' <<< "${menu_output}"
           grep -F '3. Aggressive' <<< "${menu_output}"
       - name: Verify Linux server installation
@@ -174,5 +178,5 @@ jobs:
           grep -F 'Mode                    : status' <<< "${status_output}"
           grep -F 'Native process page-out : supported' <<< "${status_output}"
           server_menu="$(printf '0\n' | "${server_bin}/reduce-memory-server" --menu)"
-          grep -F 'Reduce Memory 2.3 - Linux Server' <<< "${server_menu}"
+          grep -F 'Reduce Memory 2.4 - Linux Server' <<< "${server_menu}"
           grep -F '3. Aggressive' <<< "${server_menu}"

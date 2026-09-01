@@ -3,9 +3,9 @@ set -euo pipefail
 
 script_path="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
 script_directory="$(cd -- "$(dirname -- "${script_path}")" && pwd)"
-program_title="Reduce Memory 2.3 - Linux"
+program_title="Reduce Memory 2.4 - Linux"
 if [[ "${script_path##*/}" == "reduce-memory-server" ]]; then
-  program_title="Reduce Memory 2.3 - Linux Server"
+  program_title="Reduce Memory 2.4 - Linux Server"
 fi
 
 # Alternate roots let CI execute the real reclaim paths against disposable

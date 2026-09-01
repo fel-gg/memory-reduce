@@ -5,7 +5,7 @@ If Not IsDeclared ( "Os" ) Then Global $OS
 Global $A3380B02A2C = "MustDeclareVars" , $A2790402500 = "GUI_RUNDEFMSG" , $A0B90601C20 = "GUIDataSeparatorChar" , $A5B90705434 = "WinDetectHiddenText" , $A1090900A56 = "1.7" , $A3A90B05762 = "ReduceMemory" , $A4890D04726 = "Reduce Memory" , $A36A0000608 = " - Author by BlueLife" , $A0CA0202515 = "[CLASS:_MReduce:v" , $A58A030490B = "]" , $A19A050611A = "2013-2024" , $A1FA0B0155D = " @UserName " , $A30A0F0565F = " @Compiled " , $A14B0102331 = " @AutoItExe " , $A19B0303F03 = " @OSArch " , $A1FB050530A = " @AutoItX64 " , $A24B0704245 = " @AutoItPID " , $A41B0904162 = " @OSVersion " , $A4EB0B05206 = "AutoIt.Error" , $A53B0E04938 = "_(XP|200(0|3))" , $A42C0005F35 = " @WindowsDir " , $A34C0203522 = "System32\" , $A17C0505B2A = " @WorkingDir " , $A48C0804D4D = "kernel32.dll" , $A23C0A04F06 = "user32.dll" , $A0CC0C01F2E = "advapi32.dll" , $A55C0E01626 = "shell32.dll" , _
 $A16D000163E = "ole32.dll" , $A57D020482F = "comctl32.dll" , $A54D0402622 = "gdi32.dll" , $A0BD0604C48 = "psapi.dll" , $A34D090231C = " @ScriptDir " , $A18D0B05E2E = "Icons\" , $A12D0D0163B = ".ini" , $A5CE0702436 = "HideWindowOnStartup" , $A4DE0905E47 = "HideWhenMinimized" , $A54E0B00A4B = "WinSetOnTop" , $A05E0D01131 = "SystemUser" , $A63E0F04B1C = "TrayIconPack" , $A45F020231C = "TaskOptions" , $A5EF040325E = "UsedMemory" , $A27F050091E = "75%" , $A57F0603C63 = "[^0-9]" , $A26F080043F = "CountDown" , $A25F0A03415 = "ExclusionOpt" , $A2AF0C0551E = "Main" , $A2DF0D02906 = "Exclusions" , $A07F0F00236 = "Main" , $A3001000F39 = "Processes" , $A1C0130371A = "HKLM" , $A0601502317 = "HKCU" , $A2001601838 = "64" , $A1C0170504E = "64" , $A0E01E04600 = "Tahoma"
 ; Reduce Memory project version (the original table entry is retained for provenance)
-$A1090900A56 = "2.2"
+$A1090900A56 = "2.4"
 Opt ( $A3380B02A2C , 1 )
 Global Const $A4080C05448 = Chr ( 92 )
 Global Const $A2280D04544 = Chr ( 47 )
@@ -123,6 +123,28 @@ Global $RM_StablePressureText = ""
 Global $RM_LastModeName = "Normal Optimize"
 Global $RM_ReboundAt = 0
 Global $RM_ReboundCooldownSeconds = 60
+; Startup is a separate silent Normal pass plus a tiny pressure monitor. It
+; never runs an elevated/native memory-list purge, so Windows login does not
+; produce a UAC prompt or an Emergency-mode stutter. The monitor only re-arms
+; after pressure falls below the lower watermark.
+Global $RM_StartupMonitorThreshold = Int ( Number ( A3560501B29 ( "StartupMonitorThreshold" , 95 ) ) )
+If $RM_StartupMonitorThreshold < 80 Then $RM_StartupMonitorThreshold = 80
+If $RM_StartupMonitorThreshold > 99 Then $RM_StartupMonitorThreshold = 99
+Global $RM_StartupMonitorHysteresis = Int ( Number ( A3560501B29 ( "StartupMonitorHysteresis" , 5 ) ) )
+If $RM_StartupMonitorHysteresis < 1 Then $RM_StartupMonitorHysteresis = 1
+If $RM_StartupMonitorHysteresis > 15 Then $RM_StartupMonitorHysteresis = 15
+Global $RM_StartupMonitorIntervalSeconds = Int ( Number ( A3560501B29 ( "StartupMonitorIntervalSeconds" , 2 ) ) )
+If $RM_StartupMonitorIntervalSeconds < 1 Then $RM_StartupMonitorIntervalSeconds = 1
+If $RM_StartupMonitorIntervalSeconds > 60 Then $RM_StartupMonitorIntervalSeconds = 60
+Global $RM_StartupMonitorCooldownSeconds = Int ( Number ( A3560501B29 ( "StartupMonitorCooldownSeconds" , 300 ) ) )
+If $RM_StartupMonitorCooldownSeconds < 60 Then $RM_StartupMonitorCooldownSeconds = 60
+If $RM_StartupMonitorCooldownSeconds > 3600 Then $RM_StartupMonitorCooldownSeconds = 3600
+Global $RM_StartupDelaySeconds = Int ( Number ( A3560501B29 ( "StartupDelaySeconds" , 10 ) ) )
+If $RM_StartupDelaySeconds < 0 Then $RM_StartupDelaySeconds = 0
+If $RM_StartupDelaySeconds > 120 Then $RM_StartupDelaySeconds = 120
+Global $RM_StartupConfirmSamples = Int ( Number ( A3560501B29 ( "StartupConfirmSamples" , 2 ) ) )
+If $RM_StartupConfirmSamples < 2 Then $RM_StartupConfirmSamples = 2
+If $RM_StartupConfirmSamples > 10 Then $RM_StartupConfirmSamples = 10
 Global $A3FF090012D = A5560304940 ( $A25F0A03415 , 1 , 0 , 1 )
 Global $A1DF0B03725 = A1160200452 ( $A45D0C00410 , $A2AF0C0551E , $A2DF0D02906 , $A5580E05E46 )
 $A1DF0B03725 = A5720304C54 ( $A1DF0B03725 , 1 )
@@ -543,6 +565,110 @@ Func RM_WriteLog ( $RM_StableGain , $RM_ReboundDetected )
 	FileWriteLine ( $RM_LogPath , @YEAR & "-" & StringFormat ( "%02d" , @MON ) & "-" & StringFormat ( "%02d" , @MDAY ) & " " & StringFormat ( "%02d:%02d:%02d" , @HOUR , @MIN , @SEC ) & " | mode=" & $RM_LastModeName & " | immediate=" & $RM_ImmediateGainMB & " MB | stable=" & $RM_StableGain & " MB | rebound=" & $RM_ReboundValue & " | " & $RM_StablePressureText )
 EndFunc
 
+Func RM_GetMemoryLoadPercent ( )
+	Local $RM_Stats = MemGetStats ( )
+	If Not IsArray ( $RM_Stats ) Or $RM_Stats [ 1 ] <= 0 Then Return - 1
+	Return Round ( ( ( $RM_Stats [ 1 ] - $RM_Stats [ 2 ] ) / $RM_Stats [ 1 ] ) * 100 )
+EndFunc
+
+Func RM_AcquireStartupMonitor ( )
+	Local $RM_Mutex = DllCall ( "kernel32.dll" , "handle" , "CreateMutexW" , "ptr" , 0 , "bool" , False , "wstr" , "Local\ReduceMemory.StartupMonitor.v1" )
+	If @error Or Not IsArray ( $RM_Mutex ) Or $RM_Mutex [ 0 ] = 0 Then Return 0
+	Local $RM_LastError = DllCall ( "kernel32.dll" , "dword" , "GetLastError" )
+	If IsArray ( $RM_LastError ) And $RM_LastError [ 0 ] = 183 Then
+		DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_Mutex [ 0 ] )
+		Return 0
+	EndIf
+	Return $RM_Mutex [ 0 ]
+EndFunc
+
+Func RM_ReleaseStartupMonitor ( $RM_MutexHandle )
+	If $RM_MutexHandle <> 0 Then DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_MutexHandle )
+EndFunc
+
+Func RM_RunSilentNormalPass ( $RM_Reason )
+	Local $RM_Before = MemGetStats ( )
+	If Not IsArray ( $RM_Before ) Then Return 0
+	Local $RM_IncludeOnly = 0
+	Local $RM_ProcessRule = $A1DF0B03725
+	If $A3FF090012D = 0 Then
+		$RM_ProcessRule = $A10F0E03A56
+		If StringLen ( $RM_ProcessRule ) > 1 Then $RM_IncludeOnly = 1
+	EndIf
+	Local $RM_Trimmed = A2A20200810 ( $RM_IncludeOnly , $RM_ProcessRule )
+	Sleep ( 250 )
+	Local $RM_After = MemGetStats ( )
+	Local $RM_GainMB = 0
+	If IsArray ( $RM_After ) Then $RM_GainMB = Round ( ( $RM_After [ 2 ] - $RM_Before [ 2 ] ) / 1024 )
+	If $RM_GainMB < 0 Then $RM_GainMB = 0
+	$RM_ImmediateGainMB = $RM_GainMB
+	$RM_LastModeName = $RM_Reason & " Normal"
+	$RM_StablePressureText = RM_GetPressureSummary ( ) & " | trimmed " & $RM_Trimmed
+	RM_WriteLog ( $RM_GainMB , 0 )
+	Return $RM_Trimmed
+EndFunc
+
+Func RM_StartupMonitorDecision ( $RM_Load , ByRef $RM_Armed , ByRef $RM_HighSamples )
+	If $RM_Load < 0 Then
+		$RM_HighSamples = 0
+		Return 0
+	EndIf
+	If $RM_Load <= $RM_StartupMonitorThreshold - $RM_StartupMonitorHysteresis Then
+		$RM_Armed = 1
+		$RM_HighSamples = 0
+		Return 0
+	EndIf
+	If $RM_Armed = 0 Then Return 0
+	If $RM_Load < $RM_StartupMonitorThreshold Then
+		$RM_HighSamples = 0
+		Return 0
+	EndIf
+	$RM_HighSamples += 1
+	If $RM_HighSamples < $RM_StartupConfirmSamples Then Return 0
+	$RM_Armed = 0
+	$RM_HighSamples = 0
+	Return 1
+EndFunc
+
+Func RM_StartupMonitorSelfTest ( )
+	Local $RM_Armed = 1 , $RM_HighSamples = 0
+	If RM_StartupMonitorDecision ( $RM_StartupMonitorThreshold - 1 , $RM_Armed , $RM_HighSamples ) <> 0 Then Return 0
+	For $RM_TestSample = 1 To $RM_StartupConfirmSamples - 1
+		If RM_StartupMonitorDecision ( $RM_StartupMonitorThreshold , $RM_Armed , $RM_HighSamples ) <> 0 Then Return 0
+	Next
+	If RM_StartupMonitorDecision ( $RM_StartupMonitorThreshold , $RM_Armed , $RM_HighSamples ) <> 1 Then Return 0
+	If RM_StartupMonitorDecision ( 100 , $RM_Armed , $RM_HighSamples ) <> 0 Then Return 0
+	If $RM_Armed <> 0 Then Return 0
+	If RM_StartupMonitorDecision ( $RM_StartupMonitorThreshold - $RM_StartupMonitorHysteresis , $RM_Armed , $RM_HighSamples ) <> 0 Then Return 0
+	If $RM_Armed <> 1 Then Return 0
+	Return 1
+EndFunc
+
+Func RM_RunStartupMonitor ( )
+	Local $RM_MutexHandle = RM_AcquireStartupMonitor ( )
+	If $RM_MutexHandle = 0 Then Return 0
+	If $RM_StartupDelaySeconds > 0 Then Sleep ( $RM_StartupDelaySeconds * 1000 )
+	RM_RunSilentNormalPass ( "Startup" )
+	Local $RM_LastPass = TimerInit ( )
+	Local $RM_Armed = 1 , $RM_HighSamples = 0
+	While 1
+		Sleep ( $RM_StartupMonitorIntervalSeconds * 1000 )
+		Local $RM_Load = RM_GetMemoryLoadPercent ( )
+		If RM_StartupMonitorDecision ( $RM_Load , $RM_Armed , $RM_HighSamples ) = 1 Then
+			If TimerDiff ( $RM_LastPass ) >= $RM_StartupMonitorCooldownSeconds * 1000 Then
+				RM_RunSilentNormalPass ( $RM_StartupMonitorThreshold & "% monitor" )
+				$RM_LastPass = TimerInit ( )
+			Else
+				; Pressure arrived during cooldown. Keep watching so a sustained 95%
+				; condition is handled as soon as cooldown expires.
+				$RM_Armed = 1
+			EndIf
+		EndIf
+	WEnd
+	RM_ReleaseStartupMonitor ( $RM_MutexHandle )
+	Return 1
+EndFunc
+
 Func RM_GetPressureSummary ( )
 	Local $RM_Memory = DllStructCreate ( "dword Length;dword MemoryLoad;uint64 TotalPhys;uint64 AvailPhys;uint64 TotalPageFile;uint64 AvailPageFile;uint64 TotalVirtual;uint64 AvailVirtual;uint64 AvailExtendedVirtual" )
 	DllStructSetData ( $RM_Memory , "Length" , DllStructGetSize ( $RM_Memory ) )
@@ -788,6 +914,7 @@ Func A2C10200057 ( )
 		If StringLen ( RM_GetProcessPath ( @AutoItPID ) ) = 0 Then Exit 14
 		If RM_ValidateNormalSelection ( ) < 1 Then Exit 15
 		If StringLeft ( $RM_CPUShieldPIDs , 1 ) <> "|" Then Exit 15
+		If RM_StartupMonitorSelfTest ( ) <> 1 Then Exit 16
 		Local $RM_SelfOriginalMode = $RM_OptimizeMode
 		For $RM_SelfModeIndex = 0 To 4
 			$RM_OptimizeMode = $RM_SelfModeIndex
@@ -798,6 +925,16 @@ Func A2C10200057 ( )
 		$RM_StablePressureText = $RM_SelfPressure
 		RM_WriteLog ( 0 , 0 )
 		If Not FileExists ( @ScriptDir & "\ReduceMemory.log" ) Then Exit 13
+		Exit 0
+	EndIf
+	If $CMDLINE [ 1 ] = "/RMMONITORSELFTEST" Then
+		If RM_StartupMonitorSelfTest ( ) = 1 Then Exit 0
+		Exit 16
+	EndIf
+	; /H remains an alias so existing startup shortcuts automatically receive
+	; the new silent cleanup + 95% monitor after the executable is updated.
+	If $CMDLINE [ 1 ] = "/RMAUTOSTART" Or $CMDLINE [ 1 ] = $A039130111D Then
+		RM_RunStartupMonitor ( )
 		Exit 0
 	EndIf
 	If $CMDLINE [ 1 ] = "/RMAGGRESSIVE" Then
@@ -818,10 +955,6 @@ Func A2C10200057 ( )
 	If ( $CMDLINE [ 0 ] = 2 And $CMDLINE [ 1 ] = $A4191204E34 ) Then
 		$A2601902115 = 1
 		If Number ( $CMDLINE [ 2 ] ) = 0 Then $A2601902115 = 2
-		Return 0
-	EndIf
-	If $CMDLINE [ 1 ] = $A039130111D Then
-		$A45E0501D47 = 1
 		Return 0
 	EndIf
 	Local $CMDLINE_OPT = 0
@@ -1308,7 +1441,7 @@ Func A0D10C02932 ( )
 EndFunc
 Func A0B10D03324 ( )
 	If Not IsDeclared ( "SSA0B10D03324" ) Then
-		Global $A2F2230475A = "ReduceMemory.lnk" , $A3B2240294F = "/H" , $A2622504737 = "Reduce Memory"
+		Global $A2F2230475A = "ReduceMemory.lnk" , $A3B2240294F = "/RMAUTOSTART" , $A2622504737 = "Reduce Memory"
 		Global $SSA0B10D03324 = 1
 	EndIf
 	If StringLen ( $A1801C02855 ) = 0 Or FileExists ( $A1801C02855 ) = 0 Then Return 0

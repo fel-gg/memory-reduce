@@ -35,6 +35,13 @@ the AutoIt source for every intermediate binary.
   without trimming, preventing GUI-only compatibility failures from hiding.
 - Cleaned the canonical AutoIt source to `0 error(s), 0 warning(s)` under the
   matching AutoIt 3.3.6.1 syntax checker.
+- Reworked the existing Windows startup checkbox into a silent login Normal
+  pass plus a hidden 95% pressure monitor; the main window and tray do not stay
+  open.
+- Added two-sample confirmation, a five-minute cooldown, a 90% re-arm
+  watermark, and a named mutex preventing duplicate monitors.
+- Kept automatic passes non-elevated and separate from manual Aggressive or
+  Emergency selection so startup remains smooth and never requests UAC.
 
 ## Packaging and platform milestone
 
@@ -86,7 +93,8 @@ the AutoIt source for every intermediate binary.
 ## Deliberately not included
 
 - Stop-when-enough targets are not used; a selected mode runs its defined pass.
-- No new automatic memory-pressure trigger was added.
+- Windows has one narrowly scoped 95% startup-monitor trigger; Linux still has
+  no automatic trigger or daemon.
 - Temp cleanup behavior was not expanded beyond its existing warning and
   locked-file skipping.
 - The first half of Active Application Shield is implemented; GPU, audio,

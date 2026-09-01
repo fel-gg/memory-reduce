@@ -1,5 +1,18 @@
 # Version history
 
+## Reduce Memory 2.4 — 2026
+
+- Added Windows login cleanup through the existing startup option: wait for the
+  desktop to settle, run one silent Normal pass, and keep only a hidden monitor.
+- Added a 95% RAM pressure trigger requiring two consecutive samples.
+- Added a five-minute cooldown and 90% re-arm watermark so sustained pressure
+  cannot create a trim/reload loop.
+- Kept startup non-elevated and independent from the manual dropdown, so an
+  Emergency/Aggressive selection never creates a login UAC prompt or stutter.
+- Added a named per-user mutex so duplicate startup shortcuts cannot create
+  duplicate monitors, while retaining `/H` compatibility for old shortcuts.
+- Added deterministic monitor-policy self-tests on Windows x64 and x86.
+
 ## Reduce Memory 2.3 — 2026
 
 - Rebuilt Linux Aggressive around `pidfd_open` and
