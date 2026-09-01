@@ -9,6 +9,7 @@
 - Includes the Linux application launcher and headless Server/VPS installer.
 - Includes cross-platform GitHub Actions checks for Windows, Ubuntu desktop
   installation, and Ubuntu server installation.
+- Adds automated, tag-driven GitHub Release packages and SHA-256 checksums.
 
 ## Reduce Memory 2.0 — 2026
 

@@ -1,0 +1,112 @@
+name: Publish release
+
+on:
+  push:
+    tags:
+      - "v*"
+    branches:
+      - release-publish
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v2.2' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build release packages from tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          mkdir -p dist audit
+
+          git archive \
+            --format=zip \
+            --prefix="ReduceMemory-Windows-v${version}/" \
+            --output="dist/ReduceMemory-Windows-v${version}.zip" \
+            "${RELEASE_TAG}" \
+            windows/ReduceMemory_x64.exe \
+            windows/ReduceMemory.exe \
+            windows/ReduceMemory.ini \
+            README.md \
+            LICENSE
+
+          git -c tar.umask=0022 archive \
+            --format=tar.gz \
+            --prefix="ReduceMemory-Linux-Desktop-v${version}/" \
+            --output="dist/ReduceMemory-Linux-Desktop-v${version}.tar.gz" \
+            "${RELEASE_TAG}" \
+            linux/ReduceMemory_Linux.sh \
+            linux/Install_ReduceMemory.sh \
+            linux/README.md \
+            README.md \
+            LICENSE
+
+          git -c tar.umask=0022 archive \
+            --format=tar.gz \
+            --prefix="ReduceMemory-Linux-Server-v${version}/" \
+            --output="dist/ReduceMemory-Linux-Server-v${version}.tar.gz" \
+            "${RELEASE_TAG}" \
+            linux/ReduceMemory_Linux.sh \
+            linux/Install_Server.sh \
+            linux/README.md \
+            README.md \
+            LICENSE
+
+          (
+            cd dist
+            sha256sum ./*.zip ./*.tar.gz > SHA256SUMS.txt
+          )
+
+      - name: Verify release packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+
+          unzip -q "dist/ReduceMemory-Windows-v${version}.zip" -d audit/windows
+          windows_root="audit/windows/ReduceMemory-Windows-v${version}"
+          test -s "${windows_root}/windows/ReduceMemory_x64.exe"
+          test -s "${windows_root}/windows/ReduceMemory.exe"
+          iconv -f UTF-16LE -t UTF-8 "${windows_root}/windows/ReduceMemory.ini" \
+            | grep -F 'OptimizeMode=0'
+
+          tar -xzf "dist/ReduceMemory-Linux-Desktop-v${version}.tar.gz" -C audit
+          desktop_root="audit/ReduceMemory-Linux-Desktop-v${version}/linux"
+          test -x "${desktop_root}/ReduceMemory_Linux.sh"
+          test -x "${desktop_root}/Install_ReduceMemory.sh"
+          "${desktop_root}/ReduceMemory_Linux.sh" check
+
+          tar -xzf "dist/ReduceMemory-Linux-Server-v${version}.tar.gz" -C audit
+          server_root="audit/ReduceMemory-Linux-Server-v${version}/linux"
+          test -x "${server_root}/ReduceMemory_Linux.sh"
+          test -x "${server_root}/Install_Server.sh"
+          "${server_root}/ReduceMemory_Linux.sh" status
+
+          (
+            cd dist
+            sha256sum --check SHA256SUMS.txt
+          )
+
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" dist/* --clobber
+          else
+            gh release create "${RELEASE_TAG}" dist/* \
+              --verify-tag \
+              --title "Reduce Memory ${version}" \
+              --generate-notes
+          fi

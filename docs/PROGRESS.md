@@ -56,6 +56,8 @@ the AutoIt source for every intermediate binary.
   `reduce-memory-server` through SSH, without duplicating optimization logic.
 - Added CI coverage for server installation, safe status output, executable
   permissions, and the Linux Server interactive menu.
+- Added tag-driven GitHub Release packaging with audited Windows, Linux Desktop,
+  Linux Server, and SHA-256 assets created directly from the tagged commit.
 
 ## Deliberately not included
 
