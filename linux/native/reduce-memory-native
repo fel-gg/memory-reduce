@@ -1,0 +1,479 @@
+#!/usr/bin/env python3
+"""Native Linux process page-out helper for Reduce Memory.
+
+Uses pidfd_open(2) and process_madvise(2) with MADV_PAGEOUT. The helper never
+kills a process and never changes the contents or layout of a mapping.
+"""
+
+from __future__ import annotations
+
+import argparse
+import ctypes
+import errno
+import os
+import platform
+import re
+import sys
+import time
+from dataclasses import dataclass
+from pathlib import Path
+
+
+MADV_PAGEOUT = 21
+SYS_PIDFD_OPEN = 434
+SYS_PROCESS_MADVISE = 440
+SUPPORTED_ARCHITECTURES = {
+    "x86_64",
+    "amd64",
+    "aarch64",
+    "arm64",
+    "i386",
+    "i486",
+    "i586",
+    "i686",
+    "armv7l",
+    "riscv64",
+    "ppc64le",
+    "s390x",
+}
+
+MAP_HEADER = re.compile(
+    r"^([0-9a-fA-F]+)-([0-9a-fA-F]+)\s+([rwxps-]{4})\s+"
+    r"[0-9a-fA-F]+\s+\S+\s+\d+(?:\s+(.*))?$"
+)
+
+
+class IOVec(ctypes.Structure):
+    _fields_ = [("iov_base", ctypes.c_void_p), ("iov_len", ctypes.c_size_t)]
+
+
+LIBC = ctypes.CDLL(None, use_errno=True)
+LIBC.syscall.restype = ctypes.c_long
+
+
+@dataclass
+class ProcessSnapshot:
+    pid: int
+    uid: int
+    rss_kb: int
+    cpu_ticks: int
+    ppid: int
+    name: str
+
+
+@dataclass
+class Mapping:
+    start: int
+    end: int
+    perms: str
+    path: str
+    rss_kb: int = 0
+    locked_kb: int = 0
+    vm_flags: frozenset[str] = frozenset()
+
+
+@dataclass
+class Result:
+    processes_seen: int = 0
+    processes_eligible: int = 0
+    processes_advised: int = 0
+    processes_failed: int = 0
+    processes_active_skipped: int = 0
+    processes_protected: int = 0
+    mappings_advised: int = 0
+    mappings_failed: int = 0
+    bytes_advised: int = 0
+    rss_before_kb: int = 0
+    rss_after_kb: int = 0
+
+
+def emit(key: str, value: object) -> None:
+    print(f"{key}={value}")
+
+
+def syscall_supported() -> tuple[bool, int]:
+    if platform.system() != "Linux":
+        return False, errno.ENOSYS
+    if platform.machine().lower() not in SUPPORTED_ARCHITECTURES:
+        return False, errno.ENOSYS
+
+    ctypes.set_errno(0)
+    result = LIBC.syscall(
+        ctypes.c_long(SYS_PROCESS_MADVISE),
+        ctypes.c_int(-1),
+        ctypes.c_void_p(),
+        ctypes.c_size_t(0),
+        ctypes.c_int(MADV_PAGEOUT),
+        ctypes.c_uint(0),
+    )
+    error_number = ctypes.get_errno()
+    if result == -1 and error_number == errno.ENOSYS:
+        return False, error_number
+    return True, error_number
+
+
+def pidfd_open(pid: int) -> int:
+    if hasattr(os, "pidfd_open"):
+        return os.pidfd_open(pid, 0)
+
+    ctypes.set_errno(0)
+    result = LIBC.syscall(
+        ctypes.c_long(SYS_PIDFD_OPEN), ctypes.c_int(pid), ctypes.c_uint(0)
+    )
+    if result == -1:
+        error_number = ctypes.get_errno()
+        raise OSError(error_number, os.strerror(error_number))
+    return int(result)
+
+
+def process_madvise_pageout(pidfd: int, start: int, length: int) -> int:
+    vector = IOVec(ctypes.c_void_p(start), ctypes.c_size_t(length))
+    ctypes.set_errno(0)
+    result = LIBC.syscall(
+        ctypes.c_long(SYS_PROCESS_MADVISE),
+        ctypes.c_int(pidfd),
+        ctypes.byref(vector),
+        ctypes.c_size_t(1),
+        ctypes.c_int(MADV_PAGEOUT),
+        ctypes.c_uint(0),
+    )
+    if result == -1:
+        error_number = ctypes.get_errno()
+        raise OSError(error_number, os.strerror(error_number))
+    return int(result)
+
+
+def parse_status(pid: int) -> tuple[int, int, int, str] | None:
+    uid = -1
+    rss_kb = 0
+    ppid = 0
+    name = str(pid)
+    try:
+        with open(f"/proc/{pid}/status", "r", encoding="utf-8") as status_file:
+            for line in status_file:
+                if line.startswith("Uid:"):
+                    uid = int(line.split()[1])
+                elif line.startswith("VmRSS:"):
+                    rss_kb = int(line.split()[1])
+                elif line.startswith("PPid:"):
+                    ppid = int(line.split()[1])
+                elif line.startswith("Name:"):
+                    name = line.split(":", 1)[1].strip()
+                elif line.startswith("State:") and "Z" in line.split()[1]:
+                    return None
+    except (FileNotFoundError, PermissionError, ProcessLookupError, ValueError):
+        return None
+    if uid < 0:
+        return None
+    return uid, rss_kb, ppid, name
+
+
+def cpu_ticks(pid: int) -> int | None:
+    try:
+        stat_line = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        closing_parenthesis = stat_line.rfind(")")
+        if closing_parenthesis < 0:
+            return None
+        fields = stat_line[closing_parenthesis + 2 :].split()
+        return int(fields[11]) + int(fields[12])
+    except (FileNotFoundError, PermissionError, ProcessLookupError, ValueError, IndexError):
+        return None
+
+
+def process_has_executable(pid: int) -> bool:
+    try:
+        os.readlink(f"/proc/{pid}/exe")
+        return True
+    except (FileNotFoundError, PermissionError, ProcessLookupError, OSError):
+        return False
+
+
+def snapshot_processes(target_uid: int | None, all_users: bool) -> list[ProcessSnapshot]:
+    snapshots: list[ProcessSnapshot] = []
+    for entry in os.scandir("/proc"):
+        if not entry.name.isdigit():
+            continue
+        pid = int(entry.name)
+        if pid <= 2 or pid == os.getpid():
+            continue
+        parsed = parse_status(pid)
+        ticks = cpu_ticks(pid)
+        if parsed is None or ticks is None or not process_has_executable(pid):
+            continue
+        uid, rss_kb, ppid, name = parsed
+        if not all_users and target_uid is not None and uid != target_uid:
+            continue
+        if all_users and uid < 1000:
+            continue
+        snapshots.append(ProcessSnapshot(pid, uid, rss_kb, ticks, ppid, name))
+    return snapshots
+
+
+def ancestor_pids(start_pid: int) -> set[int]:
+    ancestors: set[int] = set()
+    current = start_pid
+    while current > 1 and current not in ancestors:
+        ancestors.add(current)
+        parsed = parse_status(current)
+        if parsed is None:
+            break
+        current = parsed[2]
+    ancestors.add(1)
+    return ancestors
+
+
+def descendant_pids(root_pids: set[int], snapshots: list[ProcessSnapshot]) -> set[int]:
+    protected = set(root_pids)
+    changed = True
+    while changed:
+        changed = False
+        for snapshot in snapshots:
+            if snapshot.pid not in protected and snapshot.ppid in protected:
+                protected.add(snapshot.pid)
+                changed = True
+    return protected
+
+
+def parse_smaps(pid: int, minimum_mapping_kb: int) -> list[Mapping]:
+    mappings: list[Mapping] = []
+    current: Mapping | None = None
+
+    def finish(mapping: Mapping | None) -> None:
+        if mapping is None or mapping.rss_kb < minimum_mapping_kb:
+            return
+        if mapping.locked_kb > 0:
+            return
+        if {"lo", "io", "pf"}.intersection(mapping.vm_flags):
+            return
+        if mapping.path.startswith("/dev/"):
+            return
+        if mapping.path.startswith(("[stack", "[vdso", "[vvar", "[vsyscall")):
+            return
+        if "r" not in mapping.perms:
+            return
+        mappings.append(mapping)
+
+    try:
+        with open(f"/proc/{pid}/smaps", "r", encoding="utf-8") as smaps_file:
+            for line in smaps_file:
+                header = MAP_HEADER.match(line.rstrip("\n"))
+                if header:
+                    finish(current)
+                    current = Mapping(
+                        start=int(header.group(1), 16),
+                        end=int(header.group(2), 16),
+                        perms=header.group(3),
+                        path=(header.group(4) or "").strip(),
+                    )
+                elif current is not None:
+                    if line.startswith("Rss:"):
+                        current.rss_kb = int(line.split()[1])
+                    elif line.startswith("Locked:"):
+                        current.locked_kb = int(line.split()[1])
+                    elif line.startswith("VmFlags:"):
+                        current.vm_flags = frozenset(line.split()[1:])
+        finish(current)
+    except (FileNotFoundError, PermissionError, ProcessLookupError, ValueError):
+        return []
+    return mappings
+
+
+def read_rss_kb(pid: int) -> int:
+    parsed = parse_status(pid)
+    return 0 if parsed is None else parsed[1]
+
+
+def pageout_process(pid: int, minimum_mapping_kb: int) -> tuple[int, int, int]:
+    mapping_count = 0
+    failed_count = 0
+    advised_bytes = 0
+    mappings = parse_smaps(pid, minimum_mapping_kb)
+    if not mappings:
+        return mapping_count, failed_count, advised_bytes
+
+    pidfd = pidfd_open(pid)
+    try:
+        for mapping in mappings:
+            try:
+                advised_bytes += process_madvise_pageout(
+                    pidfd, mapping.start, mapping.end - mapping.start
+                )
+                mapping_count += 1
+            except OSError as error:
+                failed_count += 1
+                if error.errno in (errno.ESRCH, errno.EPERM):
+                    break
+    finally:
+        os.close(pidfd)
+    return mapping_count, failed_count, advised_bytes
+
+
+def command_check() -> int:
+    supported, probe_errno = syscall_supported()
+    emit("native_status", "supported" if supported else "unsupported")
+    emit("kernel", platform.release())
+    emit("architecture", platform.machine())
+    emit("process_madvise_syscall", SYS_PROCESS_MADVISE)
+    emit("probe_errno", probe_errno)
+    emit("root", 1 if os.geteuid() == 0 else 0)
+    emit("python", platform.python_version())
+    return 0 if supported else 3
+
+
+def command_pageout(arguments: argparse.Namespace) -> int:
+    supported, _ = syscall_supported()
+    if not supported:
+        emit("native_status", "unsupported")
+        return 3
+    if os.geteuid() != 0:
+        emit("native_status", "root_required")
+        return 4
+
+    target_uid = arguments.uid
+    if arguments.pid is None and not arguments.all_users and target_uid is None:
+        emit("native_status", "target_required")
+        return 2
+
+    initial = snapshot_processes(target_uid, arguments.all_users)
+    by_pid = {snapshot.pid: snapshot for snapshot in initial}
+    if arguments.pid is not None:
+        by_pid = {
+            pid: snapshot
+            for pid, snapshot in by_pid.items()
+            if pid == arguments.pid
+        }
+        if arguments.pid not in by_pid:
+            parsed = parse_status(arguments.pid)
+            ticks = cpu_ticks(arguments.pid)
+            if parsed is not None and ticks is not None:
+                uid, rss_kb, ppid, name = parsed
+                by_pid[arguments.pid] = ProcessSnapshot(
+                    arguments.pid, uid, rss_kb, ticks, ppid, name
+                )
+
+    result = Result(processes_seen=len(by_pid))
+    protected_roots = set(arguments.exclude_pid)
+    protected_roots.update(ancestor_pids(os.getpid()))
+    protected = descendant_pids(protected_roots, list(by_pid.values()))
+
+    if arguments.activity_ms > 0 and arguments.pid is None:
+        time.sleep(arguments.activity_ms / 1000.0)
+
+    eligible: list[ProcessSnapshot] = []
+    for snapshot in by_pid.values():
+        if snapshot.pid in protected:
+            result.processes_protected += 1
+            continue
+        if snapshot.rss_kb < arguments.min_rss_mb * 1024:
+            continue
+        if arguments.pid is None:
+            current_ticks = cpu_ticks(snapshot.pid)
+            if current_ticks is None:
+                continue
+            if current_ticks - snapshot.cpu_ticks > arguments.active_ticks:
+                result.processes_active_skipped += 1
+                continue
+        eligible.append(snapshot)
+
+    result.processes_eligible = len(eligible)
+    before_by_pid = {item.pid: read_rss_kb(item.pid) for item in eligible}
+    result.rss_before_kb = sum(before_by_pid.values())
+
+    permission_denied = False
+    for snapshot in eligible:
+        try:
+            advised, failed, advised_bytes = pageout_process(
+                snapshot.pid, arguments.min_mapping_kb
+            )
+            result.mappings_advised += advised
+            result.mappings_failed += failed
+            result.bytes_advised += advised_bytes
+            if advised > 0:
+                result.processes_advised += 1
+            elif failed > 0:
+                result.processes_failed += 1
+        except OSError as error:
+            result.processes_failed += 1
+            if error.errno == errno.EPERM:
+                permission_denied = True
+
+    if arguments.settle_ms > 0:
+        time.sleep(arguments.settle_ms / 1000.0)
+    result.rss_after_kb = sum(read_rss_kb(item.pid) for item in eligible)
+    reduced_kb = max(0, result.rss_before_kb - result.rss_after_kb)
+
+    if permission_denied and result.processes_advised == 0:
+        status = "permission_denied"
+        exit_code = 5
+    elif result.processes_eligible == 0:
+        status = "no_candidates"
+        exit_code = 0
+    elif result.processes_advised == 0:
+        status = "no_pages_advised"
+        exit_code = 0
+    elif result.processes_failed or result.mappings_failed:
+        status = "partial"
+        exit_code = 0
+    else:
+        status = "done"
+        exit_code = 0
+
+    emit("native_status", status)
+    emit("processes_seen", result.processes_seen)
+    emit("processes_eligible", result.processes_eligible)
+    emit("processes_advised", result.processes_advised)
+    emit("processes_failed", result.processes_failed)
+    emit("processes_active_skipped", result.processes_active_skipped)
+    emit("processes_protected", result.processes_protected)
+    emit("mappings_advised", result.mappings_advised)
+    emit("mappings_failed", result.mappings_failed)
+    emit("bytes_advised", result.bytes_advised)
+    emit("rss_before_kb", result.rss_before_kb)
+    emit("rss_after_kb", result.rss_after_kb)
+    emit("rss_reduced_kb", reduced_kb)
+    return exit_code
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Reduce Memory native Linux process page-out helper"
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers.add_parser("check", help="probe kernel syscall support")
+
+    pageout = subparsers.add_parser("pageout", help="page out eligible processes")
+    target = pageout.add_mutually_exclusive_group()
+    target.add_argument("--pid", type=int, help="target one PID (test/manual)")
+    target.add_argument("--uid", type=int, help="target processes owned by UID")
+    target.add_argument(
+        "--all-users",
+        action="store_true",
+        help="target non-system UIDs (1000 and above)",
+    )
+    pageout.add_argument("--exclude-pid", type=int, action="append", default=[])
+    pageout.add_argument("--min-rss-mb", type=int, default=64)
+    pageout.add_argument("--min-mapping-kb", type=int, default=1024)
+    pageout.add_argument("--activity-ms", type=int, default=300)
+    pageout.add_argument("--active-ticks", type=int, default=0)
+    pageout.add_argument("--settle-ms", type=int, default=500)
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
+    arguments = parser.parse_args()
+    try:
+        if arguments.command == "check":
+            return command_check()
+        return command_pageout(arguments)
+    except KeyboardInterrupt:
+        emit("native_status", "interrupted")
+        return 130
+    except Exception as error:  # Last-resort structured failure for Bash UI.
+        emit("native_status", "internal_error")
+        emit("error", f"{type(error).__name__}:{error}")
+        return 10
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -2,9 +2,10 @@
 set -euo pipefail
 
 script_path="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
-program_title="Reduce Memory 2.2 - Linux"
+script_directory="$(cd -- "$(dirname -- "${script_path}")" && pwd)"
+program_title="Reduce Memory 2.3 - Linux"
 if [[ "${script_path##*/}" == "reduce-memory-server" ]]; then
-  program_title="Reduce Memory 2.2 - Linux Server"
+  program_title="Reduce Memory 2.3 - Linux Server"
 fi
 
 # Alternate roots let CI execute the real reclaim paths against disposable
@@ -13,6 +14,7 @@ proc_root="${REDUCE_MEMORY_PROC_ROOT:-/proc}"
 meminfo_file="${REDUCE_MEMORY_MEMINFO_FILE:-${proc_root}/meminfo}"
 vm_root="${REDUCE_MEMORY_VM_ROOT:-${proc_root}/sys/vm}"
 settle_seconds="${REDUCE_MEMORY_SETTLE_SECONDS:-1}"
+protected_pid="${REDUCE_MEMORY_PROTECT_PID:-}"
 
 if [[ "$(uname -s)" != "Linux" ]]; then
   echo "Script ini membutuhkan kernel Linux asli atau WSL2, bukan Git Bash/MSYS." >&2
@@ -167,6 +169,52 @@ find_reclaim_file() {
   return 1
 }
 
+find_native_helper() {
+  local candidate
+  if [[ -n "${REDUCE_MEMORY_NATIVE_HELPER:-}" ]]; then
+    candidate="${REDUCE_MEMORY_NATIVE_HELPER}"
+    [[ -x "${candidate}" ]] || return 1
+    printf '%s\n' "${candidate}"
+    return 0
+  fi
+
+  for candidate in \
+    "${script_directory}/reduce-memory-native" \
+    "${script_directory}/native/reduce-memory-native"; do
+    if [[ -x "${candidate}" ]]; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+native_value() {
+  local output="$1"
+  local key="$2"
+  awk -F= -v wanted="${key}" '$1 == wanted { print substr($0, index($0, "=") + 1); exit }' <<< "${output}"
+}
+
+detect_active_application_pid() {
+  local detected_pid=""
+  local active_window=""
+
+  if command -v xdotool >/dev/null 2>&1; then
+    detected_pid="$(xdotool getactivewindow getwindowpid 2>/dev/null || true)"
+  fi
+
+  if [[ ! "${detected_pid}" =~ ^[0-9]+$ ]] && command -v xprop >/dev/null 2>&1; then
+    active_window="$(xprop -root _NET_ACTIVE_WINDOW 2>/dev/null | awk -F' ' '{ print $NF }')"
+    if [[ "${active_window}" =~ ^0x[0-9a-fA-F]+$ && "${active_window}" != "0x0" ]]; then
+      detected_pid="$(xprop -id "${active_window}" _NET_WM_PID 2>/dev/null | awk -F' = ' 'NF == 2 { print $2 }')"
+    fi
+  fi
+
+  if [[ "${detected_pid}" =~ ^[0-9]+$ ]] && (( detected_pid > 1 )); then
+    printf '%s\n' "${detected_pid}"
+  fi
+}
+
 default_reclaim_mb() {
   local total_mb
   local target_mb
@@ -208,8 +256,16 @@ reclaim_target_mb() {
 stage_sync="not requested"
 stage_drop_caches="not requested"
 stage_cgroup_reclaim="not requested"
+stage_native_pageout="not requested"
 reclaim_scope="-"
 reclaim_request_mb=0
+native_processes_seen=0
+native_processes_advised=0
+native_processes_active_skipped=0
+native_processes_protected=0
+native_mappings_advised=0
+native_bytes_advised=0
+native_rss_reduced_kb=0
 
 run_sync() {
   sync
@@ -222,6 +278,61 @@ run_drop_caches() {
   target_file="$(drop_caches_file)"
   printf '%s\n' "${level}" > "${target_file}"
   stage_drop_caches="done (level ${level})"
+}
+
+run_native_pageout() {
+  local native_helper
+  local target_uid="${REDUCE_MEMORY_TARGET_UID:-${SUDO_UID:-}}"
+  local native_output=""
+  local native_exit=0
+  local arguments=(pageout)
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    stage_native_pageout="unavailable; python3 not installed"
+    return 0
+  fi
+  if ! native_helper="$(find_native_helper)"; then
+    stage_native_pageout="unavailable; helper not installed"
+    return 0
+  fi
+
+  if [[ "${REDUCE_MEMORY_ALL_USERS:-0}" == "1" ]]; then
+    arguments+=(--all-users)
+  elif [[ "${target_uid}" =~ ^[0-9]+$ ]] && (( target_uid > 0 )); then
+    arguments+=(--uid "${target_uid}")
+  else
+    stage_native_pageout="skipped; target UID unavailable"
+    return 0
+  fi
+
+  arguments+=(
+    --min-rss-mb "${REDUCE_MEMORY_MIN_RSS_MB:-64}"
+    --min-mapping-kb "${REDUCE_MEMORY_MIN_MAPPING_KB:-1024}"
+    --activity-ms "${REDUCE_MEMORY_ACTIVITY_MS:-300}"
+    --settle-ms "${REDUCE_MEMORY_NATIVE_SETTLE_MS:-500}"
+  )
+  if [[ "${protected_pid}" =~ ^[0-9]+$ ]] && (( protected_pid > 1 )); then
+    arguments+=(--exclude-pid "${protected_pid}")
+  fi
+
+  native_output="$("${native_helper}" "${arguments[@]}" 2>&1)" || native_exit=$?
+  stage_native_pageout="$(native_value "${native_output}" native_status)"
+  [[ -n "${stage_native_pageout}" ]] || stage_native_pageout="failed (exit ${native_exit})"
+  native_processes_seen="$(native_value "${native_output}" processes_seen)"
+  native_processes_advised="$(native_value "${native_output}" processes_advised)"
+  native_processes_active_skipped="$(native_value "${native_output}" processes_active_skipped)"
+  native_processes_protected="$(native_value "${native_output}" processes_protected)"
+  native_mappings_advised="$(native_value "${native_output}" mappings_advised)"
+  native_bytes_advised="$(native_value "${native_output}" bytes_advised)"
+  native_rss_reduced_kb="$(native_value "${native_output}" rss_reduced_kb)"
+
+  native_processes_seen="${native_processes_seen:-0}"
+  native_processes_advised="${native_processes_advised:-0}"
+  native_processes_active_skipped="${native_processes_active_skipped:-0}"
+  native_processes_protected="${native_processes_protected:-0}"
+  native_mappings_advised="${native_mappings_advised:-0}"
+  native_bytes_advised="${native_bytes_advised:-0}"
+  native_rss_reduced_kb="${native_rss_reduced_kb:-0}"
 }
 
 run_cgroup_reclaim() {
@@ -282,9 +393,19 @@ print_result() {
   printf 'Swap current            : %d / %d MB used\n' \
     "$((after_swap_used_kb / 1024))" "$((current_swap_total_kb / 1024))"
   if [[ "${selected_mode}" == "check" || "${selected_mode}" == "status" ]]; then
-    printf 'Default Aggressive ask  : %d MB\n' "$(default_reclaim_mb)"
+  printf 'Default Aggressive ask  : %d MB\n' "$(default_reclaim_mb)"
   fi
   printf 'Kernel sync             : %s\n' "${stage_sync}"
+  printf 'Native process page-out : %s\n' "${stage_native_pageout}"
+  if [[ "${stage_native_pageout}" != "not requested" ]]; then
+    printf 'Processes scanned       : %s\n' "${native_processes_seen}"
+    printf 'Processes paged out     : %s\n' "${native_processes_advised}"
+    printf 'Active processes skipped: %s\n' "${native_processes_active_skipped}"
+    printf 'Protected processes     : %s\n' "${native_processes_protected}"
+    printf 'Mappings advised        : %s\n' "${native_mappings_advised}"
+    printf 'Bytes advised           : %d MB\n' "$((native_bytes_advised / 1024 / 1024))"
+    printf 'Process RSS reduced     : %d MB\n' "$((native_rss_reduced_kb / 1024))"
+  fi
   printf 'drop_caches             : %s\n' "${stage_drop_caches}"
   printf 'cgroup memory.reclaim   : %s\n' "${stage_cgroup_reclaim}"
   if [[ "${reclaim_scope}" != "-" ]]; then
@@ -308,12 +429,22 @@ perform_mode() {
   local after_swap_used_kb
   local swap_total_kb
   local reclaim_file
+  local native_helper
+  local native_check_output
 
   stage_sync="not requested"
   stage_drop_caches="not requested"
   stage_cgroup_reclaim="not requested"
+  stage_native_pageout="not requested"
   reclaim_scope="-"
   reclaim_request_mb=0
+  native_processes_seen=0
+  native_processes_advised=0
+  native_processes_active_skipped=0
+  native_processes_protected=0
+  native_mappings_advised=0
+  native_bytes_advised=0
+  native_rss_reduced_kb=0
 
   before_available_kb="$(require_numeric_meminfo MemAvailable)"
   before_cache_kb="$(cache_kb)"
@@ -324,6 +455,15 @@ perform_mode() {
   case "${selected_mode}" in
     check|status)
       # Read-only capability and memory report.
+      if native_helper="$(find_native_helper 2>/dev/null)" && command -v python3 >/dev/null 2>&1; then
+        native_check_output="$("${native_helper}" check 2>/dev/null || true)"
+        stage_native_pageout="$(native_value "${native_check_output}" native_status)"
+        [[ -n "${stage_native_pageout}" ]] || stage_native_pageout="probe failed"
+      elif ! command -v python3 >/dev/null 2>&1; then
+        stage_native_pageout="unavailable; python3 not installed"
+      else
+        stage_native_pageout="unavailable; helper not installed"
+      fi
       if reclaim_file="$(find_reclaim_file 2>/dev/null)"; then
         stage_cgroup_reclaim="available via ${reclaim_file}"
       else
@@ -344,6 +484,8 @@ perform_mode() {
     aggressive)
       require_root "${selected_mode}"
       require_drop_caches
+      run_sync
+      run_native_pageout
       run_sync
       run_drop_caches 3
       run_cgroup_reclaim
@@ -372,13 +514,24 @@ perform_mode() {
 
 run_privileged_mode() {
   local selected_mode="$1"
+  local detected_active_pid=""
+  local extra_arguments=()
+
+  if [[ "${selected_mode}" == "aggressive" ]]; then
+    detected_active_pid="$(detect_active_application_pid)"
+    if [[ "${detected_active_pid}" =~ ^[0-9]+$ ]]; then
+      extra_arguments+=(--protect-pid "${detected_active_pid}")
+      protected_pid="${detected_active_pid}"
+    fi
+  fi
+
   if [[ "${EUID}" -eq 0 ]]; then
     perform_mode "${selected_mode}"
     return
   fi
 
   if command -v sudo >/dev/null 2>&1; then
-    sudo -- "${script_path}" "${selected_mode}"
+    sudo -- "${script_path}" "${selected_mode}" "${extra_arguments[@]}"
     return
   fi
 
@@ -410,7 +563,7 @@ show_menu() {
       "$(( $(cache_kb) / 1024 ))"
     printf '%s\n' '1. Normal     - sync saja; cache dan aplikasi tetap hangat'
     printf '%s\n' '2. Smooth     - melepas file cache saja (butuh password)'
-    printf '%s\n' '3. Aggressive - cache + native cgroup reclaim (butuh password)'
+    printf '%s\n' '3. Aggressive - page-out aplikasi + cache + cgroup (butuh password)'
     printf '%s\n' '4. Status     - metrik dan dukungan kernel, tanpa perubahan'
     printf '%s\n' '0. Exit'
     printf '\nPilih mode [1]: '
@@ -430,9 +583,10 @@ show_menu() {
         pause_menu
         ;;
       3|aggressive)
-        printf '\nAggressive meminta Linux mereclaim cache dan halaman aplikasi yang dingin.\n'
+        printf '\nAggressive meminta Linux melakukan page-out pada aplikasi idle, lalu mereclaim cache.\n'
         printf 'Jika swap aktif, aplikasi bisa terasa lambat saat halaman itu dipakai kembali.\n'
-        printf 'Tidak ada proses yang dimatikan. Lanjutkan? [y/N]: '
+        printf 'Aplikasi aktif dan process tree-nya dilindungi; tidak ada proses yang dimatikan.\n'
+        printf 'Lanjutkan? [y/N]: '
         read -r confirmation || true
         if [[ "${confirmation:-}" =~ ^[Yy]$ ]]; then
           run_privileged_mode aggressive || true
@@ -466,7 +620,7 @@ Usage:
   reduce-memory status           Alias read-only untuk server
   reduce-memory normal           Sync tanpa membuang cache atau app pages
   sudo reduce-memory smooth      Lepaskan Linux file/page cache
-  sudo reduce-memory aggressive  Cache + cgroup v2 proactive reclaim
+  sudo reduce-memory aggressive  Process page-out + cache + cgroup reclaim
 
 Optional Aggressive setting:
   sudo REDUCE_MEMORY_RECLAIM_MB=1024 reduce-memory aggressive
@@ -482,7 +636,26 @@ if [[ "$#" -eq 0 ]]; then
   exit 0
 fi
 
-case "$1" in
+requested_command="$1"
+shift
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --protect-pid)
+      if [[ "$#" -lt 2 || ! "$2" =~ ^[0-9]+$ || "$2" -le 1 ]]; then
+        echo "--protect-pid membutuhkan PID numerik lebih besar dari 1." >&2
+        exit 2
+      fi
+      protected_pid="$2"
+      shift 2
+      ;;
+    *)
+      echo "Argumen tidak dikenal: $1" >&2
+      exit 2
+      ;;
+  esac
+done
+
+case "${requested_command}" in
   --menu|menu)
     show_menu
     ;;
@@ -490,7 +663,7 @@ case "$1" in
     show_usage
     ;;
   check|status|normal|smooth|aggressive)
-    perform_mode "$1"
+    perform_mode "${requested_command}"
     ;;
   *)
     show_usage >&2

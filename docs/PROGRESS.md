@@ -71,6 +71,17 @@ the AutoIt source for every intermediate binary.
   pages, swap movement, and actual `MemAvailable` change.
 - Added Ubuntu integration checks that execute Smooth and Aggressive as root and
   verify the exact `drop_caches` and `memory.reclaim` requests safely.
+- Rebuilt Linux Aggressive again around the direct Linux
+  `process_madvise(MADV_PAGEOUT)` syscall so idle application mappings can be
+  reclaimed even when desktop cgroup layout makes `memory.reclaim` ineffective.
+- Added a bundled portable Python 3 syscall helper using PID file descriptors,
+  `/proc/PID/smaps`, kernel mapping flags, and measured before/after RSS.
+- Added application shields for recent CPU activity, the detected foreground
+  process tree, the Reduce Memory/sudo terminal ancestry, small processes,
+  locked pages, and special device/kernel mappings.
+- Added real Ubuntu CI evidence using a disposable 128 MB resident file mapping;
+  acceptance now requires positive bytes advised, at least 16 MB measured RSS
+  reduction, and the target process remaining alive.
 
 ## Deliberately not included
 

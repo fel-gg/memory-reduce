@@ -1,5 +1,21 @@
 # Version history
 
+## Reduce Memory 2.3 — 2026
+
+- Rebuilt Linux Aggressive around `pidfd_open` and
+  `process_madvise(MADV_PAGEOUT)` so it can reclaim resident mappings from idle
+  applications instead of depending only on cache and cgroup layout.
+- Added dynamic `/proc` discovery for current and future applications without a
+  process-name allowlist.
+- Added CPU-activity, foreground, descendant, ancestor, minimum-RSS, locked-page,
+  device-mapping, and kernel-mapping shields.
+- Added per-pass process, mapping, bytes-advised, and measured RSS-reduction
+  reporting.
+- Bundled the native syscall helper in both Linux Desktop and Server installers
+  and release packages.
+- Added a real Ubuntu page-out integration test against a disposable 128 MB
+  resident mapping while proving the target process remains alive.
+
 ## Reduce Memory 2.2 — 2026
 
 - Promoted the maintained Windows, Linux Desktop, and Linux Server builds to

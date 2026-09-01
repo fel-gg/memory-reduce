@@ -1,10 +1,10 @@
-# Reduce Memory 2.2
+# Reduce Memory 2.3
 
 Reduce Memory adalah tool kecil buat membantu RAM terasa lebih lega di Windows
 dan Linux. Keduanya punya engine terpisah karena cara Windows dan Linux
 mengelola memori memang berbeda.
 
-Proyek ini adalah **Reduce Memory 2.2**, terinspirasi dari Reduce Memory v1.7
+Proyek ini adalah **Reduce Memory 2.3**, terinspirasi dari Reduce Memory v1.7
 buatan Sordum Team.
 Di repo ini, alur tersebut kita kembangkan lagi: pilihan mode diperjelas,
 Aggressive dibuat lebih kuat, ada versi Smooth supaya tidak gampang bikin lag,
@@ -49,6 +49,8 @@ operasi juga disimpan di `windows/ReduceMemory.log` dengan ukuran terbatas.
 - [`src/ReduceMemory.au3`](src/ReduceMemory.au3) — source utama AutoIt.
 - [`linux/ReduceMemory_Linux.sh`](linux/ReduceMemory_Linux.sh) — script untuk
   Linux.
+- [`linux/native/reduce-memory-native`](linux/native/reduce-memory-native) —
+  native Linux syscall helper untuk page-out proses aplikasi.
 - [`linux/desktop/Install_Desktop.sh`](linux/desktop/Install_Desktop.sh) — installer
   user-local yang menambahkan Reduce Memory ke menu aplikasi Linux.
 - [`linux/server/Install_Server.sh`](linux/server/Install_Server.sh) — installer command
@@ -68,10 +70,12 @@ Normal, kelima mode, dan penulisan log:
 
 ## Versi Linux native
 
-Versi Linux bukan port dari `EmptyWorkingSet` Windows. Engine Linux membaca
-`/proc/meminfo`, memakai `drop_caches` untuk cache kernel, dan memakai
-`memory.reclaim` cgroup v2 untuk Aggressive. Ini membuat aplikasi yang sudah ada
-maupun software baru ikut ditangani tanpa daftar nama proses.
+Versi Linux bukan port dari `EmptyWorkingSet` Windows. Aggressive membaca proses
+dan mapping secara dinamis dari `/proc`, lalu memakai `pidfd_open` dan
+`process_madvise(MADV_PAGEOUT)` untuk meminta kernel mereclaim resident pages
+aplikasi yang idle. Setelah itu engine melepas cache kernel dan menjalankan
+`memory.reclaim` cgroup v2 sebagai tahap tambahan/fallback. Aplikasi lama maupun
+software baru ikut tanpa daftar nama proses.
 
 Pemeriksaan environment yang aman bisa dijalankan dengan:
 
@@ -102,10 +106,11 @@ reduce-memory-server
 Varian server membuka menu terminal melalui SSH dan tidak memasang desktop
 launcher, service, daemon, cron, atau automatic trigger.
 
-Di Linux, Aggressive baru bisa melampaui cache-only kalau kernel menyediakan
-cgroup v2 `memory.reclaim`. Swap yang aktif memberi kernel tempat untuk
-memindahkan halaman aplikasi yang dingin. Kalau cache hanya 100 MB dan swap
-mati, hasilnya memang bisa kecil karena RAM aktif tidak aman untuk dihapus.
+Di Linux, page-out native membutuhkan kernel 5.10+, Python 3, izin ptrace, dan
+`CAP_SYS_NICE`; mode Aggressive menjalankannya melalui `sudo`. Swap yang aktif
+memberi kernel tempat untuk memindahkan anonymous pages aplikasi yang dingin.
+Proses aktif, foreground, process tree Reduce Memory, locked memory, dan mapping
+khusus kernel dilewati tanpa daftar nama aplikasi.
 
 Kalau yang dicari adalah pemakaian rutin tanpa banyak gangguan, gunakan Smooth.
 Memory reclaim tidak menghapus virus dan tidak menghapus data aplikasi yang

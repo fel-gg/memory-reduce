@@ -30,6 +30,50 @@ jobs:
           bash -n linux/ReduceMemory_Linux.sh
           bash -n linux/desktop/Install_Desktop.sh
           bash -n linux/server/Install_Server.sh
+          python3 -m py_compile linux/native/reduce-memory-native
+      - name: Verify native Linux process page-out
+        run: |
+          native_check="$(linux/native/reduce-memory-native check)"
+          grep -F 'native_status=supported' <<< "${native_check}"
+
+          mapped_file="${RUNNER_TEMP}/reduce-memory-native-target.bin"
+          ready_file="${RUNNER_TEMP}/reduce-memory-native-ready"
+          python3 -c '
+          import mmap, pathlib, sys, time
+          path, ready = sys.argv[1], sys.argv[2]
+          size = 128 * 1024 * 1024
+          with open(path, "w+b") as target:
+              target.truncate(size)
+              with mmap.mmap(target.fileno(), size) as mapped:
+                  checksum = 0
+                  for offset in range(0, size, 4096):
+                      checksum ^= mapped[offset]
+                  pathlib.Path(ready).write_text(str(checksum))
+                  time.sleep(60)
+          ' "${mapped_file}" "${ready_file}" &
+          target_pid=$!
+          trap 'kill "${target_pid}" 2>/dev/null || true; wait "${target_pid}" 2>/dev/null || true' EXIT
+
+          for attempt in {1..50}; do
+            test -f "${ready_file}" && break
+            sleep 0.1
+          done
+          test -f "${ready_file}"
+          rss_before="$(awk '/^VmRSS:/ { print $2 }' "/proc/${target_pid}/status")"
+          native_output="$(sudo linux/native/reduce-memory-native pageout \
+            --pid "${target_pid}" --min-rss-mb 1 --min-mapping-kb 64 \
+            --activity-ms 0 --settle-ms 750)"
+          rss_after="$(awk '/^VmRSS:/ { print $2 }' "/proc/${target_pid}/status")"
+          bytes_advised="$(awk -F= '$1 == "bytes_advised" { print $2 }' <<< "${native_output}")"
+          rss_reduced="$(awk -F= '$1 == "rss_reduced_kb" { print $2 }' <<< "${native_output}")"
+
+          grep -E '^native_status=(done|partial)$' <<< "${native_output}"
+          test "${bytes_advised}" -gt 0
+          test "${rss_reduced}" -gt 16384
+          test "${rss_after}" -lt "${rss_before}"
+          kill "${target_pid}"
+          wait "${target_pid}" || true
+          trap - EXIT
       - name: Run safe Linux self-check
         run: |
           check_output="$(./linux/ReduceMemory_Linux.sh check)"
@@ -38,6 +82,7 @@ jobs:
           grep -F 'Anonymous RAM change    :' <<< "${check_output}"
           grep -F 'Swap current            :' <<< "${check_output}"
           grep -F 'Default Aggressive ask  :' <<< "${check_output}"
+          grep -F 'Native process page-out : supported' <<< "${check_output}"
           grep -F 'cgroup memory.reclaim   :' <<< "${check_output}"
       - name: Exercise native Smooth and Aggressive paths
         run: |
@@ -55,11 +100,31 @@ jobs:
           EOF
           : > "${mock_root}/vm/drop_caches"
           : > "${mock_root}/cgroup/memory.reclaim"
+          cat > "${mock_root}/reduce-memory-native" <<'EOF'
+          #!/usr/bin/env bash
+          if [[ "${1:-}" == "check" ]]; then
+            printf 'native_status=supported\n'
+            exit 0
+          fi
+          cat <<'RESULT'
+          native_status=done
+          processes_seen=12
+          processes_advised=4
+          processes_active_skipped=3
+          processes_protected=2
+          mappings_advised=28
+          bytes_advised=536870912
+          rss_reduced_kb=393216
+          RESULT
+          EOF
+          chmod +x "${mock_root}/reduce-memory-native"
 
           common_env=(
             "REDUCE_MEMORY_MEMINFO_FILE=${mock_root}/meminfo"
             "REDUCE_MEMORY_VM_ROOT=${mock_root}/vm"
             "REDUCE_MEMORY_TARGET_CGROUP=${mock_root}/cgroup"
+            "REDUCE_MEMORY_NATIVE_HELPER=${mock_root}/reduce-memory-native"
+            "REDUCE_MEMORY_TARGET_UID=1000"
             "REDUCE_MEMORY_SETTLE_SECONDS=0"
           )
 
@@ -72,6 +137,8 @@ jobs:
           test "$(tr -d '\n' < "${mock_root}/vm/drop_caches")" = '3'
           test "$(tr -d '\n' < "${mock_root}/cgroup/memory.reclaim")" = '1024M'
           grep -F 'drop_caches             : done (level 3)' <<< "${aggressive_output}"
+          grep -F 'Native process page-out : done' <<< "${aggressive_output}"
+          grep -F 'Process RSS reduced     : 384 MB' <<< "${aggressive_output}"
           grep -F 'cgroup memory.reclaim   : done (1024 MB requested)' <<< "${aggressive_output}"
           grep -F "Reclaim scope           : ${mock_root}/cgroup" <<< "${aggressive_output}"
       - name: Verify user-local launcher installation
@@ -81,12 +148,14 @@ jobs:
           REDUCE_MEMORY_APP_DIR="${install_root}/applications" \
             ./linux/desktop/Install_Desktop.sh
           test -x "${install_root}/bin/reduce-memory"
+          test -x "${install_root}/bin/reduce-memory-native"
           test -f "${install_root}/applications/reduce-memory.desktop"
           grep -F 'Name=Reduce Memory' "${install_root}/applications/reduce-memory.desktop"
           grep -F 'Terminal=true' "${install_root}/applications/reduce-memory.desktop"
           "${install_root}/bin/reduce-memory" check
+          "${install_root}/bin/reduce-memory-native" check
           menu_output="$(printf '0\n' | "${install_root}/bin/reduce-memory" --menu)"
-          grep -F 'Reduce Memory 2.2 - Linux' <<< "${menu_output}"
+          grep -F 'Reduce Memory 2.3 - Linux' <<< "${menu_output}"
           ! grep -F 'Linux Server' <<< "${menu_output}"
           grep -F '3. Aggressive' <<< "${menu_output}"
       - name: Verify Linux server installation
@@ -95,10 +164,12 @@ jobs:
           sudo env REDUCE_MEMORY_SERVER_BIN_DIR="${server_bin}" \
             ./linux/server/Install_Server.sh
           test -x "${server_bin}/reduce-memory-server"
+          test -x "${server_bin}/reduce-memory-native"
           test ! -e "${server_bin}/reduce-memory"
           test ! -e "${server_bin}/reduce-memory.desktop"
           status_output="$("${server_bin}/reduce-memory-server" status)"
           grep -F 'Mode                    : status' <<< "${status_output}"
+          grep -F 'Native process page-out : supported' <<< "${status_output}"
           server_menu="$(printf '0\n' | "${server_bin}/reduce-memory-server" --menu)"
-          grep -F 'Reduce Memory 2.2 - Linux Server' <<< "${server_menu}"
+          grep -F 'Reduce Memory 2.3 - Linux Server' <<< "${server_menu}"
           grep -F '3. Aggressive' <<< "${server_menu}"
