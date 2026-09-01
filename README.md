@@ -1,7 +1,8 @@
 # Reduce Memory 2.2
 
-Reduce Memory adalah tool kecil buat membantu RAM terasa lebih lega saat
-Windows sedang banyak memakai memori.
+Reduce Memory adalah tool kecil buat membantu RAM terasa lebih lega di Windows
+dan Linux. Keduanya punya engine terpisah karena cara Windows dan Linux
+mengelola memori memang berbeda.
 
 Proyek ini adalah **Reduce Memory 2.2**, terinspirasi dari Reduce Memory v1.7
 buatan Sordum Team.
@@ -9,9 +10,9 @@ Di repo ini, alur tersebut kita kembangkan lagi: pilihan mode diperjelas,
 Aggressive dibuat lebih kuat, ada versi Smooth supaya tidak gampang bikin lag,
 dan ada pilihan untuk membersihkan file Temp.
 
-Intinya tetap sederhana: minta Windows melepas memori yang sedang tidak terlalu
-dibutuhkan. Program ini tidak membunuh aplikasi, bukan antivirus, dan bukan
-registry cleaner.
+Intinya tetap sederhana: minta sistem operasi melepas memori yang sedang tidak
+terlalu dibutuhkan. Program ini tidak membunuh aplikasi, bukan antivirus, dan
+bukan registry cleaner.
 
 Semua aplikasi Windows diperlakukan secara dinamis. Tidak ada daftar nama
 aplikasi yang harus diperbarui setiap kali ada software baru. Aplikasi yang baru
@@ -19,7 +20,7 @@ di-install akan ikut terdeteksi otomatis; yang dilindungi hanya proses Windows,
 aplikasi yang sedang dipakai, proses yang baru saja aktif, dan proses yang
 sedang memakai CPU cukup tinggi.
 
-## Pilihan mode
+## Pilihan mode Windows
 
 - **Normal Optimize** — pilihan aman untuk dipakai sehari-hari.
 - **Aggressive Smooth** — lebih kuat dari Normal, tetapi dibuat lebih halus
@@ -65,7 +66,14 @@ Normal, kelima mode, dan penulisan log:
 .\windows\ReduceMemory.exe /RMSELFTEST
 ```
 
-Di Linux, pemeriksaan environment yang aman bisa dijalankan dengan:
+## Versi Linux native
+
+Versi Linux bukan port dari `EmptyWorkingSet` Windows. Engine Linux membaca
+`/proc/meminfo`, memakai `drop_caches` untuk cache kernel, dan memakai
+`memory.reclaim` cgroup v2 untuk Aggressive. Ini membuat aplikasi yang sudah ada
+maupun software baru ikut ditangani tanpa daftar nama proses.
+
+Pemeriksaan environment yang aman bisa dijalankan dengan:
 
 ```bash
 ./linux/ReduceMemory_Linux.sh check
@@ -80,7 +88,7 @@ chmod +x ReduceMemory_Linux.sh desktop/Install_Desktop.sh
 ```
 
 Setelah itu cari **Reduce Memory** dari menu aplikasi. Normal, Smooth,
-Aggressive, dan Check bisa dipilih tanpa menghafal command.
+Aggressive, dan Status bisa dipilih tanpa menghafal command.
 
 Untuk Linux Server/VPS:
 
@@ -94,7 +102,12 @@ reduce-memory-server
 Varian server membuka menu terminal melalui SSH dan tidak memasang desktop
 launcher, service, daemon, cron, atau automatic trigger.
 
-Kalau RAM sedang benar-benar penuh, mode Aggressive bisa membantu cukup banyak.
+Di Linux, Aggressive baru bisa melampaui cache-only kalau kernel menyediakan
+cgroup v2 `memory.reclaim`. Swap yang aktif memberi kernel tempat untuk
+memindahkan halaman aplikasi yang dingin. Kalau cache hanya 100 MB dan swap
+mati, hasilnya memang bisa kecil karena RAM aktif tidak aman untuk dihapus.
+
 Kalau yang dicari adalah pemakaian rutin tanpa banyak gangguan, gunakan Smooth.
-Memory trimming tidak menghapus virus dan tidak menghapus data aplikasi yang
-sedang aktif; Windows bisa memakai kembali memori itu ketika dibutuhkan.
+Memory reclaim tidak menghapus virus dan tidak menghapus data aplikasi yang
+sedang aktif; Windows maupun Linux bisa memakai kembali memori itu ketika
+dibutuhkan.

@@ -31,7 +31,7 @@ cat > "${desktop_file}" <<EOF
 Type=Application
 Version=1.0
 Name=Reduce Memory
-Comment=Simple Linux memory cache release
+Comment=Native Linux memory cache and cgroup reclaim
 Exec="${escaped_exec}" --menu
 Icon=utilities-system-monitor
 Terminal=true

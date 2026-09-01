@@ -31,7 +31,47 @@ jobs:
           bash -n linux/desktop/Install_Desktop.sh
           bash -n linux/server/Install_Server.sh
       - name: Run safe Linux self-check
-        run: ./linux/ReduceMemory_Linux.sh check
+        run: |
+          check_output="$(./linux/ReduceMemory_Linux.sh check)"
+          grep -F 'Mode                    : check' <<< "${check_output}"
+          grep -F 'File cache released     :' <<< "${check_output}"
+          grep -F 'Anonymous RAM change    :' <<< "${check_output}"
+          grep -F 'cgroup memory.reclaim   :' <<< "${check_output}"
+      - name: Exercise native Smooth and Aggressive paths
+        run: |
+          mock_root="${RUNNER_TEMP}/reduce-memory-kernel-mock"
+          mkdir -p "${mock_root}/vm" "${mock_root}/cgroup"
+          cat > "${mock_root}/meminfo" <<'EOF'
+          MemTotal:       16777216 kB
+          MemAvailable:   10485760 kB
+          Cached:          2097152 kB
+          SReclaimable:     262144 kB
+          Shmem:             65536 kB
+          AnonPages:       4194304 kB
+          SwapTotal:       4194304 kB
+          SwapFree:        3145728 kB
+          EOF
+          : > "${mock_root}/vm/drop_caches"
+          : > "${mock_root}/cgroup/memory.reclaim"
+
+          common_env=(
+            "REDUCE_MEMORY_MEMINFO_FILE=${mock_root}/meminfo"
+            "REDUCE_MEMORY_VM_ROOT=${mock_root}/vm"
+            "REDUCE_MEMORY_TARGET_CGROUP=${mock_root}/cgroup"
+            "REDUCE_MEMORY_SETTLE_SECONDS=0"
+          )
+
+          smooth_output="$(sudo env "${common_env[@]}" ./linux/ReduceMemory_Linux.sh smooth)"
+          test "$(tr -d '\n' < "${mock_root}/vm/drop_caches")" = '1'
+          grep -F 'drop_caches             : done (level 1)' <<< "${smooth_output}"
+          grep -F 'cgroup memory.reclaim   : not requested' <<< "${smooth_output}"
+
+          aggressive_output="$(sudo env "${common_env[@]}" REDUCE_MEMORY_RECLAIM_MB=1024 ./linux/ReduceMemory_Linux.sh aggressive)"
+          test "$(tr -d '\n' < "${mock_root}/vm/drop_caches")" = '3'
+          test "$(tr -d '\n' < "${mock_root}/cgroup/memory.reclaim")" = '1024M'
+          grep -F 'drop_caches             : done (level 3)' <<< "${aggressive_output}"
+          grep -F 'cgroup memory.reclaim   : done (1024 MB requested)' <<< "${aggressive_output}"
+          grep -F "Reclaim scope           : ${mock_root}/cgroup" <<< "${aggressive_output}"
       - name: Verify user-local launcher installation
         run: |
           install_root="${RUNNER_TEMP}/reduce-memory-install"

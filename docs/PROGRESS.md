@@ -61,6 +61,16 @@ the AutoIt source for every intermediate binary.
   permissions, and the Linux Server interactive menu.
 - Added tag-driven GitHub Release packaging with audited Windows, Linux Desktop,
   Linux Server, and SHA-256 assets created directly from the tagged commit.
+- Rebuilt the Linux engine around `/proc/meminfo`, `drop_caches`, and cgroup v2
+  `memory.reclaim`; no Windows working-set behavior is reused by the Bash path.
+- Removed `compact_memory` from the Linux release path because compaction
+  changes fragmentation, not the total amount of available RAM.
+- Added a bounded, RAM-sized Aggressive reclaim request with cache-only fallback
+  for older cgroup v1 systems and a clear warning when swap is disabled.
+- Expanded Linux reporting to distinguish cache release, anonymous application
+  pages, swap movement, and actual `MemAvailable` change.
+- Added Ubuntu integration checks that execute Smooth and Aggressive as root and
+  verify the exact `drop_caches` and `memory.reclaim` requests safely.
 
 ## Deliberately not included
 

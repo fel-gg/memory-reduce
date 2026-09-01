@@ -12,6 +12,12 @@
 - Adds automated, tag-driven GitHub Release packages and SHA-256 checksums.
 - Separates the Desktop launcher and headless Server installer into distinct
   source and package paths without duplicating the Linux memory engine.
+- Reworks Aggressive on Linux around native cgroup v2 `memory.reclaim` instead
+  of treating `compact_memory` as RAM release.
+- Adds separate Linux measurements for available memory, file cache, anonymous
+  application memory, and swap so small results are explained truthfully.
+- Adds executable Ubuntu integration coverage for the root-only Smooth and
+  Aggressive paths against disposable kernel-interface fixtures.
 
 ## Reduce Memory 2.0 — 2026
 
