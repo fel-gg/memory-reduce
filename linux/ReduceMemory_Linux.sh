@@ -3,10 +3,10 @@ set -euo pipefail
 
 script_path="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
 script_directory="$(cd -- "$(dirname -- "${script_path}")" && pwd)"
-program_title="Reduce Memory 2.7 - Linux"
+program_title="Reduce Memory 2.8 - Linux"
 server_mode=0
 if [[ "${script_path##*/}" == "reduce-memory-server" ]]; then
-  program_title="Reduce Memory 2.7 - Linux Server"
+  program_title="Reduce Memory 2.8 - Linux Server"
   server_mode=1
 fi
 

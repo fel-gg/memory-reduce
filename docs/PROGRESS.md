@@ -13,8 +13,16 @@ the AutoIt source for every intermediate binary.
 
 ## Completed source snapshot
 
-- Upgraded the existing engine in place to 2.7; no Windows or Linux path was
+- Upgraded the existing engine in place to 2.8; no Windows or Linux path was
   replaced with a from-scratch rewrite.
+- Made Normal and Aggressive materially different on Windows: Normal now has a
+  96 MB conservative floor plus foreground/recent/CPU shields, while Aggressive
+  uses a 4 MB floor, protects only the current foreground among user apps, and
+  runs a second native empty/purge sequence after its last elevated process
+  pass.
+- Added six-field elevated worker diagnostics, `native completed/expected`
+  status, measured worker Available RAM, and a real full-Aggressive CI gate on
+  a disposable Windows process.
 - Added measured before/after working-set accounting to every Windows process
   trim and structured Administrator-worker results instead of success-only
   reporting.

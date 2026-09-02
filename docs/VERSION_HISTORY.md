@@ -1,5 +1,27 @@
 # Version history
 
+## Reduce Memory 2.8 — 2026
+
+- Separated the real Windows candidate floors: Normal now defaults to 96 MB,
+  Smooth to 48 MB, Aggressive to 4 MB, and AI Shield to 64 MB. The compatible
+  legacy `MinProcessMB` setting remains the baseline for conservative profiles.
+- Kept the current foreground window protected in Aggressive while allowing an
+  application that has moved to the background to become eligible immediately;
+  recent-activity and CPU shields remain active for Normal, Smooth, and AI
+  Shield.
+- Added a final empty-working-set and standby-purge sequence after the second
+  elevated Aggressive process pass. Full Aggressive now reports up to six
+  distinct native successes; Emergency reports up to twelve across two cycles.
+- Extended the Administrator worker protocol and bounded log with its measured
+  available-RAM change, while keeping this system delta separate from the sum
+  of per-process working-set reductions.
+- Added a disposable full-Aggressive Windows integration gate. It requires two
+  elevated process passes, at least four accepted native stages, at least 64 MB
+  of measured working-set reduction, and proof that the target stays alive.
+- Retained the separately validated Linux Desktop/Server 2.7 reclaim engine in
+  the unified 2.8 release; its native syscall, cache, cgroup, and installer gates
+  continue to run unchanged.
+
 ## Reduce Memory 2.7 — 2026
 
 - Added real per-process Windows working-set measurement before and after every

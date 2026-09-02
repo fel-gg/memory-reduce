@@ -57,6 +57,64 @@ jobs:
               if (-not $target.HasExited) { Stop-Process -Id $target.Id -Force }
             }
           }
+      - name: Verify full Windows Aggressive engine
+        shell: pwsh
+        run: |
+          $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+          if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'The disposable Aggressive integration gate requires an elevated Windows runner'
+          }
+
+          $targetSource = @'
+          using System;
+          using System.Threading;
+
+          public static class ReduceMemoryAggressiveTarget
+          {
+              public static void Main()
+              {
+                  byte[] buffer = new byte[256 * 1024 * 1024];
+                  for (int offset = 0; offset < buffer.Length; offset += 4096)
+                      buffer[offset] = 1;
+                  Thread.Sleep(TimeSpan.FromSeconds(60));
+                  GC.KeepAlive(buffer);
+              }
+          }
+          '@
+          $targetExe = Join-Path $env:RUNNER_TEMP 'ReduceMemoryAggressiveTarget.exe'
+          Add-Type -TypeDefinition $targetSource -OutputAssembly $targetExe -OutputType ConsoleApplication
+          $target = Start-Process -FilePath $targetExe -WindowStyle Hidden -PassThru
+          $resultPath = Join-Path $env:RUNNER_TEMP 'aggressive.result'
+          try {
+            $deadline = [DateTime]::UtcNow.AddSeconds(15)
+            do {
+              if ($target.HasExited) { throw 'Disposable Aggressive target exited before reclaim' }
+              $resident = (Get-Process -Id $target.Id).WorkingSet64
+              if ($resident -ge 128MB) { break }
+              Start-Sleep -Milliseconds 100
+            } while ([DateTime]::UtcNow -lt $deadline)
+            if ($resident -lt 128MB) { throw 'Disposable Aggressive target never became resident' }
+
+            $worker = Start-Process -FilePath .\windows\ReduceMemory_x64.exe `
+              -ArgumentList '/RMAGGRESSIVE',("/RMRESULT=$resultPath") -Wait -PassThru
+            if ($worker.ExitCode -ne 0) { throw "Aggressive worker failed with exit code $($worker.ExitCode)" }
+            if ($target.HasExited) { throw 'Aggressive terminated the disposable target' }
+
+            $fields = @(Get-Content -LiteralPath $resultPath | ForEach-Object { [int64]$_ })
+            if ($fields.Count -ne 6) { throw "Aggressive returned $($fields.Count) fields instead of 6" }
+            $trimOperations = $fields[1]
+            $workingSetReduction = $fields[2]
+            $nativeStages = $fields[3]
+            $processPasses = $fields[4]
+            if ($trimOperations -lt 1) { throw 'Aggressive did not trim an eligible process' }
+            if ($workingSetReduction -lt 64MB) { throw "Aggressive measured only $workingSetReduction bytes of working-set reduction" }
+            if ($nativeStages -lt 4) { throw "Aggressive completed only $nativeStages of 6 native stages" }
+            if ($processPasses -ne 2) { throw "Aggressive completed $processPasses process passes instead of 2" }
+            Write-Output "Aggressive: $trimOperations trims, $([math]::Round($workingSetReduction / 1MB, 1)) MB working set, $nativeStages/6 native stages, $processPasses passes"
+          } finally {
+            if (-not $target.HasExited) { Stop-Process -Id $target.Id -Force }
+          }
 
   linux:
     runs-on: ubuntu-latest
@@ -273,7 +331,7 @@ jobs:
           "${install_root}/bin/reduce-memory" check
           "${install_root}/bin/reduce-memory-native" check
           menu_output="$(printf '0\n' | "${install_root}/bin/reduce-memory" --menu)"
-          grep -F 'Reduce Memory 2.7 - Linux' <<< "${menu_output}"
+          grep -F 'Reduce Memory 2.8 - Linux' <<< "${menu_output}"
           ! grep -F 'Linux Server' <<< "${menu_output}"
           grep -F '3. AI Shield' <<< "${menu_output}"
           grep -F '4. Aggressive' <<< "${menu_output}"
@@ -290,6 +348,6 @@ jobs:
           grep -F 'Mode                    : status' <<< "${status_output}"
           grep -F 'Native process page-out : supported' <<< "${status_output}"
           server_menu="$(printf '0\n' | "${server_bin}/reduce-memory-server" --menu)"
-          grep -F 'Reduce Memory 2.7 - Linux Server' <<< "${server_menu}"
+          grep -F 'Reduce Memory 2.8 - Linux Server' <<< "${server_menu}"
           grep -F '3. AI Shield' <<< "${server_menu}"
           grep -F '4. Aggressive' <<< "${server_menu}"

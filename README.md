@@ -1,10 +1,10 @@
-# Reduce Memory 2.7
+# Reduce Memory 2.8
 
 Reduce Memory adalah tool kecil buat membantu RAM terasa lebih lega di Windows
 dan Linux. Keduanya punya engine terpisah karena cara Windows dan Linux
 mengelola memori memang berbeda.
 
-Proyek ini adalah **Reduce Memory 2.7**, terinspirasi dari Reduce Memory v1.7
+Proyek ini adalah **Reduce Memory 2.8**, terinspirasi dari Reduce Memory v1.7
 buatan Sordum Team.
 Di repo ini, alur tersebut kita kembangkan lagi: pilihan mode diperjelas,
 Aggressive dibuat lebih kuat, ada versi Smooth supaya tidak gampang bikin lag,
@@ -23,16 +23,19 @@ Jadi software baru tetap ikut scan tanpa harus menunggu daftar nama diperbarui.
 
 ## Pilihan mode Windows
 
-- **Normal Optimize** — satu pass konservatif untuk aplikasi background yang
-  cukup besar; aplikasi foreground dan proses yang sedang memakai CPU dilewati.
+- **Normal Optimize** — satu pass ringan untuk aplikasi background besar
+  (default minimal 96 MB); aplikasi foreground, aplikasi yang baru aktif, dan
+  proses yang sedang memakai CPU dilewati.
 - **AI Shield** — melindungi proses AI yang dikenali dan memangkas proses
   background yang idle tanpa menjalankan purge memory-list global.
 - **Aggressive Smooth** — process trim konservatif biasa dan elevated ditambah
   pelepasan standby prioritas rendah, tanpa full cache/list purge.
-- **Aggressive Release** — satu pass awal lalu dua pass elevated yang mengapit
-  pelepasan working set, modified list, standby list, dan system file cache.
-  Kandidatnya lebih luas dari Normal, tetapi aplikasi foreground/recent dan
-  proses kritis Windows tetap dilindungi.
+- **Aggressive Release** — satu pass awal lalu dua pass elevated untuk kandidat
+  background mulai 4 MB. Di antaranya Windows menjalankan pelepasan working
+  set, modified list, standby list, dan system file cache; setelah pass proses
+  terakhir, empty-working-set dan purge-standby dijalankan lagi. Jendela yang
+  sedang dipakai dan proses kritis Windows tetap dilindungi, tetapi aplikasi
+  yang baru dipindah ke background boleh direclaim.
 - **Aggressive + Delete Temp** — menjalankan Aggressive Release lalu menawarkan
   penghapusan permanen file dari `%TEMP%` dan `C:\Windows\Temp`. File yang
   sedang dipakai akan dilewati.
@@ -54,7 +57,8 @@ Setelah Optimize, hasil langsung tampil di jendela utama. Angka **working set**
 berasal dari pengukuran tiap proses sebelum/sesudah trim, sedangkan angka
 **available** berasal dari statistik RAM Windows; keduanya sengaja tidak
 dicampur. Worker Administrator juga mengembalikan jumlah pass, operasi trim,
-dan tahap native yang benar-benar berhasil. Lima belas detik kemudian hasil
+perubahan available RAM di dalam worker, dan tahap native yang benar-benar
+berhasil (`6/6` bila semua tahap full Aggressive diterima Windows). Lima belas detik kemudian hasil
 stabil dihitung ulang. Kalau memori langsung diambil kembali,
 rebound protection menahan operasi berat selama 60 detik. Ringkasan setiap
 operasi juga disimpan di `windows/ReduceMemory.log` dengan ukuran terbatas.
@@ -80,7 +84,7 @@ operasi juga disimpan di `windows/ReduceMemory.log` dengan ukuran terbatas.
 Self-test biasa tidak memangkas RAM atau membersihkan cache. Ia memeriksa pembacaan
 RAM/commit, CPU time, process-path WinAPI, seluruh jalur pemilihan kandidat
 Normal, keenam mode, AI Shield, parser hasil worker, logika trigger 95%/re-arm
-90%, dan penulisan log:
+90%, minimum kandidat tiap profil, dan penulisan log:
 
 ```powershell
 .\windows\ReduceMemory_x64.exe /RMSELFTEST
