@@ -4,7 +4,7 @@ Versi Linux memakai jalur yang dibuat khusus untuk kernel Linux. Ia tidak
 menyalin `EmptyWorkingSet` Windows karena Linux tidak mempunyai API global yang
 sama.
 
-Engine Linux 2.6 menggabungkan tiga mekanisme native yang berbeda:
+Engine Linux 2.7 menggabungkan tiga mekanisme native yang berbeda:
 
 ```text
 pidfd_open + process_madvise(MADV_PAGEOUT)
@@ -39,11 +39,13 @@ Jalur Aggressive terbaru:
 1. sync pending filesystem writes
 2. scan semua proses UID non-system melalui /proc
 3. lindungi proses aktif, foreground, dan process tree Reduce Memory
-4. MADV_PAGEOUT pada mapping yang aman dan resident
-5. ukur pengurangan RSS proses
+4. kirim mapping yang aman dan resident dalam batch MADV_PAGEOUT
+5. ukur pengurangan RSS proses pass pertama
 6. drop page cache + reclaimable slab
-7. jalankan cgroup v2 proactive reclaim (default sekitar 1/8 RAM, dibatasi)
-8. ukur MemAvailable, cache, anonymous RAM, dan swap
+7. jalankan cgroup v2 proactive reclaim (default sekitar 1/8 RAM, dibatasi);
+   saat swap tersedia, prioritaskan anonymous RAM dengan `swappiness=max`
+8. lakukan page-out kedua setelah cache/cgroup reclaim
+9. ukur MemAvailable, cache, anonymous RAM, swap, dan total kedua pass
 ```
 
 `MADV_PAGEOUT` meminta kernel mereclaim page pada range yang dipilih. Anonymous
@@ -60,8 +62,8 @@ storage. Aplikasi tetap hidup dan memuat page itu kembali saat diperlukan.
   proses background yang idle. Tidak membuang cache global atau menjalankan
   root-cgroup reclaim.
 - `aggressive`: scan semua UID non-system, page-out aplikasi idle mulai 32 MB
-  dan mapping mulai 256 KB, lalu drop page cache, reclaimable slab, dan cgroup
-  v2 reclaim. Tidak memakai daftar nama AI/GPU.
+  dan mapping mulai 256 KB, lalu drop page cache, reclaimable slab, cgroup v2
+  reclaim, dan page-out ulang. Tidak memakai daftar nama AI/GPU.
 - `status` atau `check`: hanya membaca metrik dan kemampuan kernel. Tidak
   mengubah RAM atau cache.
 
@@ -78,7 +80,7 @@ Engine tidak membunuh proses. Sebelum page-out, ia melewati:
 - proses AI/GPU dan seluruh child process-nya, **hanya pada AI Shield**;
 - terminal, `sudo`, Reduce Memory, dan seluruh ancestor process-nya;
 - locked memory;
-- device/PFN/IO mappings;
+- device/PFN/IO dan HugeTLB mappings;
 - stack, VDSO, VVAR, dan mapping khusus kernel.
 
 Proteksi umum tidak bergantung pada nama aplikasi. AI Shield menambahkan pola
@@ -100,6 +102,8 @@ Processes scanned/paged out/skipped/protected
 Mappings advised
 Bytes advised by the kernel
 Measured process RSS reduction
+Batched syscall count and scalar fallbacks
+Native page-out pass count
 cgroup memory.reclaim status
 ```
 
@@ -189,6 +193,7 @@ Pengaturan optional:
 
 ```bash
 sudo REDUCE_MEMORY_RECLAIM_MB=1024 ./ReduceMemory_Linux.sh aggressive
+sudo REDUCE_MEMORY_RECLAIM_SWAPPINESS=max ./ReduceMemory_Linux.sh aggressive
 sudo REDUCE_MEMORY_AGGRESSIVE_MIN_RSS_MB=64 ./ReduceMemory_Linux.sh aggressive
 sudo REDUCE_MEMORY_INCLUDE_SERVICE_USERS=1 ./ReduceMemory_Linux.sh aggressive
 sudo REDUCE_MEMORY_AI_PATTERNS='my-ai-worker|future-model-server' ./ReduceMemory_Linux.sh ai-shield
@@ -203,6 +208,10 @@ sudo REDUCE_MEMORY_AI_PATTERNS='my-ai-worker|future-model-server' ./ReduceMemory
   tersebut pada instalasi Linux biasa.
 - Anonymous/private application pages membutuhkan swap agar bisa dipindahkan
   keluar dari RAM tanpa menghilangkan datanya.
+- `REDUCE_MEMORY_RECLAIM_SWAPPINESS` menerima `default`, `max`, atau 0-200.
+  Default Aggressive adalah `max` ketika swap tersedia, sehingga tahap cgroup
+  itu khusus mencoba anonymous memory; kernel yang belum mendukung nested key
+  otomatis mendapat request plain lama.
 - Bila helper atau syscall tidak tersedia, Aggressive melanjutkan ke cgroup v2
   dan cache fallback serta melaporkan penyebabnya.
 - WSL2 memakai kernel Linux, tetapi pelepasan RAM kembali ke host Windows tetap

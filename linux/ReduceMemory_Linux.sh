@@ -3,10 +3,10 @@ set -euo pipefail
 
 script_path="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
 script_directory="$(cd -- "$(dirname -- "${script_path}")" && pwd)"
-program_title="Reduce Memory 2.6 - Linux"
+program_title="Reduce Memory 2.7 - Linux"
 server_mode=0
 if [[ "${script_path##*/}" == "reduce-memory-server" ]]; then
-  program_title="Reduce Memory 2.6 - Linux Server"
+  program_title="Reduce Memory 2.7 - Linux Server"
   server_mode=1
 fi
 
@@ -208,6 +208,15 @@ native_value() {
   awk -F= -v wanted="${key}" '$1 == wanted { print substr($0, index($0, "=") + 1); exit }' <<< "${output}"
 }
 
+numeric_or_zero() {
+  local value="${1:-}"
+  if [[ "${value}" =~ ^[0-9]+$ ]]; then
+    printf '%s\n' "${value}"
+  else
+    printf '0\n'
+  fi
+}
+
 detect_active_application_pid() {
   local detected_pid=""
   local active_window=""
@@ -281,6 +290,9 @@ reset_stage_state() {
   native_mappings_advised=0
   native_bytes_advised=0
   native_rss_reduced_kb=0
+  native_pageout_passes=0
+  native_batch_calls=0
+  native_fallback_calls=0
 }
 
 reset_stage_state
@@ -310,6 +322,17 @@ run_native_pageout() {
   local activity_ms
   local active_ticks
   local native_settle_ms
+  local pass_status
+  local pass_processes_seen
+  local pass_processes_advised
+  local pass_processes_active_skipped
+  local pass_processes_protected
+  local pass_workloads_protected
+  local pass_mappings_advised
+  local pass_bytes_advised
+  local pass_rss_reduced_kb
+  local pass_batch_calls
+  local pass_fallback_calls
 
   if ! command -v python3 >/dev/null 2>&1; then
     stage_native_pageout="unavailable; python3 not installed"
@@ -393,29 +416,54 @@ run_native_pageout() {
   fi
 
   native_output="$("${native_helper}" "${arguments[@]}" 2>&1)" || native_exit=$?
-  stage_native_pageout="$(native_value "${native_output}" native_status)"
-  [[ -n "${stage_native_pageout}" ]] || stage_native_pageout="failed (exit ${native_exit})"
-  native_processes_seen="$(native_value "${native_output}" processes_seen)"
-  native_processes_advised="$(native_value "${native_output}" processes_advised)"
-  native_processes_active_skipped="$(native_value "${native_output}" processes_active_skipped)"
-  native_processes_protected="$(native_value "${native_output}" processes_protected)"
-  native_workloads_protected="$(native_value "${native_output}" workloads_protected)"
-  native_mappings_advised="$(native_value "${native_output}" mappings_advised)"
-  native_bytes_advised="$(native_value "${native_output}" bytes_advised)"
-  native_rss_reduced_kb="$(native_value "${native_output}" rss_reduced_kb)"
+  pass_status="$(native_value "${native_output}" native_status)"
+  [[ -n "${pass_status}" ]] || pass_status="failed (exit ${native_exit})"
+  native_pageout_passes=$((native_pageout_passes + 1))
+  if [[ "${stage_native_pageout}" == "not requested" ]]; then
+    stage_native_pageout="pass${native_pageout_passes}=${pass_status}"
+  else
+    stage_native_pageout+="; pass${native_pageout_passes}=${pass_status}"
+  fi
 
-  native_processes_seen="${native_processes_seen:-0}"
-  native_processes_advised="${native_processes_advised:-0}"
-  native_processes_active_skipped="${native_processes_active_skipped:-0}"
-  native_processes_protected="${native_processes_protected:-0}"
-  native_workloads_protected="${native_workloads_protected:-0}"
-  native_mappings_advised="${native_mappings_advised:-0}"
-  native_bytes_advised="${native_bytes_advised:-0}"
-  native_rss_reduced_kb="${native_rss_reduced_kb:-0}"
+  pass_processes_seen="$(native_value "${native_output}" processes_seen)"
+  pass_processes_advised="$(native_value "${native_output}" processes_advised)"
+  pass_processes_active_skipped="$(native_value "${native_output}" processes_active_skipped)"
+  pass_processes_protected="$(native_value "${native_output}" processes_protected)"
+  pass_workloads_protected="$(native_value "${native_output}" workloads_protected)"
+  pass_mappings_advised="$(native_value "${native_output}" mappings_advised)"
+  pass_bytes_advised="$(native_value "${native_output}" bytes_advised)"
+  pass_rss_reduced_kb="$(native_value "${native_output}" rss_reduced_kb)"
+  pass_batch_calls="$(native_value "${native_output}" batch_calls)"
+  pass_fallback_calls="$(native_value "${native_output}" fallback_calls)"
+
+  pass_processes_seen="$(numeric_or_zero "${pass_processes_seen}")"
+  pass_processes_advised="$(numeric_or_zero "${pass_processes_advised}")"
+  pass_processes_active_skipped="$(numeric_or_zero "${pass_processes_active_skipped}")"
+  pass_processes_protected="$(numeric_or_zero "${pass_processes_protected}")"
+  pass_workloads_protected="$(numeric_or_zero "${pass_workloads_protected}")"
+  pass_mappings_advised="$(numeric_or_zero "${pass_mappings_advised}")"
+  pass_bytes_advised="$(numeric_or_zero "${pass_bytes_advised}")"
+  pass_rss_reduced_kb="$(numeric_or_zero "${pass_rss_reduced_kb}")"
+  pass_batch_calls="$(numeric_or_zero "${pass_batch_calls}")"
+  pass_fallback_calls="$(numeric_or_zero "${pass_fallback_calls}")"
+
+  native_processes_seen=$((native_processes_seen + pass_processes_seen))
+  native_processes_advised=$((native_processes_advised + pass_processes_advised))
+  native_processes_active_skipped=$((native_processes_active_skipped + pass_processes_active_skipped))
+  native_processes_protected=$((native_processes_protected + pass_processes_protected))
+  native_workloads_protected=$((native_workloads_protected + pass_workloads_protected))
+  native_mappings_advised=$((native_mappings_advised + pass_mappings_advised))
+  native_bytes_advised=$((native_bytes_advised + pass_bytes_advised))
+  native_rss_reduced_kb=$((native_rss_reduced_kb + pass_rss_reduced_kb))
+  native_batch_calls=$((native_batch_calls + pass_batch_calls))
+  native_fallback_calls=$((native_fallback_calls + pass_fallback_calls))
 }
 
 run_cgroup_reclaim() {
   local reclaim_file
+  local swap_total_kb
+  local requested_swappiness
+  local reclaim_payload
   reclaim_request_mb="$(reclaim_target_mb)"
 
   if ! reclaim_file="$(find_reclaim_file)"; then
@@ -429,10 +477,32 @@ run_cgroup_reclaim() {
     return 0
   fi
 
-  # EAGAIN means the kernel reclaimed less than requested; that can still be a
-  # useful partial reclaim, so measured before/after values remain primary.
-  if { printf '%sM\n' "${reclaim_request_mb}" > "${reclaim_file}"; } 2>/dev/null; then
-    stage_cgroup_reclaim="done (${reclaim_request_mb} MB requested)"
+  swap_total_kb="$(require_numeric_meminfo SwapTotal)"
+  requested_swappiness="${REDUCE_MEMORY_RECLAIM_SWAPPINESS:-}"
+  if [[ -z "${requested_swappiness}" ]]; then
+    if (( swap_total_kb > 0 )); then
+      requested_swappiness="max"
+    else
+      requested_swappiness="default"
+    fi
+  fi
+  if [[ "${requested_swappiness}" != "default" && "${requested_swappiness}" != "max" && ! "${requested_swappiness}" =~ ^([0-9]|[1-9][0-9]|1[0-9][0-9]|200)$ ]]; then
+    echo "REDUCE_MEMORY_RECLAIM_SWAPPINESS harus default, max, atau angka 0-200." >&2
+    return 2
+  fi
+
+  reclaim_payload="${reclaim_request_mb}M"
+  if [[ "${requested_swappiness}" != "default" && ${swap_total_kb} -gt 0 ]]; then
+    reclaim_payload+=" swappiness=${requested_swappiness}"
+  fi
+
+  # Newer cgroup v2 kernels accept a nested swappiness key. Aggressive uses it
+  # when swap exists so anonymous pages can participate instead of reclaiming
+  # file cache only. Older kernels transparently fall back to the plain syntax.
+  if { printf '%s\n' "${reclaim_payload}" > "${reclaim_file}"; } 2>/dev/null; then
+    stage_cgroup_reclaim="done (${reclaim_request_mb} MB requested) | swappiness=${requested_swappiness}"
+  elif [[ "${reclaim_payload}" != "${reclaim_request_mb}M" ]] && { printf '%sM\n' "${reclaim_request_mb}" > "${reclaim_file}"; } 2>/dev/null; then
+    stage_cgroup_reclaim="done (${reclaim_request_mb} MB requested) | plain compatibility fallback"
   else
     stage_cgroup_reclaim="partial or refused (${reclaim_request_mb} MB requested)"
   fi
@@ -477,6 +547,7 @@ print_result() {
   printf 'Kernel sync             : %s\n' "${stage_sync}"
   printf 'Native process page-out : %s\n' "${stage_native_pageout}"
   if [[ "${stage_native_pageout}" != "not requested" ]]; then
+    printf 'Native page-out passes  : %s\n' "${native_pageout_passes}"
     printf 'Processes scanned       : %s\n' "${native_processes_seen}"
     printf 'Processes paged out     : %s\n' "${native_processes_advised}"
     printf 'Active processes skipped: %s\n' "${native_processes_active_skipped}"
@@ -485,6 +556,8 @@ print_result() {
     printf 'Mappings advised        : %s\n' "${native_mappings_advised}"
     printf 'Bytes advised           : %d MB\n' "$((native_bytes_advised / 1024 / 1024))"
     printf 'Process RSS reduced     : %d MB\n' "$((native_rss_reduced_kb / 1024))"
+    printf 'Batched native calls    : %s\n' "${native_batch_calls}"
+    printf 'Scalar fallback calls   : %s\n' "${native_fallback_calls}"
   fi
   printf 'drop_caches             : %s\n' "${stage_drop_caches}"
   printf 'cgroup memory.reclaim   : %s\n' "${stage_cgroup_reclaim}"
@@ -570,6 +643,7 @@ perform_mode() {
       run_sync
       run_drop_caches 3
       run_cgroup_reclaim
+      run_native_pageout aggressive
       ;;
     *)
       echo "Mode tidak dikenal: ${selected_mode}" >&2

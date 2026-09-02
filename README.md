@@ -1,10 +1,10 @@
-# Reduce Memory 2.6
+# Reduce Memory 2.7
 
 Reduce Memory adalah tool kecil buat membantu RAM terasa lebih lega di Windows
 dan Linux. Keduanya punya engine terpisah karena cara Windows dan Linux
 mengelola memori memang berbeda.
 
-Proyek ini adalah **Reduce Memory 2.6**, terinspirasi dari Reduce Memory v1.7
+Proyek ini adalah **Reduce Memory 2.7**, terinspirasi dari Reduce Memory v1.7
 buatan Sordum Team.
 Di repo ini, alur tersebut kita kembangkan lagi: pilihan mode diperjelas,
 Aggressive dibuat lebih kuat, ada versi Smooth supaya tidak gampang bikin lag,
@@ -27,11 +27,12 @@ Jadi software baru tetap ikut scan tanpa harus menunggu daftar nama diperbarui.
   cukup besar; aplikasi foreground dan proses yang sedang memakai CPU dilewati.
 - **AI Shield** — melindungi proses AI yang dikenali dan memangkas proses
   background yang idle tanpa menjalankan purge memory-list global.
-- **Aggressive Smooth** — process trim konservatif ditambah pelepasan standby
-  prioritas rendah agar hasilnya lebih kuat tanpa full purge.
-- **Aggressive Release** — memangkas aplikasi user/background lebih luas dalam
-  pass biasa dan pass elevated, lalu melepas working set, modified list,
-  standby list, dan system file cache. Aplikasi aktif tetap dilindungi.
+- **Aggressive Smooth** — process trim konservatif biasa dan elevated ditambah
+  pelepasan standby prioritas rendah, tanpa full cache/list purge.
+- **Aggressive Release** — satu pass awal lalu dua pass elevated yang mengapit
+  pelepasan working set, modified list, standby list, dan system file cache.
+  Kandidatnya lebih luas dari Normal, tetapi aplikasi foreground/recent dan
+  proses kritis Windows tetap dilindungi.
 - **Aggressive + Delete Temp** — menjalankan Aggressive Release lalu menawarkan
   penghapusan permanen file dari `%TEMP%` dan `C:\Windows\Temp`. File yang
   sedang dipakai akan dilewati.
@@ -49,8 +50,12 @@ dan titik re-arm 90% mencegah loop trim berulang. Mode manual yang dipilih di
 dropdown tidak diubah; startup sengaja tidak menjalankan Emergency/Aggressive
 supaya login tidak tersendat.
 
-Setelah Optimize, hasil langsung tampil di jendela utama. Lima belas detik
-kemudian hasil stabil dihitung ulang. Kalau memori langsung diambil kembali,
+Setelah Optimize, hasil langsung tampil di jendela utama. Angka **working set**
+berasal dari pengukuran tiap proses sebelum/sesudah trim, sedangkan angka
+**available** berasal dari statistik RAM Windows; keduanya sengaja tidak
+dicampur. Worker Administrator juga mengembalikan jumlah pass, operasi trim,
+dan tahap native yang benar-benar berhasil. Lima belas detik kemudian hasil
+stabil dihitung ulang. Kalau memori langsung diambil kembali,
 rebound protection menahan operasi berat selama 60 detik. Ringkasan setiap
 operasi juga disimpan di `windows/ReduceMemory.log` dengan ukuran terbatas.
 
@@ -72,9 +77,10 @@ operasi juga disimpan di `windows/ReduceMemory.log` dengan ukuran terbatas.
 
 ## Self-test aman
 
-Self-test tidak memangkas RAM atau membersihkan cache. Ia memeriksa pembacaan
+Self-test biasa tidak memangkas RAM atau membersihkan cache. Ia memeriksa pembacaan
 RAM/commit, CPU time, process-path WinAPI, seluruh jalur pemilihan kandidat
-Normal, keenam mode, AI Shield, logika trigger 95%/re-arm 90%, dan penulisan log:
+Normal, keenam mode, AI Shield, parser hasil worker, logika trigger 95%/re-arm
+90%, dan penulisan log:
 
 ```powershell
 .\windows\ReduceMemory_x64.exe /RMSELFTEST
@@ -90,7 +96,12 @@ mapping secara dinamis dari `/proc`, lalu memakai `pidfd_open` dan
 `process_madvise(MADV_PAGEOUT)` untuk meminta kernel mereclaim resident pages
 aplikasi yang idle. Normal memakai batas konservatif, Smooth menambah pelepasan
 file cache ringan, dan Aggressive memeriksa semua UID non-system dengan batas
-mapping lebih rendah sebelum `drop_caches` dan `memory.reclaim` cgroup v2.
+mapping lebih rendah. Aggressive sekarang melakukan page-out dua kali: sebelum
+dan sesudah `drop_caches` plus `memory.reclaim` cgroup v2. Helper mengirim sampai
+64 mapping per syscall dan kembali ke panggilan satu-per-satu hanya ketika
+kernel memberi hasil parsial atau menolak batch. Bila swap tersedia, cgroup
+reclaim memakai `swappiness=max` untuk menarget anonymous memory; kernel lama
+otomatis mendapat format kompatibilitas.
 Aplikasi lama maupun software baru ikut tanpa daftar nama proses.
 
 Pemeriksaan environment yang aman bisa dijalankan dengan:

@@ -1,5 +1,29 @@
 # Version history
 
+## Reduce Memory 2.7 — 2026
+
+- Added real per-process Windows working-set measurement before and after every
+  successful trim, separate from the system-wide Available RAM delta.
+- Replaced the Windows elevated worker's success-only file with a structured
+  result containing trim operations, measured bytes, native stages, and pass
+  count; both x64 and x86 self-tests validate the parser.
+- Made Windows Smooth perform one elevated process pass and made full
+  Aggressive bracket its native memory-list/cache release with two elevated
+  process passes. Emergency still uses its explicit confirmation and two full
+  release cycles.
+- Strengthened the Windows integration test with a disposable 256 MB resident
+  allocation. A build now fails unless each architecture measurably removes at
+  least 64 MB while leaving the process alive.
+- Batched up to 64 Linux mappings into each `process_madvise(MADV_PAGEOUT)`
+  call, with correct partial-result accounting and scalar compatibility
+  fallback. HugeTLB mappings are now excluded explicitly.
+- Made Linux Aggressive run native application page-out both before and after
+  cache/cgroup reclaim, with counters accumulated across both passes.
+- Added cgroup v2 `swappiness=max` anonymous-memory reclaim when swap is
+  available, plus plain-request fallback for older kernels.
+- Expanded Ubuntu verification for real batch calls, two-pass Aggressive,
+  anonymous reclaim syntax, compatibility syntax, and reported totals.
+
 ## Reduce Memory 2.6 — 2026
 
 - Separated AI Shield from every general optimization profile. Normal, Smooth,

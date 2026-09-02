@@ -5,7 +5,7 @@ If Not IsDeclared ( "Os" ) Then Global $OS
 Global $A3380B02A2C = "MustDeclareVars" , $A2790402500 = "GUI_RUNDEFMSG" , $A0B90601C20 = "GUIDataSeparatorChar" , $A5B90705434 = "WinDetectHiddenText" , $A1090900A56 = "1.7" , $A3A90B05762 = "ReduceMemory" , $A4890D04726 = "Reduce Memory" , $A36A0000608 = " - Author by BlueLife" , $A0CA0202515 = "[CLASS:_MReduce:v" , $A58A030490B = "]" , $A19A050611A = "2013-2024" , $A1FA0B0155D = " @UserName " , $A30A0F0565F = " @Compiled " , $A14B0102331 = " @AutoItExe " , $A19B0303F03 = " @OSArch " , $A1FB050530A = " @AutoItX64 " , $A24B0704245 = " @AutoItPID " , $A41B0904162 = " @OSVersion " , $A4EB0B05206 = "AutoIt.Error" , $A53B0E04938 = "_(XP|200(0|3))" , $A42C0005F35 = " @WindowsDir " , $A34C0203522 = "System32\" , $A17C0505B2A = " @WorkingDir " , $A48C0804D4D = "kernel32.dll" , $A23C0A04F06 = "user32.dll" , $A0CC0C01F2E = "advapi32.dll" , $A55C0E01626 = "shell32.dll" , _
 $A16D000163E = "ole32.dll" , $A57D020482F = "comctl32.dll" , $A54D0402622 = "gdi32.dll" , $A0BD0604C48 = "psapi.dll" , $A34D090231C = " @ScriptDir " , $A18D0B05E2E = "Icons\" , $A12D0D0163B = ".ini" , $A5CE0702436 = "HideWindowOnStartup" , $A4DE0905E47 = "HideWhenMinimized" , $A54E0B00A4B = "WinSetOnTop" , $A05E0D01131 = "SystemUser" , $A63E0F04B1C = "TrayIconPack" , $A45F020231C = "TaskOptions" , $A5EF040325E = "UsedMemory" , $A27F050091E = "75%" , $A57F0603C63 = "[^0-9]" , $A26F080043F = "CountDown" , $A25F0A03415 = "ExclusionOpt" , $A2AF0C0551E = "Main" , $A2DF0D02906 = "Exclusions" , $A07F0F00236 = "Main" , $A3001000F39 = "Processes" , $A1C0130371A = "HKLM" , $A0601502317 = "HKCU" , $A2001601838 = "64" , $A1C0170504E = "64" , $A0E01E04600 = "Tahoma"
 ; Reduce Memory project version (the original table entry is retained for provenance)
-$A1090900A56 = "2.6"
+$A1090900A56 = "2.7"
 Opt ( $A3380B02A2C , 1 )
 Global Const $A4080C05448 = Chr ( 92 )
 Global Const $A2280D04544 = Chr ( 47 )
@@ -108,6 +108,17 @@ Global $RM_OptimizeMode = 0
 Global $RM_ModeControl = 0
 Global $RM_LastAggressiveDetail = ""
 Global $RM_LastAggressiveOk = 0
+Global $RM_LastTrimReleasedBytes = 0
+Global $RM_LastProcessTrimMB = 0
+Global $RM_LastTrimmedCount = 0
+Global $RM_WorkerTotalTrimmed = 0
+Global $RM_WorkerTotalReleasedBytes = 0
+Global $RM_WorkerNativeSteps = 0
+Global $RM_WorkerPasses = 0
+Global $RM_LastWorkerTrimmed = 0
+Global $RM_LastWorkerReleasedBytes = 0
+Global $RM_LastWorkerNativeSteps = 0
+Global $RM_LastWorkerPasses = 0
 Global $RM_RecentActivePID = 0
 Global $RM_RecentActiveAt = 0
 Global $RM_LastObservedActivePID = 0
@@ -461,26 +472,53 @@ Func RM_AggressiveRelease ( $RM_Smooth = 0 , $RM_ProcessProfile = 2 )
 	Local $RM_ProfilePrivilege = RM_EnablePrivilege ( "SeProfileSingleProcessPrivilege" )
 	Local $RM_QuotaPrivilege = RM_EnablePrivilege ( "SeIncreaseQuotaPrivilege" )
 	Local $RM_EmptyStatus = - 2 , $RM_FlushStatus = - 2 , $RM_PurgeStatus = - 2
-	Local $RM_CacheOk = 0 , $RM_ProcessTrimmed = 0
+	Local $RM_CacheOk = 0 , $RM_ProcessTrimmed = 0 , $RM_ProcessReleasedBytes = 0
+	Local $RM_ThisNativeSteps = 0 , $RM_ThisPasses = 0
 	If $RM_Smooth = 1 Then
-		; Low-priority standby pages only. This avoids the heavier modified-list
-		; and system file-cache flush used by full Aggressive mode.
+		; Smooth still gets one elevated process pass so inaccessible background
+		; applications are not silently missed, but it only purges low-priority
+		; standby pages and avoids the heavier modified/cache sequence.
+		$RM_ProcessTrimmed = RM_RunConfiguredTrim ( 1 )
+		$RM_ProcessReleasedBytes = $RM_LastTrimReleasedBytes
+		$RM_ThisPasses = 1
 		$RM_PurgeStatus = RM_MemoryListCommand ( 5 )
+		If $RM_PurgeStatus = 0 Then $RM_ThisNativeSteps += 1
 	Else
-		; A full Aggressive pass has its own broad process phase. It ignores the
-		; AI/CPU shields used by Normal, while foreground/recent applications and
-		; Windows system processes remain protected. This second elevated pass
-		; also catches processes that could not be opened by the non-admin UI.
-		$RM_ProcessTrimmed = RM_RunConfiguredTrim ( $RM_ProcessProfile )
+		; Full Aggressive brackets the native Windows release with two measured
+		; elevated process passes. The second pass catches working sets that become
+		; reclaimable after cache/list pressure changes. Foreground/recent apps and
+		; critical Windows processes remain protected outside Emergency profile.
+		Local $RM_PreTrimmed = RM_RunConfiguredTrim ( $RM_ProcessProfile )
+		$RM_ProcessTrimmed += $RM_PreTrimmed
+		$RM_ProcessReleasedBytes += $RM_LastTrimReleasedBytes
+		$RM_ThisPasses += 1
 		$RM_EmptyStatus = RM_MemoryListCommand ( 2 )
 		$RM_FlushStatus = RM_MemoryListCommand ( 3 )
-		$RM_PurgeStatus = RM_MemoryListCommand ( 4 )
+		If $RM_EmptyStatus = 0 Then $RM_ThisNativeSteps += 1
+		If $RM_FlushStatus = 0 Then $RM_ThisNativeSteps += 1
 		Local $RM_CacheResult = DllCall ( "kernel32.dll" , "bool" , "SetSystemFileCacheSize" , "ulong_ptr" , -1 , "ulong_ptr" , -1 , "dword" , 0 )
 		If Not @error And IsArray ( $RM_CacheResult ) And $RM_CacheResult [ 0 ] <> 0 Then $RM_CacheOk = 1
+		If $RM_CacheOk = 1 Then $RM_ThisNativeSteps += 1
+		; Purge last so pages released by the system file-cache trim do not remain
+		; on the standby list after the stronger manual mode finishes.
+		Sleep ( 150 )
+		$RM_PurgeStatus = RM_MemoryListCommand ( 4 )
+		If $RM_PurgeStatus = 0 Then $RM_ThisNativeSteps += 1
+		Sleep ( 250 )
+		Local $RM_PostTrimmed = RM_RunConfiguredTrim ( $RM_ProcessProfile )
+		$RM_ProcessTrimmed += $RM_PostTrimmed
+		$RM_ProcessReleasedBytes += $RM_LastTrimReleasedBytes
+		$RM_ThisPasses += 1
 	EndIf
-	$RM_LastAggressiveOk = ( $RM_PurgeStatus = 0 Or $RM_EmptyStatus = 0 Or $RM_CacheOk = 1 )
+	$RM_WorkerTotalTrimmed += $RM_ProcessTrimmed
+	$RM_WorkerTotalReleasedBytes += $RM_ProcessReleasedBytes
+	$RM_WorkerNativeSteps += $RM_ThisNativeSteps
+	$RM_WorkerPasses += $RM_ThisPasses
+	$RM_LastAggressiveOk = ( $RM_ProcessTrimmed > 0 Or $RM_PurgeStatus = 0 Or $RM_EmptyStatus = 0 Or $RM_CacheOk = 1 )
 	$RM_LastAggressiveDetail = "Privilege profile/quota: " & $RM_ProfilePrivilege & "/" & $RM_QuotaPrivilege & @CRLF & _
-		"User/background processes trimmed: " & $RM_ProcessTrimmed & @CRLF & _
+		"User/background trim operations: " & $RM_ProcessTrimmed & @CRLF & _
+		"Measured working-set reduction: " & Round ( $RM_ProcessReleasedBytes / 1048576 , 1 ) & " MB" & @CRLF & _
+		"Measured process passes: " & $RM_ThisPasses & @CRLF & _
 		"Empty working sets status: " & $RM_EmptyStatus & @CRLF & _
 		"Flush modified list status: " & $RM_FlushStatus & @CRLF & _
 		"Purge standby list status: " & $RM_PurgeStatus & @CRLF & _
@@ -507,14 +545,57 @@ EndFunc
 
 Func RM_FinishWorker ( $RM_ExitCode )
 	Local $RM_ResultPath = RM_GetWorkerResultPath ( )
-	If StringLen ( $RM_ResultPath ) > 0 Then FileWrite ( $RM_ResultPath , $RM_ExitCode )
+	If StringLen ( $RM_ResultPath ) > 0 Then FileWrite ( $RM_ResultPath , $RM_ExitCode & @LF & $RM_WorkerTotalTrimmed & @LF & $RM_WorkerTotalReleasedBytes & @LF & $RM_WorkerNativeSteps & @LF & $RM_WorkerPasses )
 	Exit $RM_ExitCode
 EndFunc
 
+Func RM_ResetWorkerTotals ( )
+	$RM_WorkerTotalTrimmed = 0
+	$RM_WorkerTotalReleasedBytes = 0
+	$RM_WorkerNativeSteps = 0
+	$RM_WorkerPasses = 0
+EndFunc
+
+Func RM_ResetLastWorkerMetrics ( )
+	$RM_LastWorkerTrimmed = 0
+	$RM_LastWorkerReleasedBytes = 0
+	$RM_LastWorkerNativeSteps = 0
+	$RM_LastWorkerPasses = 0
+EndFunc
+
+Func RM_CopyWorkerMetrics ( )
+	$RM_LastWorkerTrimmed = $RM_WorkerTotalTrimmed
+	$RM_LastWorkerReleasedBytes = $RM_WorkerTotalReleasedBytes
+	$RM_LastWorkerNativeSteps = $RM_WorkerNativeSteps
+	$RM_LastWorkerPasses = $RM_WorkerPasses
+EndFunc
+
+Func RM_ParseWorkerResult ( $RM_ResultText )
+	RM_ResetLastWorkerMetrics ( )
+	$RM_ResultText = StringReplace ( $RM_ResultText , @CR , "" )
+	Local $RM_ResultFields = StringSplit ( $RM_ResultText , @LF , 1 )
+	If Not IsArray ( $RM_ResultFields ) Or $RM_ResultFields [ 0 ] < 5 Then Return - 1
+	Local $RM_ParsedExitCode = Int ( Number ( StringStripWS ( $RM_ResultFields [ 1 ] , 3 ) ) )
+	$RM_LastWorkerTrimmed = Int ( Number ( StringStripWS ( $RM_ResultFields [ 2 ] , 3 ) ) )
+	$RM_LastWorkerReleasedBytes = Number ( StringStripWS ( $RM_ResultFields [ 3 ] , 3 ) )
+	$RM_LastWorkerNativeSteps = Int ( Number ( StringStripWS ( $RM_ResultFields [ 4 ] , 3 ) ) )
+	$RM_LastWorkerPasses = Int ( Number ( StringStripWS ( $RM_ResultFields [ 5 ] , 3 ) ) )
+	If $RM_LastWorkerTrimmed < 0 Or $RM_LastWorkerReleasedBytes < 0 Or $RM_LastWorkerNativeSteps < 0 Or $RM_LastWorkerPasses < 0 Then Return - 1
+	Return $RM_ParsedExitCode
+EndFunc
+
 Func RM_RunAggressiveWorker ( $RM_Smooth = 0 )
+	RM_ResetLastWorkerMetrics ( )
 	If IsAdmin ( ) Then
-		If $RM_Smooth = 2 Then Return RM_EmergencyRelease ( )
-		Return RM_AggressiveRelease ( $RM_Smooth )
+		RM_ResetWorkerTotals ( )
+		Local $RM_DirectResult = 0
+		If $RM_Smooth = 2 Then
+			$RM_DirectResult = RM_EmergencyRelease ( )
+		Else
+			$RM_DirectResult = RM_AggressiveRelease ( $RM_Smooth )
+		EndIf
+		RM_CopyWorkerMetrics ( )
+		Return $RM_DirectResult
 	EndIf
 	Local $RM_WorkerArgument = "/RMAGGRESSIVE"
 	If $RM_Smooth = 1 Then $RM_WorkerArgument = "/RMSMOOTH"
@@ -537,7 +618,7 @@ Func RM_RunAggressiveWorker ( $RM_Smooth = 0 )
 		Sleep ( 25 )
 	WEnd
 	If Not FileExists ( $RM_ResultPath ) Then Return 0
-	Local $RM_WorkerExitCode = Number ( StringStripWS ( FileRead ( $RM_ResultPath ) , 3 ) )
+	Local $RM_WorkerExitCode = RM_ParseWorkerResult ( FileRead ( $RM_ResultPath ) )
 	FileDelete ( $RM_ResultPath )
 	Return ( $RM_WorkerExitCode = 0 )
 EndFunc
@@ -587,7 +668,7 @@ Func RM_WriteLog ( $RM_StableGain , $RM_ReboundDetected )
 	If FileExists ( $RM_LogPath ) And FileGetSize ( $RM_LogPath ) > 131072 Then FileDelete ( $RM_LogPath )
 	Local $RM_ReboundValue = "no"
 	If $RM_ReboundDetected = 1 Then $RM_ReboundValue = "yes"
-	FileWriteLine ( $RM_LogPath , @YEAR & "-" & StringFormat ( "%02d" , @MON ) & "-" & StringFormat ( "%02d" , @MDAY ) & " " & StringFormat ( "%02d:%02d:%02d" , @HOUR , @MIN , @SEC ) & " | mode=" & $RM_LastModeName & " | immediate=" & $RM_ImmediateGainMB & " MB | stable=" & $RM_StableGain & " MB | rebound=" & $RM_ReboundValue & " | " & $RM_StablePressureText )
+	FileWriteLine ( $RM_LogPath , @YEAR & "-" & StringFormat ( "%02d" , @MON ) & "-" & StringFormat ( "%02d" , @MDAY ) & " " & StringFormat ( "%02d:%02d:%02d" , @HOUR , @MIN , @SEC ) & " | mode=" & $RM_LastModeName & " | immediate=" & $RM_ImmediateGainMB & " MB | stable=" & $RM_StableGain & " MB | process_trim=" & $RM_LastProcessTrimMB & " MB | trim_operations=" & $RM_LastTrimmedCount & " | worker_passes=" & $RM_LastWorkerPasses & " | native_steps=" & $RM_LastWorkerNativeSteps & " | rebound=" & $RM_ReboundValue & " | " & $RM_StablePressureText )
 EndFunc
 
 Func RM_GetMemoryLoadPercent ( )
@@ -621,6 +702,9 @@ Func RM_RunSilentNormalPass ( $RM_Reason )
 		If StringLen ( $RM_ProcessRule ) > 1 Then $RM_IncludeOnly = 1
 	EndIf
 	Local $RM_Trimmed = A2A20200810 ( $RM_IncludeOnly , $RM_ProcessRule )
+	RM_ResetLastWorkerMetrics ( )
+	$RM_LastTrimmedCount = $RM_Trimmed
+	$RM_LastProcessTrimMB = Round ( $RM_LastTrimReleasedBytes / 1048576 , 1 )
 	Sleep ( 250 )
 	Local $RM_After = MemGetStats ( )
 	Local $RM_GainMB = 0
@@ -780,6 +864,7 @@ Func A4800704447 ( )
 	$RM_StableBeforeFree = $A0141502E2D [ 2 ]
 	$RM_StablePressureText = RM_GetPressureSummary ( )
 	$RM_LastModeName = RM_GetModeName ( )
+	RM_ResetLastWorkerMetrics ( )
 	Local $RM_CurrentTrimProfile = RM_GetTrimProfile ( )
 	Local $RM_StageOneText = "Stage 1/3 - trimming safe background applications"
 	If $RM_CurrentTrimProfile = 2 Then $RM_StageOneText = "Stage 1/3 - trimming broad user/background set"
@@ -787,6 +872,7 @@ Func A4800704447 ( )
 	If $RM_CurrentTrimProfile = 4 Then $RM_StageOneText = "Stage 1/3 - protecting AI and trimming other background apps"
 	GUICtrlSetData ( $A3411D0002B [ 4 ] , $RM_StageOneText )
 	Local $A2751A01544 = RM_RunConfiguredTrim ( $RM_CurrentTrimProfile )
+	Local $RM_FirstPassReleasedBytes = $RM_LastTrimReleasedBytes
 	Local $RM_AggressiveResult = 0
 	If RM_ModeUsesSystemRelease ( ) Then GUICtrlSetData ( $A3411D0002B [ 4 ] , "Stage 2/3 - releasing Windows memory" )
 	If $RM_OptimizeMode = 1 Or $RM_OptimizeMode = 3 Then $RM_AggressiveResult = RM_RunAggressiveWorker ( 0 )
@@ -806,6 +892,8 @@ Func A4800704447 ( )
 	$A0141502E2D = Round ( ( $A1F51B0452B [ 2 ] - $A0141502E2D [ 2 ] ) / 1024 )
 	If $A0141502E2D < 1 Then $A0141502E2D = 0
 	$RM_ImmediateGainMB = $A0141502E2D
+	$RM_LastTrimmedCount = $A2751A01544 + $RM_LastWorkerTrimmed
+	$RM_LastProcessTrimMB = Round ( ( $RM_FirstPassReleasedBytes + $RM_LastWorkerReleasedBytes ) / 1048576 , 1 )
 	If $RM_OptimizeMode = 0 Or $RM_OptimizeMode = 5 Or $RM_AggressiveResult = 1 Then
 		$RM_StablePending = 1
 		$RM_StableStartedAt = TimerInit ( )
@@ -814,14 +902,14 @@ Func A4800704447 ( )
 	EndIf
 	If $A2751A01544 = 0 And ( $RM_OptimizeMode = 0 Or $RM_OptimizeMode = 5 ) Then $A0141502E2D = 0
 	If $RM_OptimizeMode = 0 Then
-		GUICtrlSetData ( $A3411D0002B [ 4 ] , "Normal released: " & $A0141502E2D & " MB | trimmed: " & $A2751A01544 )
+		GUICtrlSetData ( $A3411D0002B [ 4 ] , "Normal available: +" & $A0141502E2D & " MB | working set: -" & $RM_LastProcessTrimMB & " MB | trims: " & $RM_LastTrimmedCount )
 	ElseIf $RM_OptimizeMode = 5 Then
-		GUICtrlSetData ( $A3411D0002B [ 4 ] , "AI Shield released: " & $A0141502E2D & " MB | trimmed: " & $A2751A01544 & " | AI protected: " & $RM_AIProtectedCount )
+		GUICtrlSetData ( $A3411D0002B [ 4 ] , "AI Shield available: +" & $A0141502E2D & " MB | working set: -" & $RM_LastProcessTrimMB & " MB | AI protected: " & $RM_AIProtectedCount )
 	ElseIf $RM_AggressiveResult = 1 Then
-		Local $RM_ModeResultText = "Aggressive released: "
-		If $RM_OptimizeMode = 2 Then $RM_ModeResultText = "Smooth released: "
-		If $RM_OptimizeMode = 4 Then $RM_ModeResultText = "Emergency released: "
-		GUICtrlSetData ( $A3411D0002B [ 4 ] , $RM_ModeResultText & $A0141502E2D & " MB | first-pass trimmed: " & $A2751A01544 )
+		Local $RM_ModeResultText = "Aggressive available: +"
+		If $RM_OptimizeMode = 2 Then $RM_ModeResultText = "Smooth available: +"
+		If $RM_OptimizeMode = 4 Then $RM_ModeResultText = "Emergency available: +"
+		GUICtrlSetData ( $A3411D0002B [ 4 ] , $RM_ModeResultText & $A0141502E2D & " MB | working set: -" & $RM_LastProcessTrimMB & " MB | passes: " & ( $RM_LastWorkerPasses + 1 ) )
 	Else
 		GUICtrlSetData ( $A3411D0002B [ 4 ] , "Aggressive cancelled or Administrator access denied" )
 	EndIf
@@ -942,6 +1030,9 @@ Func A2C10200057 ( )
 		If RM_StartupMonitorSelfTest ( ) <> 1 Then Exit 16
 		If RM_IsAIProcessName ( "ollama.exe" ) <> 1 Then Exit 17
 		If RM_IsAIProcessName ( "notepad.exe" ) <> 0 Then Exit 18
+		If RM_ParseWorkerResult ( "0" & @LF & "7" & @LF & "134217728" & @LF & "3" & @LF & "2" ) <> 0 Then Exit 22
+		If $RM_LastWorkerTrimmed <> 7 Or $RM_LastWorkerReleasedBytes <> 134217728 Or $RM_LastWorkerNativeSteps <> 3 Or $RM_LastWorkerPasses <> 2 Then Exit 23
+		RM_ResetLastWorkerMetrics ( )
 		Local $RM_SelfOriginalMode = $RM_OptimizeMode
 		Local $RM_SelfExpectedProfiles [ 6 ] = [ 0 , 2 , 1 , 2 , 3 , 4 ]
 		For $RM_SelfModeIndex = 0 To 5
@@ -966,7 +1057,12 @@ Func A2C10200057 ( )
 		If $CMDLINE [ 0 ] < 2 Then Exit 20
 		Local $RM_TrimTestPID = Int ( Number ( $CMDLINE [ 2 ] ) )
 		If $RM_TrimTestPID <= 0 Or $RM_TrimTestPID = @AutoItPID Then Exit 20
-		If A502000511B ( $RM_TrimTestPID ) = 1 And ProcessExists ( $RM_TrimTestPID ) Then Exit 0
+		Local $RM_TrimTestBefore = RM_GetWorkingSetBytes ( $RM_TrimTestPID )
+		Local $RM_TrimTestOk = A502000511B ( $RM_TrimTestPID )
+		Sleep ( 100 )
+		Local $RM_TrimTestAfter = RM_GetWorkingSetBytes ( $RM_TrimTestPID )
+		If $CMDLINE [ 0 ] >= 3 Then FileWrite ( $CMDLINE [ 3 ] , $RM_TrimTestBefore & @LF & $RM_TrimTestAfter )
+		If $RM_TrimTestOk = 1 And ProcessExists ( $RM_TrimTestPID ) And $RM_TrimTestBefore > $RM_TrimTestAfter Then Exit 0
 		Exit 21
 	EndIf
 	; /H remains an alias so existing startup shortcuts automatically receive
@@ -977,16 +1073,19 @@ Func A2C10200057 ( )
 	EndIf
 	If $CMDLINE [ 1 ] = "/RMAGGRESSIVE" Then
 		If Not IsAdmin ( ) Then RM_FinishWorker ( 5 )
+		RM_ResetWorkerTotals ( )
 		If RM_AggressiveRelease ( 0 ) = 1 Then RM_FinishWorker ( 0 )
 		RM_FinishWorker ( 6 )
 	EndIf
 	If $CMDLINE [ 1 ] = "/RMSMOOTH" Then
 		If Not IsAdmin ( ) Then RM_FinishWorker ( 5 )
+		RM_ResetWorkerTotals ( )
 		If RM_AggressiveRelease ( 1 ) = 1 Then RM_FinishWorker ( 0 )
 		RM_FinishWorker ( 6 )
 	EndIf
 	If $CMDLINE [ 1 ] = "/RMEMERGENCY" Then
 		If Not IsAdmin ( ) Then RM_FinishWorker ( 5 )
+		RM_ResetWorkerTotals ( )
 		If RM_EmergencyRelease ( ) = 1 Then RM_FinishWorker ( 0 )
 		RM_FinishWorker ( 6 )
 	EndIf
@@ -1687,8 +1786,18 @@ Func RM_RunConfiguredTrim ( $RM_Profile = - 1 )
 	Return A2A20200810 ( $RM_IncludeOnly , $RM_ProcessFilter , $RM_Profile )
 EndFunc
 
+Func RM_GetWorkingSetBytes ( $RM_ProcessPID )
+	Local $RM_MemoryStats = ProcessGetStats ( $RM_ProcessPID , 0 )
+	If Not IsArray ( $RM_MemoryStats ) Then Return 0
+	Local $RM_WorkingSetBytes = Number ( $RM_MemoryStats [ 0 ] )
+	If $RM_WorkingSetBytes < 0 Then Return 0
+	Return $RM_WorkingSetBytes
+EndFunc
+
 Func A2A20200810 ( $A3C42101753 = 0 , $A6242203763 = "" , $RM_Profile = - 1 )
 	Local $A2A4230391F = 0
+	Local $RM_TotalReleasedBytes = 0
+	$RM_LastTrimReleasedBytes = 0
 	If $RM_Profile < 0 Then $RM_Profile = RM_GetTrimProfile ( )
 	If $RM_Profile = 4 Then
 		RM_BuildAIShield ( )
@@ -1712,13 +1821,22 @@ Func A2A20200810 ( $A3C42101753 = 0 , $A6242203763 = "" , $RM_Profile = - 1 )
 		If ( $A3C42101753 = 0 And $A2B42506363 = 0 ) Or ( $A3C42101753 = 1 And $A2B42506363 <> 0 ) Then
 
 			If RM_ShouldSkipProcess ( $A5E4240211A [ $A17A0803B53 ] [ 0 ] , $A5E4240211A [ $A17A0803B53 ] [ 1 ] , $RM_ForegroundPID , $RM_Profile ) Then ContinueLoop
+			Local $RM_TargetPID = $A5E4240211A [ $A17A0803B53 ] [ 1 ]
+			Local $RM_BeforeWorkingSet = RM_GetWorkingSetBytes ( $RM_TargetPID )
+			Local $RM_TrimSucceeded = 0
 			If $A26B0601541 = $A5E4240211A [ $A17A0803B53 ] [ 1 ] Then
-				If A5B20104156 ( ) = 1 Then $A2A4230391F += 1
+				$RM_TrimSucceeded = A5B20104156 ( )
 			Else
-				If A502000511B ( $A5E4240211A [ $A17A0803B53 ] [ 1 ] ) = 1 Then $A2A4230391F += 1
+				$RM_TrimSucceeded = A502000511B ( $RM_TargetPID )
+			EndIf
+			If $RM_TrimSucceeded = 1 Then
+				$A2A4230391F += 1
+				Local $RM_AfterWorkingSet = RM_GetWorkingSetBytes ( $RM_TargetPID )
+				If $RM_BeforeWorkingSet > $RM_AfterWorkingSet Then $RM_TotalReleasedBytes += $RM_BeforeWorkingSet - $RM_AfterWorkingSet
 			EndIf
 		EndIf
 	Next
+	$RM_LastTrimReleasedBytes = $RM_TotalReleasedBytes
 	Return $A2A4230391F
 EndFunc
 ; Return true for processes that should not be trimmed during the normal

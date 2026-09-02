@@ -22,6 +22,7 @@ from pathlib import Path
 MADV_PAGEOUT = 21
 SYS_PIDFD_OPEN = 434
 SYS_PROCESS_MADVISE = 440
+MAX_PROCESS_MADVISE_IOVECS = 64
 SUPPORTED_ARCHITECTURES = {
     "x86_64",
     "amd64",
@@ -115,6 +116,8 @@ class Result:
     bytes_advised: int = 0
     rss_before_kb: int = 0
     rss_after_kb: int = 0
+    batch_calls: int = 0
+    fallback_calls: int = 0
 
 
 def emit(key: str, value: object) -> None:
@@ -158,15 +161,27 @@ def pidfd_open(pid: int) -> int:
     return int(result)
 
 
-def process_madvise_pageout(pidfd: int, start: int, length: int) -> int:
+def process_madvise_pageout(
+    pidfd: int, ranges: list[tuple[int, int, int]]
+) -> int:
+    """Apply MADV_PAGEOUT to an ordered iovec batch.
+
+    Each tuple is (mapping_id, start, length). The id is used by the caller for
+    accounting; only start and length are passed to the kernel.
+    """
+    if not ranges:
+        return 0
     assert LIBC is not None
-    vector = IOVec(ctypes.c_void_p(start), ctypes.c_size_t(length))
+    vector_type = IOVec * len(ranges)
+    vector = vector_type(
+        *(IOVec(ctypes.c_void_p(start), ctypes.c_size_t(length)) for _, start, length in ranges)
+    )
     ctypes.set_errno(0)
     result = LIBC.syscall(
         ctypes.c_long(SYS_PROCESS_MADVISE),
         ctypes.c_int(pidfd),
-        ctypes.byref(vector),
-        ctypes.c_size_t(1),
+        ctypes.cast(vector, ctypes.POINTER(IOVec)),
+        ctypes.c_size_t(len(ranges)),
         ctypes.c_int(MADV_PAGEOUT),
         ctypes.c_uint(0),
     )
@@ -174,6 +189,26 @@ def process_madvise_pageout(pidfd: int, start: int, length: int) -> int:
         error_number = ctypes.get_errno()
         raise OSError(error_number, os.strerror(error_number))
     return int(result)
+
+
+def remaining_ranges(
+    ranges: list[tuple[int, int, int]], advised_bytes: int
+) -> tuple[list[tuple[int, int, int]], set[int]]:
+    """Return the unprocessed suffix after a possibly partial syscall result."""
+    remaining: list[tuple[int, int, int]] = []
+    touched: set[int] = set()
+    consumed = max(0, advised_bytes)
+    for mapping_id, start, length in ranges:
+        if consumed >= length:
+            touched.add(mapping_id)
+            consumed -= length
+        elif consumed > 0:
+            touched.add(mapping_id)
+            remaining.append((mapping_id, start + consumed, length - consumed))
+            consumed = 0
+        else:
+            remaining.append((mapping_id, start, length))
+    return remaining, touched
 
 
 def parse_status(pid: int) -> tuple[int, int, int, str] | None:
@@ -319,7 +354,7 @@ def parse_smaps(pid: int, minimum_mapping_kb: int) -> list[Mapping]:
             return
         if mapping.locked_kb > 0:
             return
-        if {"lo", "io", "pf"}.intersection(mapping.vm_flags):
+        if {"lo", "io", "pf", "ht"}.intersection(mapping.vm_flags):
             return
         if mapping.path.startswith("/dev/"):
             return
@@ -362,29 +397,77 @@ def read_rss_kb(pid: int) -> int:
     return 0 if parsed is None else parsed[1]
 
 
-def pageout_process(pid: int, minimum_mapping_kb: int) -> tuple[int, int, int]:
-    mapping_count = 0
+def pageout_process(pid: int, minimum_mapping_kb: int) -> tuple[int, int, int, int, int]:
+    advised_mapping_ids: set[int] = set()
     failed_count = 0
     advised_bytes = 0
+    batch_calls = 0
+    fallback_calls = 0
     mappings = parse_smaps(pid, minimum_mapping_kb)
     if not mappings:
-        return mapping_count, failed_count, advised_bytes
+        return 0, failed_count, advised_bytes, batch_calls, fallback_calls
+
+    ranges = [
+        (index, mapping.start, mapping.end - mapping.start)
+        for index, mapping in enumerate(mappings)
+    ]
 
     pidfd = pidfd_open(pid)
     try:
-        for mapping in mappings:
+        for offset in range(0, len(ranges), MAX_PROCESS_MADVISE_IOVECS):
+            batch = ranges[offset : offset + MAX_PROCESS_MADVISE_IOVECS]
+            batch_calls += 1
             try:
-                advised_bytes += process_madvise_pageout(
-                    pidfd, mapping.start, mapping.end - mapping.start
-                )
-                mapping_count += 1
+                batch_advised = process_madvise_pageout(pidfd, batch)
             except OSError as error:
-                failed_count += 1
                 if error.errno in (errno.ESRCH, errno.EPERM):
+                    failed_count += len(batch)
                     break
+                pending = batch
+            else:
+                advised_bytes += batch_advised
+                pending, touched = remaining_ranges(batch, batch_advised)
+                advised_mapping_ids.update(touched)
+
+            # A short process_madvise result or a kernel that rejects a larger
+            # vector falls back only for the unprocessed ranges. This keeps the
+            # fast batched path while preserving compatibility and accounting.
+            stop_process = False
+            for item in pending:
+                current = item
+                while current[2] > 0:
+                    fallback_calls += 1
+                    try:
+                        scalar_advised = process_madvise_pageout(pidfd, [current])
+                    except OSError as error:
+                        failed_count += 1
+                        if error.errno in (errno.ESRCH, errno.EPERM):
+                            stop_process = True
+                        break
+                    if scalar_advised <= 0:
+                        failed_count += 1
+                        break
+                    scalar_advised = min(scalar_advised, current[2])
+                    advised_bytes += scalar_advised
+                    advised_mapping_ids.add(current[0])
+                    current = (
+                        current[0],
+                        current[1] + scalar_advised,
+                        current[2] - scalar_advised,
+                    )
+                if stop_process:
+                    break
+            if stop_process:
+                break
     finally:
         os.close(pidfd)
-    return mapping_count, failed_count, advised_bytes
+    return (
+        len(advised_mapping_ids),
+        failed_count,
+        advised_bytes,
+        batch_calls,
+        fallback_calls,
+    )
 
 
 def command_check() -> int:
@@ -505,12 +588,14 @@ def command_pageout(arguments: argparse.Namespace) -> int:
     permission_denied = False
     for snapshot in eligible:
         try:
-            advised, failed, advised_bytes = pageout_process(
+            advised, failed, advised_bytes, batch_calls, fallback_calls = pageout_process(
                 snapshot.pid, arguments.min_mapping_kb
             )
             result.mappings_advised += advised
             result.mappings_failed += failed
             result.bytes_advised += advised_bytes
+            result.batch_calls += batch_calls
+            result.fallback_calls += fallback_calls
             if advised > 0:
                 result.processes_advised += 1
             elif failed > 0:
@@ -555,6 +640,8 @@ def command_pageout(arguments: argparse.Namespace) -> int:
     emit("rss_before_kb", result.rss_before_kb)
     emit("rss_after_kb", result.rss_after_kb)
     emit("rss_reduced_kb", reduced_kb)
+    emit("batch_calls", result.batch_calls)
+    emit("fallback_calls", result.fallback_calls)
     return exit_code
 
 

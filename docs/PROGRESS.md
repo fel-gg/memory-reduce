@@ -13,8 +13,23 @@ the AutoIt source for every intermediate binary.
 
 ## Completed source snapshot
 
-- Upgraded the existing engine in place to 2.6; no Windows or Linux path was
+- Upgraded the existing engine in place to 2.7; no Windows or Linux path was
   replaced with a from-scratch rewrite.
+- Added measured before/after working-set accounting to every Windows process
+  trim and structured Administrator-worker results instead of success-only
+  reporting.
+- Changed Windows Aggressive into a measured three-process-pass path overall:
+  one UI pass plus two elevated passes around the native memory-list/cache
+  release. Smooth now also gets one elevated process pass.
+- Reworked the Linux syscall loop into 64-range batches with partial-result
+  fallback, then made Aggressive execute a second native pass after cache and
+  cgroup reclaim.
+- Added swap-aware cgroup anonymous reclaim with `swappiness=max` and automatic
+  plain-format compatibility fallback.
+- Raised the real Windows CI gate from “the API returned success” to a 256 MB
+  disposable allocation that must lose at least 64 MB on both x64 and x86
+  while staying alive. Linux still uses its real 128 MB mapping gate and now
+  also requires a real batched syscall.
 - Split Windows candidate handling into Normal, Smooth, Aggressive, Emergency,
   and AI Shield profiles while retaining the existing six visible choices.
 - Isolated AI process-tree protection to AI Shield instead of applying it to

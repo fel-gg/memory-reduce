@@ -27,16 +27,35 @@ jobs:
       - name: Verify real Windows working-set trim
         shell: pwsh
         run: |
-          $target = Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile','-WindowStyle','Hidden','-Command','Start-Sleep -Seconds 30' -PassThru
-          try {
-            Start-Sleep -Milliseconds 750
-            foreach ($binary in @('.\windows\ReduceMemory_x64.exe', '.\windows\ReduceMemory.exe')) {
-              $probe = Start-Process -FilePath $binary -ArgumentList '/RMTRIMTEST', $target.Id -Wait -PassThru
+          $targetScript = Join-Path $env:RUNNER_TEMP 'reduce-memory-target.ps1'
+          @'
+          $buffer = [byte[]]::new(256MB)
+          for ($offset = 0; $offset -lt $buffer.Length; $offset += 4096) { $buffer[$offset] = 1 }
+          Start-Sleep -Seconds 30
+          '@ | Set-Content -LiteralPath $targetScript -Encoding UTF8
+          foreach ($binary in @('.\windows\ReduceMemory_x64.exe', '.\windows\ReduceMemory.exe')) {
+            $target = Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File', $targetScript -PassThru
+            $resultPath = Join-Path $env:RUNNER_TEMP ("trim-{0}.result" -f [IO.Path]::GetFileName($binary))
+            try {
+              $deadline = [DateTime]::UtcNow.AddSeconds(15)
+              do {
+                if ($target.HasExited) { throw "$binary disposable target exited before trim" }
+                $resident = (Get-Process -Id $target.Id).WorkingSet64
+                if ($resident -ge 128MB) { break }
+                Start-Sleep -Milliseconds 100
+              } while ([DateTime]::UtcNow -lt $deadline)
+              if ($resident -lt 128MB) { throw "$binary disposable target never became resident" }
+              $probe = Start-Process -FilePath $binary -ArgumentList '/RMTRIMTEST', $target.Id, $resultPath -Wait -PassThru
               if ($probe.ExitCode -ne 0) { throw "$binary real trim failed with exit code $($probe.ExitCode)" }
               if ($target.HasExited) { throw "$binary terminated the disposable target" }
+              $measurements = @(Get-Content -LiteralPath $resultPath | ForEach-Object { [int64]$_ })
+              if ($measurements.Count -ne 2) { throw "$binary did not return structured measurements" }
+              $reduced = $measurements[0] - $measurements[1]
+              if ($reduced -lt 64MB) { throw "$binary reduced only $reduced bytes from a disposable 256 MB target" }
+              Write-Output "$binary measured working-set reduction: $([math]::Round($reduced / 1MB, 1)) MB"
+            } finally {
+              if (-not $target.HasExited) { Stop-Process -Id $target.Id -Force }
             }
-          } finally {
-            if (-not $target.HasExited) { Stop-Process -Id $target.Id -Force }
           }
 
   linux:
@@ -49,6 +68,23 @@ jobs:
           bash -n linux/desktop/Install_Desktop.sh
           bash -n linux/server/Install_Server.sh
           python3 -m py_compile linux/native/reduce-memory-native
+          python3 - <<'PY'
+          import importlib.machinery
+          import importlib.util
+          import pathlib
+          import sys
+
+          path = pathlib.Path('linux/native/reduce-memory-native')
+          loader = importlib.machinery.SourceFileLoader('reduce_memory_native', str(path))
+          spec = importlib.util.spec_from_loader(loader.name, loader)
+          module = importlib.util.module_from_spec(spec)
+          sys.modules[loader.name] = module
+          loader.exec_module(module)
+          ranges = [(0, 1000, 100), (1, 2000, 200), (2, 3000, 300)]
+          remaining, touched = module.remaining_ranges(ranges, 150)
+          assert touched == {0, 1}
+          assert remaining == [(1, 2050, 150), (2, 3000, 300)]
+          PY
       - name: Verify native Linux process page-out
         run: |
           native_check="$(linux/native/reduce-memory-native check)"
@@ -87,10 +123,12 @@ jobs:
           rss_after="$(awk '/^VmRSS:/ { print $2 }' "/proc/${target_pid}/status")"
           bytes_advised="$(awk -F= '$1 == "bytes_advised" { print $2 }' <<< "${native_output}")"
           rss_reduced="$(awk -F= '$1 == "rss_reduced_kb" { print $2 }' <<< "${native_output}")"
+          batch_calls="$(awk -F= '$1 == "batch_calls" { print $2 }' <<< "${native_output}")"
 
           grep -E '^native_status=(done|partial)$' <<< "${native_output}"
           test "${bytes_advised}" -gt 0
           test "${rss_reduced}" -gt 16384
+          test "${batch_calls}" -gt 0
           test "${rss_after}" -lt "${rss_before}"
 
           protected_output="$(sudo linux/native/reduce-memory-native pageout \
@@ -146,6 +184,8 @@ jobs:
           mappings_advised=28
           bytes_advised=536870912
           rss_reduced_kb=393216
+          batch_calls=3
+          fallback_calls=0
           RESULT
           EOF
           chmod +x "${mock_root}/reduce-memory-native"
@@ -166,7 +206,8 @@ jobs:
           ! grep -Fx -- '--protect-gpu' "${mock_root}/native-args"
           ! grep -Fx -- '--protect-pattern' "${mock_root}/native-args"
           ! grep -Fx -- '--include-service-users' "${mock_root}/native-args"
-          grep -F 'Native process page-out : done' <<< "${normal_output}"
+          grep -F 'Native process page-out : pass1=done' <<< "${normal_output}"
+          grep -F 'Native page-out passes  : 1' <<< "${normal_output}"
           grep -F 'drop_caches             : not requested' <<< "${normal_output}"
 
           smooth_output="$(sudo env "${common_env[@]}" ./linux/ReduceMemory_Linux.sh smooth)"
@@ -174,7 +215,7 @@ jobs:
           grep -Fx -- '128' "${mock_root}/native-args"
           ! grep -Fx -- '--protect-gpu' "${mock_root}/native-args"
           ! grep -Fx -- '--protect-pattern' "${mock_root}/native-args"
-          grep -F 'Native process page-out : done' <<< "${smooth_output}"
+          grep -F 'Native process page-out : pass1=done' <<< "${smooth_output}"
           grep -F 'drop_caches             : done (level 1)' <<< "${smooth_output}"
           grep -F 'cgroup memory.reclaim   : not requested' <<< "${smooth_output}"
 
@@ -190,11 +231,14 @@ jobs:
 
           aggressive_output="$(sudo env "${common_env[@]}" REDUCE_MEMORY_RECLAIM_MB=1024 ./linux/ReduceMemory_Linux.sh aggressive)"
           test "$(tr -d '\n' < "${mock_root}/vm/drop_caches")" = '3'
-          test "$(tr -d '\n' < "${mock_root}/cgroup/memory.reclaim")" = '1024M'
+          test "$(tr -d '\n' < "${mock_root}/cgroup/memory.reclaim")" = '1024M swappiness=max'
           grep -F 'drop_caches             : done (level 3)' <<< "${aggressive_output}"
-          grep -F 'Native process page-out : done' <<< "${aggressive_output}"
-          grep -F 'Process RSS reduced     : 384 MB' <<< "${aggressive_output}"
-          grep -F 'cgroup memory.reclaim   : done (1024 MB requested)' <<< "${aggressive_output}"
+          grep -F 'Native process page-out : pass1=done; pass2=done' <<< "${aggressive_output}"
+          grep -F 'Native page-out passes  : 2' <<< "${aggressive_output}"
+          grep -F 'Process RSS reduced     : 768 MB' <<< "${aggressive_output}"
+          grep -F 'Batched native calls    : 6' <<< "${aggressive_output}"
+          grep -F 'Scalar fallback calls   : 0' <<< "${aggressive_output}"
+          grep -F 'cgroup memory.reclaim   : done (1024 MB requested) | swappiness=max' <<< "${aggressive_output}"
           grep -F "Reclaim scope           : ${mock_root}/cgroup" <<< "${aggressive_output}"
           grep -Fx -- '--all-users' "${mock_root}/native-args"
           grep -Fx -- '32' "${mock_root}/native-args"
@@ -202,6 +246,12 @@ jobs:
           ! grep -Fx -- '--protect-gpu' "${mock_root}/native-args"
           ! grep -Fx -- '--protect-pattern' "${mock_root}/native-args"
           ! grep -Fx -- '--include-service-users' "${mock_root}/native-args"
+
+          : > "${mock_root}/cgroup/memory.reclaim"
+          sudo env "${common_env[@]}" REDUCE_MEMORY_RECLAIM_MB=1024 \
+            REDUCE_MEMORY_RECLAIM_SWAPPINESS=default \
+            ./linux/ReduceMemory_Linux.sh aggressive >/dev/null
+          test "$(tr -d '\n' < "${mock_root}/cgroup/memory.reclaim")" = '1024M'
 
           cp ./linux/ReduceMemory_Linux.sh "${mock_root}/reduce-memory-server"
           chmod +x "${mock_root}/reduce-memory-server"
@@ -223,7 +273,7 @@ jobs:
           "${install_root}/bin/reduce-memory" check
           "${install_root}/bin/reduce-memory-native" check
           menu_output="$(printf '0\n' | "${install_root}/bin/reduce-memory" --menu)"
-          grep -F 'Reduce Memory 2.6 - Linux' <<< "${menu_output}"
+          grep -F 'Reduce Memory 2.7 - Linux' <<< "${menu_output}"
           ! grep -F 'Linux Server' <<< "${menu_output}"
           grep -F '3. AI Shield' <<< "${menu_output}"
           grep -F '4. Aggressive' <<< "${menu_output}"
@@ -240,6 +290,6 @@ jobs:
           grep -F 'Mode                    : status' <<< "${status_output}"
           grep -F 'Native process page-out : supported' <<< "${status_output}"
           server_menu="$(printf '0\n' | "${server_bin}/reduce-memory-server" --menu)"
-          grep -F 'Reduce Memory 2.6 - Linux Server' <<< "${server_menu}"
+          grep -F 'Reduce Memory 2.7 - Linux Server' <<< "${server_menu}"
           grep -F '3. AI Shield' <<< "${server_menu}"
           grep -F '4. Aggressive' <<< "${server_menu}"
