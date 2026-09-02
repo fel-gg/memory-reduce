@@ -87,7 +87,13 @@ jobs:
             }
           '@
             $targetExe = Join-Path $env:RUNNER_TEMP 'ReduceMemoryAggressiveTarget.exe'
-            Add-Type -TypeDefinition $targetSource -OutputAssembly $targetExe -OutputType ConsoleApplication
+            $targetCs = Join-Path $env:RUNNER_TEMP 'ReduceMemoryAggressiveTarget.cs'
+            $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+            $targetSource | Set-Content -LiteralPath $targetCs -Encoding UTF8
+            & $csc /nologo /target:exe "/out:$targetExe" $targetCs
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $targetExe)) {
+              throw "Disposable Aggressive target compilation failed with exit code $LASTEXITCODE"
+            }
             $target = Start-Process -FilePath $targetExe -WindowStyle Hidden -PassThru
             $resultPath = Join-Path $env:RUNNER_TEMP 'aggressive.result'
             $deadline = [DateTime]::UtcNow.AddSeconds(15)
