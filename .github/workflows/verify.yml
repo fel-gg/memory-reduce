@@ -53,11 +53,16 @@ jobs:
               $reduced = $measurements[0] - $measurements[1]
               if ($reduced -lt 64MB) { throw "$binary reduced only $reduced bytes from a disposable 256 MB target" }
               Write-Output "$binary measured working-set reduction: $([math]::Round($reduced / 1MB, 1)) MB"
+            } catch {
+              $failure = $_.Exception.Message -replace '[\r\n]+', ' '
+              Write-Output "::error title=Targeted trim $binary::$failure"
+              throw
             } finally {
               if (-not $target.HasExited) { Stop-Process -Id $target.Id -Force }
             }
           }
       - name: Verify full Windows Aggressive engine
+        if: ${{ !cancelled() }}
         shell: pwsh
         run: |
           $target = $null
