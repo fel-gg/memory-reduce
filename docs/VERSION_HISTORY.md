@@ -2,6 +2,15 @@
 
 ## Reduce Memory 2.8 — 2026
 
+- Added rebound-aware stabilization to full Aggressive on Windows and Linux.
+  After the first reclaim settles for three seconds, the backend measures how
+  much Available RAM applications took back and performs at most one recovery
+  pass only for a material rebound. This keeps processes alive while avoiding
+  an endless trim/refault loop.
+- Expanded Windows worker accounting with immediate peak, stable gain,
+  observed rebound, and recovery-pass fields. These stay separate from gross
+  per-process working-set reduction so repeated release is not reported as
+  unique RAM saved.
 - Removed 13 provably unreachable helpers inherited from the reconstructed
   Windows source, consolidated repeated numeric INI validation, and reused the
   candidate filter's working-set measurement during trimming. This reduces

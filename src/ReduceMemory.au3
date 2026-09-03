@@ -129,11 +129,19 @@ Global $RM_WorkerTotalReleasedBytes = 0
 Global $RM_WorkerNativeSteps = 0
 Global $RM_WorkerPasses = 0
 Global $RM_WorkerAvailableGainKB = 0
+Global $RM_WorkerPeakGainKB = 0
+Global $RM_WorkerStableGainKB = 0
+Global $RM_WorkerReboundKB = 0
+Global $RM_WorkerRecoveryPasses = 0
 Global $RM_LastWorkerTrimmed = 0
 Global $RM_LastWorkerReleasedBytes = 0
 Global $RM_LastWorkerNativeSteps = 0
 Global $RM_LastWorkerPasses = 0
 Global $RM_LastWorkerAvailableGainKB = 0
+Global $RM_LastWorkerPeakGainKB = 0
+Global $RM_LastWorkerStableGainKB = 0
+Global $RM_LastWorkerReboundKB = 0
+Global $RM_LastWorkerRecoveryPasses = 0
 Global $RM_LastNativeStageTarget = 0
 Global $RM_RecentActivePID = 0
 Global $RM_RecentActiveAt = 0
@@ -152,6 +160,12 @@ Global $RM_StablePressureText = ""
 Global $RM_LastModeName = "Normal Optimize"
 Global $RM_ReboundAt = 0
 Global $RM_ReboundCooldownSeconds = 60
+; Full Aggressive observes the first post-reclaim rebound inside its elevated
+; worker. Applications remain alive and may fault pages back; one bounded
+; recovery pass catches that first wave without creating a permanent trim loop.
+Global $RM_AggressiveStabilizeMs = RM_ReadBoundedInt ( "AggressiveStabilizeMs" , 3000 , 1000 , 15000 )
+Global $RM_AggressiveReboundMinMB = RM_ReadBoundedInt ( "AggressiveReboundMinMB" , 64 , 16 , 2048 )
+Global $RM_AggressiveReboundPercent = RM_ReadBoundedInt ( "AggressiveReboundPercent" , 20 , 5 , 80 )
 ; Startup is a separate silent Normal pass plus a tiny pressure monitor. It
 ; never runs an elevated/native memory-list purge, so Windows login does not
 ; produce a UAC prompt or an Emergency-mode stutter. The monitor only re-arms
@@ -466,6 +480,15 @@ Func RM_MemoryListCommand ( $RM_CommandValue )
 	Return $RM_Result [ 0 ]
 EndFunc
 
+Func RM_ShouldRecoverRebound ( $RM_PeakGainKB , $RM_StableGainKB )
+	If $RM_PeakGainKB <= 0 Or $RM_StableGainKB < 0 Or $RM_StableGainKB >= $RM_PeakGainKB Then Return 0
+	Local $RM_ReboundKB = $RM_PeakGainKB - $RM_StableGainKB
+	Local $RM_ThresholdKB = $RM_AggressiveReboundMinMB * 1024
+	Local $RM_ProportionalThresholdKB = Int ( $RM_PeakGainKB * $RM_AggressiveReboundPercent / 100 )
+	If $RM_ProportionalThresholdKB > $RM_ThresholdKB Then $RM_ThresholdKB = $RM_ProportionalThresholdKB
+	Return Number ( $RM_ReboundKB >= $RM_ThresholdKB )
+EndFunc
+
 Func RM_AggressiveRelease ( $RM_Smooth = 0 , $RM_ProcessProfile = 2 )
 	Local $RM_AvailableBefore = MemGetStats ( )
 	Local $RM_ProfilePrivilege = RM_EnablePrivilege ( "SeProfileSingleProcessPrivilege" )
@@ -474,6 +497,7 @@ Func RM_AggressiveRelease ( $RM_Smooth = 0 , $RM_ProcessProfile = 2 )
 	Local $RM_FinalEmptyStatus = - 2 , $RM_FinalPurgeStatus = - 2
 	Local $RM_CacheOk = 0 , $RM_ProcessTrimmed = 0 , $RM_ProcessReleasedBytes = 0
 	Local $RM_ThisNativeSteps = 0 , $RM_ThisPasses = 0
+	Local $RM_ThisPeakGainKB = 0 , $RM_ThisStableGainKB = 0 , $RM_ThisReboundKB = 0 , $RM_ThisRecoveryPasses = 0
 	If $RM_Smooth = 1 Then
 		; Smooth still gets one elevated process pass so inaccessible background
 		; applications are not silently missed, but it only purges low-priority
@@ -519,6 +543,35 @@ Func RM_AggressiveRelease ( $RM_Smooth = 0 , $RM_ProcessProfile = 2 )
 		$RM_FinalPurgeStatus = RM_MemoryListCommand ( 4 )
 		If $RM_FinalPurgeStatus = 0 Then $RM_ThisNativeSteps += 1
 		Sleep ( 250 )
+		; The old two passes were only hundreds of milliseconds apart. Measure the
+		; immediate peak, let live applications perform their first normal refault,
+		; and recover that rebound once when it is both material and proportional.
+		Local $RM_PeakStats = MemGetStats ( )
+		If IsArray ( $RM_AvailableBefore ) And IsArray ( $RM_PeakStats ) Then
+			$RM_ThisPeakGainKB = $RM_PeakStats [ 2 ] - $RM_AvailableBefore [ 2 ]
+			If $RM_ThisPeakGainKB < 0 Then $RM_ThisPeakGainKB = 0
+		EndIf
+		Sleep ( $RM_AggressiveStabilizeMs )
+		Local $RM_PreRecoveryStats = MemGetStats ( )
+		If IsArray ( $RM_AvailableBefore ) And IsArray ( $RM_PreRecoveryStats ) Then
+			$RM_ThisStableGainKB = $RM_PreRecoveryStats [ 2 ] - $RM_AvailableBefore [ 2 ]
+			If $RM_ThisStableGainKB < 0 Then $RM_ThisStableGainKB = 0
+			$RM_ThisReboundKB = $RM_ThisPeakGainKB - $RM_ThisStableGainKB
+			If $RM_ThisReboundKB < 0 Then $RM_ThisReboundKB = 0
+		EndIf
+		If RM_ShouldRecoverRebound ( $RM_ThisPeakGainKB , $RM_ThisStableGainKB ) Then
+			Local $RM_RecoveryTrimmed = RM_RunConfiguredTrim ( $RM_ProcessProfile )
+			$RM_ProcessTrimmed += $RM_RecoveryTrimmed
+			$RM_ProcessReleasedBytes += $RM_LastTrimReleasedBytes
+			$RM_ThisPasses += 1
+			$RM_ThisRecoveryPasses = 1
+			Local $RM_RecoveryEmptyStatus = RM_MemoryListCommand ( 2 )
+			If $RM_RecoveryEmptyStatus = 0 Then $RM_ThisNativeSteps += 1
+			Sleep ( 150 )
+			Local $RM_RecoveryPurgeStatus = RM_MemoryListCommand ( 4 )
+			If $RM_RecoveryPurgeStatus = 0 Then $RM_ThisNativeSteps += 1
+			Sleep ( 500 )
+		EndIf
 	EndIf
 	Local $RM_AvailableAfter = MemGetStats ( )
 	Local $RM_ThisAvailableGainKB = 0
@@ -526,16 +579,28 @@ Func RM_AggressiveRelease ( $RM_Smooth = 0 , $RM_ProcessProfile = 2 )
 		$RM_ThisAvailableGainKB = $RM_AvailableAfter [ 2 ] - $RM_AvailableBefore [ 2 ]
 		If $RM_ThisAvailableGainKB < 0 Then $RM_ThisAvailableGainKB = 0
 	EndIf
+	If $RM_Smooth = 1 Then
+		$RM_ThisPeakGainKB = $RM_ThisAvailableGainKB
+		$RM_ThisStableGainKB = $RM_ThisAvailableGainKB
+	ElseIf $RM_ThisRecoveryPasses = 1 Then
+		$RM_ThisStableGainKB = $RM_ThisAvailableGainKB
+	EndIf
 	$RM_WorkerTotalTrimmed += $RM_ProcessTrimmed
 	$RM_WorkerTotalReleasedBytes += $RM_ProcessReleasedBytes
 	$RM_WorkerNativeSteps += $RM_ThisNativeSteps
 	$RM_WorkerPasses += $RM_ThisPasses
 	$RM_WorkerAvailableGainKB += $RM_ThisAvailableGainKB
+	$RM_WorkerPeakGainKB += $RM_ThisPeakGainKB
+	$RM_WorkerStableGainKB += $RM_ThisStableGainKB
+	$RM_WorkerReboundKB += $RM_ThisReboundKB
+	$RM_WorkerRecoveryPasses += $RM_ThisRecoveryPasses
 	$RM_LastAggressiveOk = ( $RM_ProcessTrimmed > 0 Or $RM_PurgeStatus = 0 Or $RM_EmptyStatus = 0 Or $RM_FinalPurgeStatus = 0 Or $RM_FinalEmptyStatus = 0 Or $RM_CacheOk = 1 )
 	$RM_LastAggressiveDetail = "Privilege profile/quota: " & $RM_ProfilePrivilege & "/" & $RM_QuotaPrivilege & @CRLF & _
 		"User/background trim operations: " & $RM_ProcessTrimmed & @CRLF & _
 		"Measured working-set reduction: " & Round ( $RM_ProcessReleasedBytes / 1048576 , 1 ) & " MB" & @CRLF & _
 		"Measured worker available gain: " & Round ( $RM_ThisAvailableGainKB / 1024 , 1 ) & " MB" & @CRLF & _
+		"Peak/stable available gain: " & Round ( $RM_ThisPeakGainKB / 1024 , 1 ) & "/" & Round ( $RM_ThisStableGainKB / 1024 , 1 ) & " MB" & @CRLF & _
+		"Observed rebound: " & Round ( $RM_ThisReboundKB / 1024 , 1 ) & " MB | recovery passes: " & $RM_ThisRecoveryPasses & @CRLF & _
 		"Measured process passes: " & $RM_ThisPasses & @CRLF & _
 		"Initial empty working sets status: " & $RM_EmptyStatus & @CRLF & _
 		"Flush modified list status: " & $RM_FlushStatus & @CRLF & _
@@ -565,7 +630,7 @@ EndFunc
 
 Func RM_FinishWorker ( $RM_ExitCode )
 	Local $RM_ResultPath = RM_GetWorkerResultPath ( )
-	If StringLen ( $RM_ResultPath ) > 0 Then FileWrite ( $RM_ResultPath , $RM_ExitCode & @LF & $RM_WorkerTotalTrimmed & @LF & $RM_WorkerTotalReleasedBytes & @LF & $RM_WorkerNativeSteps & @LF & $RM_WorkerPasses & @LF & $RM_WorkerAvailableGainKB )
+	If StringLen ( $RM_ResultPath ) > 0 Then FileWrite ( $RM_ResultPath , $RM_ExitCode & @LF & $RM_WorkerTotalTrimmed & @LF & $RM_WorkerTotalReleasedBytes & @LF & $RM_WorkerNativeSteps & @LF & $RM_WorkerPasses & @LF & $RM_WorkerAvailableGainKB & @LF & $RM_WorkerPeakGainKB & @LF & $RM_WorkerStableGainKB & @LF & $RM_WorkerReboundKB & @LF & $RM_WorkerRecoveryPasses )
 	Exit $RM_ExitCode
 EndFunc
 
@@ -575,6 +640,10 @@ Func RM_ResetWorkerTotals ( )
 	$RM_WorkerNativeSteps = 0
 	$RM_WorkerPasses = 0
 	$RM_WorkerAvailableGainKB = 0
+	$RM_WorkerPeakGainKB = 0
+	$RM_WorkerStableGainKB = 0
+	$RM_WorkerReboundKB = 0
+	$RM_WorkerRecoveryPasses = 0
 EndFunc
 
 Func RM_ResetLastWorkerMetrics ( )
@@ -583,6 +652,10 @@ Func RM_ResetLastWorkerMetrics ( )
 	$RM_LastWorkerNativeSteps = 0
 	$RM_LastWorkerPasses = 0
 	$RM_LastWorkerAvailableGainKB = 0
+	$RM_LastWorkerPeakGainKB = 0
+	$RM_LastWorkerStableGainKB = 0
+	$RM_LastWorkerReboundKB = 0
+	$RM_LastWorkerRecoveryPasses = 0
 EndFunc
 
 Func RM_CopyWorkerMetrics ( )
@@ -591,14 +664,18 @@ Func RM_CopyWorkerMetrics ( )
 	$RM_LastWorkerNativeSteps = $RM_WorkerNativeSteps
 	$RM_LastWorkerPasses = $RM_WorkerPasses
 	$RM_LastWorkerAvailableGainKB = $RM_WorkerAvailableGainKB
+	$RM_LastWorkerPeakGainKB = $RM_WorkerPeakGainKB
+	$RM_LastWorkerStableGainKB = $RM_WorkerStableGainKB
+	$RM_LastWorkerReboundKB = $RM_WorkerReboundKB
+	$RM_LastWorkerRecoveryPasses = $RM_WorkerRecoveryPasses
 EndFunc
 
 Func RM_ParseWorkerResult ( $RM_ResultText )
 	RM_ResetLastWorkerMetrics ( )
 	$RM_ResultText = StringReplace ( $RM_ResultText , @CR , "" )
 	Local $RM_ResultFields = StringSplit ( $RM_ResultText , @LF , 1 )
-	If Not IsArray ( $RM_ResultFields ) Or $RM_ResultFields [ 0 ] < 6 Then Return - 1
-	For $RM_FieldIndex = 1 To 6
+	If Not IsArray ( $RM_ResultFields ) Or $RM_ResultFields [ 0 ] < 10 Then Return - 1
+	For $RM_FieldIndex = 1 To 10
 		If Not StringRegExp ( StringStripWS ( $RM_ResultFields [ $RM_FieldIndex ] , 3 ) , "^-?[0-9]+$" ) Then Return - 1
 	Next
 	Local $RM_ParsedExitCode = Int ( Number ( StringStripWS ( $RM_ResultFields [ 1 ] , 3 ) ) )
@@ -607,7 +684,11 @@ Func RM_ParseWorkerResult ( $RM_ResultText )
 	$RM_LastWorkerNativeSteps = Int ( Number ( StringStripWS ( $RM_ResultFields [ 4 ] , 3 ) ) )
 	$RM_LastWorkerPasses = Int ( Number ( StringStripWS ( $RM_ResultFields [ 5 ] , 3 ) ) )
 	$RM_LastWorkerAvailableGainKB = Number ( StringStripWS ( $RM_ResultFields [ 6 ] , 3 ) )
-	If $RM_LastWorkerTrimmed < 0 Or $RM_LastWorkerReleasedBytes < 0 Or $RM_LastWorkerNativeSteps < 0 Or $RM_LastWorkerPasses < 0 Or $RM_LastWorkerAvailableGainKB < 0 Then Return - 1
+	$RM_LastWorkerPeakGainKB = Number ( StringStripWS ( $RM_ResultFields [ 7 ] , 3 ) )
+	$RM_LastWorkerStableGainKB = Number ( StringStripWS ( $RM_ResultFields [ 8 ] , 3 ) )
+	$RM_LastWorkerReboundKB = Number ( StringStripWS ( $RM_ResultFields [ 9 ] , 3 ) )
+	$RM_LastWorkerRecoveryPasses = Int ( Number ( StringStripWS ( $RM_ResultFields [ 10 ] , 3 ) ) )
+	If $RM_LastWorkerTrimmed < 0 Or $RM_LastWorkerReleasedBytes < 0 Or $RM_LastWorkerNativeSteps < 0 Or $RM_LastWorkerPasses < 0 Or $RM_LastWorkerAvailableGainKB < 0 Or $RM_LastWorkerPeakGainKB < 0 Or $RM_LastWorkerStableGainKB < 0 Or $RM_LastWorkerReboundKB < 0 Or $RM_LastWorkerRecoveryPasses < 0 Then Return - 1
 	Return $RM_ParsedExitCode
 EndFunc
 
@@ -709,7 +790,7 @@ Func RM_WriteLog ( $RM_StableGain , $RM_ReboundDetected )
 	If FileExists ( $RM_LogPath ) And FileGetSize ( $RM_LogPath ) > 131072 Then FileDelete ( $RM_LogPath )
 	Local $RM_ReboundValue = "no"
 	If $RM_ReboundDetected = 1 Then $RM_ReboundValue = "yes"
-	FileWriteLine ( $RM_LogPath , @YEAR & "-" & StringFormat ( "%02d" , @MON ) & "-" & StringFormat ( "%02d" , @MDAY ) & " " & StringFormat ( "%02d:%02d:%02d" , @HOUR , @MIN , @SEC ) & " | mode=" & $RM_LastModeName & " | immediate=" & $RM_ImmediateGainMB & " MB | stable=" & $RM_StableGain & " MB | process_trim=" & $RM_LastProcessTrimMB & " MB | trim_operations=" & $RM_LastTrimmedCount & " | worker_available=" & Round ( $RM_LastWorkerAvailableGainKB / 1024 , 1 ) & " MB | worker_passes=" & $RM_LastWorkerPasses & " | native_steps=" & $RM_LastWorkerNativeSteps & "/" & $RM_LastNativeStageTarget & " | rebound=" & $RM_ReboundValue & " | " & $RM_StablePressureText )
+	FileWriteLine ( $RM_LogPath , @YEAR & "-" & StringFormat ( "%02d" , @MON ) & "-" & StringFormat ( "%02d" , @MDAY ) & " " & StringFormat ( "%02d:%02d:%02d" , @HOUR , @MIN , @SEC ) & " | mode=" & $RM_LastModeName & " | immediate=" & $RM_ImmediateGainMB & " MB | stable=" & $RM_StableGain & " MB | process_trim=" & $RM_LastProcessTrimMB & " MB | trim_operations=" & $RM_LastTrimmedCount & " | worker_available=" & Round ( $RM_LastWorkerAvailableGainKB / 1024 , 1 ) & " MB | worker_peak=" & Round ( $RM_LastWorkerPeakGainKB / 1024 , 1 ) & " MB | worker_stable=" & Round ( $RM_LastWorkerStableGainKB / 1024 , 1 ) & " MB | worker_rebound=" & Round ( $RM_LastWorkerReboundKB / 1024 , 1 ) & " MB | recovery_passes=" & $RM_LastWorkerRecoveryPasses & " | worker_passes=" & $RM_LastWorkerPasses & " | native_steps=" & $RM_LastWorkerNativeSteps & "/" & $RM_LastNativeStageTarget & " | rebound=" & $RM_ReboundValue & " | " & $RM_StablePressureText )
 EndFunc
 
 Func RM_GetMemoryLoadPercent ( )
@@ -922,6 +1003,7 @@ Func RM_RunOptimize ( )
 	If $RM_OptimizeMode = $RM_MODE_AGGRESSIVE Or $RM_OptimizeMode = $RM_MODE_TEMP Then $RM_AggressiveResult = RM_RunAggressiveWorker ( 0 )
 	If $RM_OptimizeMode = $RM_MODE_SMOOTH Then $RM_AggressiveResult = RM_RunAggressiveWorker ( 1 )
 	If $RM_OptimizeMode = $RM_MODE_EMERGENCY Then $RM_AggressiveResult = RM_RunAggressiveWorker ( 2 )
+	If $RM_LastWorkerRecoveryPasses > 0 Then $RM_LastNativeStageTarget += $RM_LastWorkerRecoveryPasses * 2
 	If $RM_OptimizeMode = $RM_MODE_TEMP And $RM_AutoTrigger = 0 Then
 		If MsgBox ( 48 + 4 , "ReduceMemory", "Aggressive + Delete Temp akan menghapus file secara permanen dari %TEMP% dan C:\Windows\Temp." & @CRLF & @CRLF & "File yang sedang digunakan akan dilewati. Jangan jalankan saat instalasi atau Windows Update sedang berlangsung." & @CRLF & @CRLF & "Lanjutkan sekarang?" , 0 , $A59A0605008 ) = 6 Then RM_DeleteTempFiles ( )
 	EndIf
@@ -958,7 +1040,9 @@ Func RM_RunOptimize ( )
 		If StringLen ( $RM_ResultTip ) = 0 Then $RM_ResultTip = "Elevated process passes: " & $RM_LastWorkerPasses & @CRLF & _
 			"Measured elevated working-set reduction: " & Round ( $RM_LastWorkerReleasedBytes / 1048576 , 1 ) & " MB" & @CRLF & _
 			"Measured elevated available gain: " & Round ( $RM_LastWorkerAvailableGainKB / 1024 , 1 ) & " MB" & @CRLF & _
-			"Native stages successful: " & $RM_LastWorkerNativeSteps & "/" & RM_GetNativeStageTarget ( )
+			"Peak/stable gain: " & Round ( $RM_LastWorkerPeakGainKB / 1024 , 1 ) & "/" & Round ( $RM_LastWorkerStableGainKB / 1024 , 1 ) & " MB" & @CRLF & _
+			"Observed rebound: " & Round ( $RM_LastWorkerReboundKB / 1024 , 1 ) & " MB | recovery passes: " & $RM_LastWorkerRecoveryPasses & @CRLF & _
+			"Native stages successful: " & $RM_LastWorkerNativeSteps & "/" & $RM_LastNativeStageTarget
 		GUICtrlSetTip ( $A3411D0002B [ 4 ] , $RM_ResultTip )
 	Else
 		GUICtrlSetData ( $A3411D0002B [ 4 ] , "Aggressive cancelled or Administrator access denied" )
@@ -1075,9 +1159,11 @@ Func RM_HandleCommandLine ( )
 		If RM_StartupMonitorSelfTest ( ) <> 1 Then Exit 16
 		If RM_IsAIProcessName ( "ollama.exe" ) <> 1 Then Exit 17
 		If RM_IsAIProcessName ( "notepad.exe" ) <> 0 Then Exit 18
-		If RM_ParseWorkerResult ( "0" & @LF & "7" & @LF & "134217728" & @LF & "6" & @LF & "2" & @LF & "65536" ) <> 0 Then Exit 22
-		If $RM_LastWorkerTrimmed <> 7 Or $RM_LastWorkerReleasedBytes <> 134217728 Or $RM_LastWorkerNativeSteps <> 6 Or $RM_LastWorkerPasses <> 2 Or $RM_LastWorkerAvailableGainKB <> 65536 Then Exit 23
-		If RM_ParseWorkerResult ( "broken" & @LF & "7" & @LF & "134217728" & @LF & "6" & @LF & "2" & @LF & "65536" ) <> - 1 Then Exit 29
+		If RM_ParseWorkerResult ( "0" & @LF & "7" & @LF & "134217728" & @LF & "6" & @LF & "2" & @LF & "65536" & @LF & "98304" & @LF & "73728" & @LF & "24576" & @LF & "1" ) <> 0 Then Exit 22
+		If $RM_LastWorkerTrimmed <> 7 Or $RM_LastWorkerReleasedBytes <> 134217728 Or $RM_LastWorkerNativeSteps <> 6 Or $RM_LastWorkerPasses <> 2 Or $RM_LastWorkerAvailableGainKB <> 65536 Or $RM_LastWorkerPeakGainKB <> 98304 Or $RM_LastWorkerStableGainKB <> 73728 Or $RM_LastWorkerReboundKB <> 24576 Or $RM_LastWorkerRecoveryPasses <> 1 Then Exit 23
+		If RM_ParseWorkerResult ( "broken" & @LF & "7" & @LF & "134217728" & @LF & "6" & @LF & "2" & @LF & "65536" & @LF & "98304" & @LF & "73728" & @LF & "24576" & @LF & "1" ) <> - 1 Then Exit 29
+		If RM_ShouldRecoverRebound ( 1048576 , 983040 ) <> 0 Then Exit 30
+		If RM_ShouldRecoverRebound ( 1048576 , 524288 ) <> 1 Then Exit 31
 		RM_ResetLastWorkerMetrics ( )
 		If RM_GetProfileMinimumMB ( $RM_PROFILE_NORMAL ) < 16 Or RM_GetProfileMinimumMB ( $RM_PROFILE_NORMAL ) < $RM_MinProcessMB Then Exit 24
 		If RM_GetProfileMinimumMB ( $RM_PROFILE_SMOOTH ) < 8 Then Exit 25

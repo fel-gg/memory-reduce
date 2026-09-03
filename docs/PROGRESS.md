@@ -15,6 +15,15 @@ the AutoIt source for every intermediate binary.
 
 - Upgraded the existing engine in place to 2.8; no Windows or Linux path was
   replaced with a from-scratch rewrite.
+- Replaced report-only rebound handling inside full Aggressive with a bounded
+  stabilization engine. Windows and Linux now measure immediate peak,
+  post-refault stable gain, and rebound; a third backend pass runs only when
+  the rebound is at least 64 MB and 20 percent of the initial gain. Processes
+  remain alive, active/critical protection stays in force, and recovery is
+  capped at one pass so the optimizer cannot become a permanent trim loop.
+- Extended the Windows worker protocol from six to ten validated integer
+  fields for peak/stable/rebound/recovery metrics, and taught CI to reject
+  malformed stabilization results or an unbounded pass count.
 - Audited all tracked Windows and Linux functions before refactoring. Removed
   13 unreachable reconstructed Windows helpers only after call-site and
   callback-string checks, centralized bounded numeric INI parsing, eliminated
@@ -33,7 +42,7 @@ the AutoIt source for every intermediate binary.
   uses a 4 MB floor, protects only the current foreground among user apps, and
   runs a second native empty/purge sequence after its last elevated process
   pass.
-- Added six-field elevated worker diagnostics, `native completed/expected`
+- Added elevated worker diagnostics, `native completed/expected`
   status, measured worker Available RAM, and a real full-Aggressive CI gate on
   a disposable Windows process.
 - Added measured before/after working-set accounting to every Windows process

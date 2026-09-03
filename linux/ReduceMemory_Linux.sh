@@ -16,6 +16,9 @@ proc_root="${REDUCE_MEMORY_PROC_ROOT:-/proc}"
 meminfo_file="${REDUCE_MEMORY_MEMINFO_FILE:-${proc_root}/meminfo}"
 vm_root="${REDUCE_MEMORY_VM_ROOT:-${proc_root}/sys/vm}"
 settle_seconds="${REDUCE_MEMORY_SETTLE_SECONDS:-1}"
+aggressive_stabilize_seconds="${REDUCE_MEMORY_AGGRESSIVE_STABILIZE_SECONDS:-3}"
+aggressive_rebound_min_mb="${REDUCE_MEMORY_AGGRESSIVE_REBOUND_MIN_MB:-64}"
+aggressive_rebound_percent="${REDUCE_MEMORY_AGGRESSIVE_REBOUND_PERCENT:-20}"
 protected_pid="${REDUCE_MEMORY_PROTECT_PID:-}"
 default_ai_patterns="ollama|vllm|llama-server|llama.cpp|text-generation|tritonserver|torchrun|stable-diffusion|comfyui|automatic1111|invokeai|localai|koboldcpp|open-webui"
 ai_patterns="${REDUCE_MEMORY_AI_PATTERNS:-${default_ai_patterns}}"
@@ -40,6 +43,18 @@ done
 
 if [[ ! "${settle_seconds}" =~ ^[0-9]+$ ]]; then
   echo "REDUCE_MEMORY_SETTLE_SECONDS harus berupa angka bulat positif atau nol." >&2
+  exit 2
+fi
+if [[ ! "${aggressive_stabilize_seconds}" =~ ^[0-9]+$ ]] || (( aggressive_stabilize_seconds < 1 || aggressive_stabilize_seconds > 15 )); then
+  echo "REDUCE_MEMORY_AGGRESSIVE_STABILIZE_SECONDS harus berupa angka 1-15." >&2
+  exit 2
+fi
+if [[ ! "${aggressive_rebound_min_mb}" =~ ^[0-9]+$ ]] || (( aggressive_rebound_min_mb < 16 || aggressive_rebound_min_mb > 2048 )); then
+  echo "REDUCE_MEMORY_AGGRESSIVE_REBOUND_MIN_MB harus berupa angka 16-2048." >&2
+  exit 2
+fi
+if [[ ! "${aggressive_rebound_percent}" =~ ^[0-9]+$ ]] || (( aggressive_rebound_percent < 5 || aggressive_rebound_percent > 80 )); then
+  echo "REDUCE_MEMORY_AGGRESSIVE_REBOUND_PERCENT harus berupa angka 5-80." >&2
   exit 2
 fi
 
@@ -293,6 +308,10 @@ reset_stage_state() {
   native_pageout_passes=0
   native_batch_calls=0
   native_fallback_calls=0
+  aggressive_peak_gain_kb=0
+  aggressive_stable_gain_kb=0
+  aggressive_rebound_kb=0
+  aggressive_recovery_passes=0
 }
 
 reset_stage_state
@@ -508,6 +527,19 @@ run_cgroup_reclaim() {
   fi
 }
 
+should_recover_rebound() {
+  local peak_gain_kb="$1"
+  local stable_gain_kb="$2"
+  local rebound_kb
+  local threshold_kb=$((aggressive_rebound_min_mb * 1024))
+  local proportional_kb=$((peak_gain_kb * aggressive_rebound_percent / 100))
+
+  (( peak_gain_kb > 0 && stable_gain_kb >= 0 && stable_gain_kb < peak_gain_kb )) || return 1
+  (( proportional_kb > threshold_kb )) && threshold_kb="${proportional_kb}"
+  rebound_kb=$((peak_gain_kb - stable_gain_kb))
+  (( rebound_kb >= threshold_kb ))
+}
+
 signed_mb() {
   local value_kb="$1"
   printf '%+d MB' "$((value_kb / 1024))"
@@ -545,6 +577,12 @@ print_result() {
   printf 'Default Aggressive ask  : %d MB\n' "$(default_reclaim_mb)"
   fi
   printf 'Kernel sync             : %s\n' "${stage_sync}"
+  if [[ "${selected_mode}" == "aggressive" ]]; then
+    printf 'Peak available gain     : %d MB\n' "$((aggressive_peak_gain_kb / 1024))"
+    printf 'Stable available gain   : %d MB\n' "$((aggressive_stable_gain_kb / 1024))"
+    printf 'Observed rebound        : %d MB\n' "$((aggressive_rebound_kb / 1024))"
+    printf 'Rebound recovery passes : %d\n' "${aggressive_recovery_passes}"
+  fi
   printf 'Native process page-out : %s\n' "${stage_native_pageout}"
   if [[ "${stage_native_pageout}" != "not requested" ]]; then
     printf 'Native page-out passes  : %s\n' "${native_pageout_passes}"
@@ -644,6 +682,21 @@ perform_mode() {
       run_drop_caches 3
       run_cgroup_reclaim
       run_native_pageout aggressive
+      # Keep applications alive, observe their first refault wave, then page
+      # out that rebound once when it is material. This deliberately avoids a
+      # permanent reclaim loop, which would trade free RAM for constant stalls.
+      aggressive_peak_gain_kb=$(( $(require_numeric_meminfo MemAvailable) - before_available_kb ))
+      (( aggressive_peak_gain_kb < 0 )) && aggressive_peak_gain_kb=0
+      sleep "${aggressive_stabilize_seconds}"
+      aggressive_stable_gain_kb=$(( $(require_numeric_meminfo MemAvailable) - before_available_kb ))
+      (( aggressive_stable_gain_kb < 0 )) && aggressive_stable_gain_kb=0
+      aggressive_rebound_kb=$((aggressive_peak_gain_kb - aggressive_stable_gain_kb))
+      (( aggressive_rebound_kb < 0 )) && aggressive_rebound_kb=0
+      if should_recover_rebound "${aggressive_peak_gain_kb}" "${aggressive_stable_gain_kb}"; then
+        run_native_pageout aggressive
+        run_sync
+        aggressive_recovery_passes=1
+      fi
       ;;
     *)
       echo "Mode tidak dikenal: ${selected_mode}" >&2

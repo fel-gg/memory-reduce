@@ -45,7 +45,11 @@ Jalur Aggressive terbaru:
 7. jalankan cgroup v2 proactive reclaim (default sekitar 1/8 RAM, dibatasi);
    saat swap tersedia, prioritaskan anonymous RAM dengan `swappiness=max`
 8. lakukan page-out kedua setelah cache/cgroup reclaim
-9. ukur MemAvailable, cache, anonymous RAM, swap, dan total kedua pass
+9. ukur peak `MemAvailable`, tunggu refault pertama selama 3 detik, lalu ukur
+   stable gain dan rebound
+10. bila rebound minimal 64 MB sekaligus minimal 20% dari peak gain, lakukan
+    tepat satu recovery page-out; proses tetap hidup dan tidak ada loop permanen
+11. ukur MemAvailable, cache, anonymous RAM, swap, dan total seluruh pass
 ```
 
 `MADV_PAGEOUT` meminta kernel mereclaim page pada range yang dipilih. Anonymous
@@ -63,7 +67,8 @@ storage. Aplikasi tetap hidup dan memuat page itu kembali saat diperlukan.
   root-cgroup reclaim.
 - `aggressive`: scan semua UID non-system, page-out aplikasi idle mulai 32 MB
   dan mapping mulai 256 KB, lalu drop page cache, reclaimable slab, cgroup v2
-  reclaim, dan page-out ulang. Tidak memakai daftar nama AI/GPU.
+  reclaim, page-out ulang, dan satu recovery pass bersyarat setelah pengukuran
+  rebound. Tidak memakai daftar nama AI/GPU.
 - `status` atau `check`: hanya membaca metrik dan kemampuan kernel. Tidak
   mengubah RAM atau cache.
 

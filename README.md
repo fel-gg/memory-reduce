@@ -33,7 +33,11 @@ Jadi software baru tetap ikut scan tanpa harus menunggu daftar nama diperbarui.
 - **Aggressive Release** — satu pass awal lalu dua pass elevated untuk kandidat
   background mulai 4 MB. Di antaranya Windows menjalankan pelepasan working
   set, modified list, standby list, dan system file cache; setelah pass proses
-  terakhir, empty-working-set dan purge-standby dijalankan lagi. Jendela yang
+  terakhir, empty-working-set dan purge-standby dijalankan lagi. Worker kemudian
+  memberi aplikasi hidup waktu 3 detik untuk melakukan refault normal. Kalau
+  Available RAM turun lagi secara material (minimal 64 MB dan 20% dari gain
+  awal), satu recovery pass terbatas dijalankan untuk menangkap rebound pertama.
+  Jendela yang
   sedang dipakai dan proses kritis Windows tetap dilindungi, tetapi aplikasi
   yang baru dipindah ke background boleh direclaim.
 - **Aggressive + Delete Temp** — menjalankan Aggressive Release lalu menawarkan
@@ -58,8 +62,10 @@ berasal dari pengukuran tiap proses sebelum/sesudah trim, sedangkan angka
 **available** berasal dari statistik RAM Windows; keduanya sengaja tidak
 dicampur. Worker Administrator juga mengembalikan jumlah pass, operasi trim,
 perubahan available RAM di dalam worker, dan tahap native yang benar-benar
-berhasil (`6/6` bila semua tahap full Aggressive diterima Windows). Lima belas detik kemudian hasil
-stabil dihitung ulang. Kalau memori langsung diambil kembali,
+berhasil. Worker juga memisahkan peak gain, stable gain, jumlah rebound, dan
+recovery pass sehingga halaman yang dilepas dua kali tidak disamakan dengan
+RAM bersih yang benar-benar tersedia. Lima belas detik kemudian hasil stabil
+dihitung ulang sekali lagi. Kalau memori masih langsung diambil kembali,
 rebound protection menahan operasi berat selama 60 detik. Ringkasan setiap
 operasi juga disimpan di `windows/ReduceMemory.log` dengan ukuran terbatas.
 
@@ -100,8 +106,10 @@ mapping secara dinamis dari `/proc`, lalu memakai `pidfd_open` dan
 `process_madvise(MADV_PAGEOUT)` untuk meminta kernel mereclaim resident pages
 aplikasi yang idle. Normal memakai batas konservatif, Smooth menambah pelepasan
 file cache ringan, dan Aggressive memeriksa semua UID non-system dengan batas
-mapping lebih rendah. Aggressive sekarang melakukan page-out dua kali: sebelum
-dan sesudah `drop_caches` plus `memory.reclaim` cgroup v2. Helper mengirim sampai
+mapping lebih rendah. Aggressive melakukan page-out sebelum dan sesudah
+`drop_caches` plus `memory.reclaim` cgroup v2, menunggu refault pertama selama
+3 detik, lalu menambah paling banyak satu recovery pass jika rebound material
+terukur. Helper mengirim sampai
 64 mapping per syscall dan kembali ke panggilan satu-per-satu hanya ketika
 kernel memberi hasil parsial atau menolak batch. Bila swap tersedia, cgroup
 reclaim memakai `swappiness=max` untuk menarget anonymous memory; kernel lama
