@@ -131,7 +131,7 @@ jobs:
               $fields = @(Get-Content -LiteralPath $result)
               if ($fields.Count -lt 5 -or [int]$fields[1] -ne 1) { throw "$worker returned malformed targeted metrics" }
               $targetFields = @($fields[4] -split '\|')
-              if ($targetFields.Count -lt 4 -or [int64]$targetFields[2] -lt 0) { throw "$worker omitted the target page-fault snapshot" }
+              if ($targetFields.Count -lt 5 -or [int64]$targetFields[2] -lt 0 -or [int64]$targetFields[3] -lt 64MB) { throw "$worker omitted per-target effectiveness metrics" }
               foreach ($metric in @('seen','protected','filtered','foreground','open_failed','path_failed','windows_process','query_failed','below_minimum','trim_failed','no_reduction')) {
                 if (-not ($fields -match "^$metric=\d+$")) { throw "$worker omitted taxonomy metric $metric" }
               }
@@ -225,8 +225,9 @@ jobs:
             if ($worker.ExitCode -ne 0) { throw "Aggressive worker failed with exit code $($worker.ExitCode)" }
             if ($target.HasExited) { throw 'Aggressive terminated the disposable target' }
 
-            $fields = @(Get-Content -LiteralPath $resultPath | ForEach-Object { [int64]$_ })
-            if ($fields.Count -ne 11) { throw "Aggressive returned $($fields.Count) fields instead of 11" }
+            $rawFields = @(Get-Content -LiteralPath $resultPath)
+            if ($rawFields.Count -lt 22) { throw "Aggressive returned only $($rawFields.Count) result fields" }
+            $fields = @($rawFields[0..10] | ForEach-Object { [int64]$_ })
             $trimOperations = $fields[1]
             $workingSetReduction = $fields[2]
             $nativeStages = $fields[3]
@@ -242,6 +243,9 @@ jobs:
             if ($processPasses -lt 2 -or $processPasses -gt 3) { throw "Aggressive completed unexpected process pass count: $processPasses" }
             if ($recoveryPasses -lt 0 -or $recoveryPasses -gt 1) { throw "Aggressive returned invalid recovery pass count: $recoveryPasses" }
             if ($recoveryFaults -lt 0) { throw "Aggressive returned invalid recovery page faults: $recoveryFaults" }
+            foreach ($metric in @('seen','protected','filtered','foreground','open_failed','path_failed','windows_process','query_failed','below_minimum','trim_failed','no_reduction')) {
+              if (-not ($rawFields -match "^$metric=\d+$")) { throw "Aggressive omitted native taxonomy metric $metric" }
+            }
             if ($stableGain -lt 0 -or $peakGain -lt 0 -or $rebound -lt 0) { throw 'Aggressive returned invalid stabilization metrics' }
             Write-Output "Aggressive: $trimOperations trims, $([math]::Round($workingSetReduction / 1MB, 1)) MB working set, $nativeStages native stages, $processPasses passes, recovery=$recoveryPasses, rebound=$([math]::Round($rebound / 1MB, 1)) MB"
           } catch {

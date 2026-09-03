@@ -15,6 +15,13 @@ the AutoIt source for every intermediate binary.
   successful calls that produced no measurable reduction.
 - The elevated result contract, UI tooltip, bounded log, self-test, and CI carry
   and validate the recovery page-fault metric on x64 and x86.
+- Added bounded per-executable effectiveness history under Local AppData. It
+  stores no PID or full path, caps itself at 128 entries with oldest-entry
+  eviction, and continues learning executables that did not exist at build time.
+- Aggressive now excludes an executable for 30 minutes after two proven material
+  refaults. Emergency bypasses learned cooldowns, and no process is killed.
+- Per-target native output now reports released bytes, while native taxonomy is
+  propagated through the elevated worker into the UI tooltip and bounded log.
 
 ## Baseline
 

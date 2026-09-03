@@ -10,6 +10,7 @@ typedef struct {
     DWORD pid;
     SIZE_T after_ws;
     DWORD after_faults;
+    SIZE_T released;
     WCHAR name[MAX_PATH];
 } TrimTarget;
 
@@ -110,9 +111,10 @@ static int write_result(const WCHAR *path, DWORD trimmed, unsigned long long rel
     if (_wfopen_s(&output, path, L"w, ccs=UTF-8") != 0 || !output) return 0;
     fwprintf(output, L"0\n%lu\n%llu\n%lu\n", trimmed, released, target_count);
     for (index = 0; index < target_count; ++index) {
-        fwprintf(output, L"%lu|%llu|%lu|%ls\n", targets[index].pid,
+        fwprintf(output, L"%lu|%llu|%lu|%llu|%ls\n", targets[index].pid,
                  (unsigned long long)targets[index].after_ws,
-                 targets[index].after_faults, targets[index].name);
+                 targets[index].after_faults,
+                 (unsigned long long)targets[index].released, targets[index].name);
     }
     fwprintf(output, L"seen=%lu\nprotected=%lu\nfiltered=%lu\nforeground=%lu\n"
              L"open_failed=%lu\npath_failed=%lu\nwindows_process=%lu\n"
@@ -217,6 +219,7 @@ static int run_trim(DWORD profile, DWORD foreground_pid, DWORD excluded_pid,
         targets[target_count].pid = entry.th32ProcessID;
         targets[target_count].after_ws = after;
         targets[target_count].after_faults = after_faults;
+        targets[target_count].released = before > after ? before - after : 0;
         wcsncpy_s(targets[target_count].name, MAX_PATH, entry.szExeFile, _TRUNCATE);
         ++target_count;
         CloseHandle(process);

@@ -129,6 +129,10 @@ Global $RM_LastPassTargetPIDs [ 1 ]
 Global $RM_LastPassTargetNames [ 1 ]
 Global $RM_LastPassAfterWorkingSet [ 1 ]
 Global $RM_LastPassAfterPageFaults [ 1 ]
+Global $RM_LastPassReleasedBytes [ 1 ]
+Global $RM_NativeSeen = 0 , $RM_NativeProtected = 0 , $RM_NativeFiltered = 0 , $RM_NativeForeground = 0
+Global $RM_NativeOpenFailed = 0 , $RM_NativePathFailed = 0 , $RM_NativeWindowsProcess = 0
+Global $RM_NativeQueryFailed = 0 , $RM_NativeBelowMinimum = 0 , $RM_NativeTrimFailed = 0 , $RM_NativeNoReduction = 0
 Global $RM_WorkerTotalTrimmed = 0
 Global $RM_WorkerTotalReleasedBytes = 0
 Global $RM_WorkerNativeSteps = 0
@@ -176,6 +180,12 @@ Global $RM_AggressiveReboundMinMB = RM_ReadBoundedInt ( "AggressiveReboundMinMB"
 Global $RM_AggressiveReboundPercent = RM_ReadBoundedInt ( "AggressiveReboundPercent" , 20 , 5 , 80 )
 Global $RM_ProcessRefaultMinMB = RM_ReadBoundedInt ( "ProcessRefaultMinMB" , 16 , 4 , 1024 )
 Global $RM_ProcessRefaultMinFaults = RM_ReadBoundedInt ( "ProcessRefaultMinFaults" , 64 , 1 , 1000000 )
+Global $RM_ChurnHistoryLimit = 128
+Global $RM_ChurnRefaultThreshold = 2
+Global $RM_ChurnCooldownSeconds = 1800
+Global $RM_EffectivenessRoot = EnvGet ( "LOCALAPPDATA" )
+If StringLen ( $RM_EffectivenessRoot ) = 0 Then $RM_EffectivenessRoot = @AppDataDir
+Global $RM_EffectivenessPath = $RM_EffectivenessRoot & "\ReduceMemory\effectiveness.ini"
 ; Startup is a separate silent Normal pass plus a tiny pressure monitor. It
 ; never runs an elevated/native memory-list purge, so Windows login does not
 ; produce a UAC prompt or an Emergency-mode stutter. The monitor only re-arms
@@ -505,18 +515,100 @@ Func RM_ResetLastPassTargets ( )
 	ReDim $RM_LastPassTargetNames [ 1 ]
 	ReDim $RM_LastPassAfterWorkingSet [ 1 ]
 	ReDim $RM_LastPassAfterPageFaults [ 1 ]
+	ReDim $RM_LastPassReleasedBytes [ 1 ]
 EndFunc
 
-Func RM_RecordLastPassTarget ( $RM_ProcessName , $RM_ProcessPID , $RM_AfterWorkingSet , $RM_AfterPageFaults = 0 )
+Func RM_EffectivenessNow ( )
+	Local $RM_FileTime = DllStructCreate ( "uint64 Value" )
+	DllCall ( $A55C0703122 , "none" , "GetSystemTimeAsFileTime" , "ptr" , DllStructGetPtr ( $RM_FileTime ) )
+	Return Int ( Number ( DllStructGetData ( $RM_FileTime , "Value" ) ) / 10000000 - 11644473600 )
+EndFunc
+
+Func RM_EffectivenessKey ( $RM_ProcessName )
+	Return StringRegExpReplace ( StringLower ( StringStripWS ( $RM_ProcessName , 3 ) ) , "[^a-z0-9._-]" , "_" )
+EndFunc
+
+Func RM_ReadEffectiveness ( $RM_ProcessName )
+	Local $RM_Values [ 6 ] = [ 5 , 0 , 0 , 0 , 0 , 0 ]
+	Local $RM_Key = RM_EffectivenessKey ( $RM_ProcessName )
+	If StringLen ( $RM_Key ) = 0 Then Return $RM_Values
+	Local $RM_Raw = IniRead ( $RM_EffectivenessPath , "Process" , $RM_Key , "" )
+	Local $RM_Parts = StringSplit ( $RM_Raw , "|" , 1 )
+	If Not IsArray ( $RM_Parts ) Or $RM_Parts [ 0 ] <> 5 Then Return $RM_Values
+	For $RM_PartIndex = 1 To 5
+		If StringRegExp ( $RM_Parts [ $RM_PartIndex ] , "^[0-9]+$" ) Then $RM_Values [ $RM_PartIndex ] = Number ( $RM_Parts [ $RM_PartIndex ] )
+	Next
+	Return $RM_Values
+EndFunc
+
+Func RM_WriteEffectiveness ( $RM_ProcessName , $RM_Values )
+	Local $RM_Key = RM_EffectivenessKey ( $RM_ProcessName )
+	If StringLen ( $RM_Key ) = 0 Then Return 0
+	Local $RM_Existing = IniRead ( $RM_EffectivenessPath , "Process" , $RM_Key , "" )
+	If StringLen ( $RM_Existing ) = 0 Then
+		Local $RM_Section = IniReadSection ( $RM_EffectivenessPath , "Process" )
+		If IsArray ( $RM_Section ) And $RM_Section [ 0 ] [ 0 ] >= $RM_ChurnHistoryLimit Then
+			; Evict the least recently observed executable so future software can
+			; still be learned while the file remains strictly bounded.
+			Local $RM_OldestKey = "" , $RM_OldestSeen = 9223372036854775807
+			For $RM_Index = 1 To $RM_Section [ 0 ] [ 0 ]
+				Local $RM_Parts = StringSplit ( $RM_Section [ $RM_Index ] [ 1 ] , "|" , 1 )
+				Local $RM_LastSeen = 0
+				If IsArray ( $RM_Parts ) And $RM_Parts [ 0 ] = 5 Then $RM_LastSeen = Number ( $RM_Parts [ 5 ] )
+				If $RM_LastSeen < $RM_OldestSeen Then
+					$RM_OldestSeen = $RM_LastSeen
+					$RM_OldestKey = $RM_Section [ $RM_Index ] [ 0 ]
+				EndIf
+			Next
+			If StringLen ( $RM_OldestKey ) > 0 Then IniDelete ( $RM_EffectivenessPath , "Process" , $RM_OldestKey )
+		EndIf
+	EndIf
+	DirCreate ( $RM_EffectivenessRoot & "\ReduceMemory" )
+	Return IniWrite ( $RM_EffectivenessPath , "Process" , $RM_Key , $RM_Values [ 1 ] & "|" & $RM_Values [ 2 ] & "|" & $RM_Values [ 3 ] & "|" & $RM_Values [ 4 ] & "|" & $RM_Values [ 5 ] )
+EndFunc
+
+Func RM_RecordEffectivenessAttempt ( $RM_ProcessName , $RM_ReleasedBytes )
+	Local $RM_Values = RM_ReadEffectiveness ( $RM_ProcessName )
+	$RM_Values [ 1 ] += 1
+	$RM_Values [ 2 ] += $RM_ReleasedBytes
+	$RM_Values [ 5 ] = RM_EffectivenessNow ( )
+	RM_WriteEffectiveness ( $RM_ProcessName , $RM_Values )
+EndFunc
+
+Func RM_RecordEffectivenessRefault ( $RM_ProcessName )
+	Local $RM_Values = RM_ReadEffectiveness ( $RM_ProcessName )
+	$RM_Values [ 3 ] += 1
+	$RM_Values [ 4 ] = RM_EffectivenessNow ( )
+	$RM_Values [ 5 ] = $RM_Values [ 4 ]
+	RM_WriteEffectiveness ( $RM_ProcessName , $RM_Values )
+EndFunc
+
+Func RM_GetChurnExclusions ( )
+	Local $RM_Result = "|" , $RM_Now = RM_EffectivenessNow ( )
+	Local $RM_Section = IniReadSection ( $RM_EffectivenessPath , "Process" )
+	If Not IsArray ( $RM_Section ) Then Return $RM_Result
+	For $RM_Index = 1 To $RM_Section [ 0 ] [ 0 ]
+		Local $RM_Parts = StringSplit ( $RM_Section [ $RM_Index ] [ 1 ] , "|" , 1 )
+		If Not IsArray ( $RM_Parts ) Or $RM_Parts [ 0 ] <> 5 Then ContinueLoop
+		Local $RM_Refaults = Number ( $RM_Parts [ 3 ] ) , $RM_LastRefault = Number ( $RM_Parts [ 4 ] )
+		If $RM_Refaults >= $RM_ChurnRefaultThreshold And $RM_LastRefault > 0 And $RM_Now - $RM_LastRefault < $RM_ChurnCooldownSeconds Then $RM_Result &= $RM_Section [ $RM_Index ] [ 0 ] & "|"
+	Next
+	Return $RM_Result
+EndFunc
+
+Func RM_RecordLastPassTarget ( $RM_ProcessName , $RM_ProcessPID , $RM_AfterWorkingSet , $RM_AfterPageFaults = 0 , $RM_ReleasedBytes = 0 )
 	$RM_LastPassTargetCount += 1
 	ReDim $RM_LastPassTargetPIDs [ $RM_LastPassTargetCount + 1 ]
 	ReDim $RM_LastPassTargetNames [ $RM_LastPassTargetCount + 1 ]
 	ReDim $RM_LastPassAfterWorkingSet [ $RM_LastPassTargetCount + 1 ]
 	ReDim $RM_LastPassAfterPageFaults [ $RM_LastPassTargetCount + 1 ]
+	ReDim $RM_LastPassReleasedBytes [ $RM_LastPassTargetCount + 1 ]
 	$RM_LastPassTargetPIDs [ $RM_LastPassTargetCount ] = $RM_ProcessPID
 	$RM_LastPassTargetNames [ $RM_LastPassTargetCount ] = $RM_ProcessName
 	$RM_LastPassAfterWorkingSet [ $RM_LastPassTargetCount ] = $RM_AfterWorkingSet
 	$RM_LastPassAfterPageFaults [ $RM_LastPassTargetCount ] = $RM_AfterPageFaults
+	$RM_LastPassReleasedBytes [ $RM_LastPassTargetCount ] = $RM_ReleasedBytes
+	RM_RecordEffectivenessAttempt ( $RM_ProcessName , $RM_ReleasedBytes )
 EndFunc
 
 Func RM_RunRefaultRecovery ( $RM_Profile )
@@ -543,6 +635,7 @@ Func RM_RunRefaultRecovery ( $RM_Profile )
 			RM_CloseProcessHandle ( $RM_TargetHandle )
 			ContinueLoop
 		EndIf
+		RM_RecordEffectivenessRefault ( $RM_LastPassTargetNames [ $RM_TargetIndex ] )
 		If RM_TrimProcessHandle ( $RM_TargetHandle ) = 1 Then
 			Local $RM_AfterWorkingSet = RM_GetWorkingSetFromHandle ( $RM_TargetHandle )
 			If $RM_CurrentWorkingSet > $RM_AfterWorkingSet Then $RM_RecoveryReleasedBytes += $RM_CurrentWorkingSet - $RM_AfterWorkingSet
@@ -670,6 +763,7 @@ Func RM_AggressiveRelease ( $RM_Smooth = 0 , $RM_ProcessProfile = 2 )
 		"Peak/stable available gain: " & Round ( $RM_ThisPeakGainKB / 1024 , 1 ) & "/" & Round ( $RM_ThisStableGainKB / 1024 , 1 ) & " MB" & @CRLF & _
 		"Observed rebound: " & Round ( $RM_ThisReboundKB / 1024 , 1 ) & " MB | recovery passes: " & $RM_ThisRecoveryPasses & " | refaults: " & $RM_LastRecoveryPageFaults & @CRLF & _
 		"Measured process passes: " & $RM_ThisPasses & @CRLF & _
+		"Native scan: " & $RM_NativeSeen & " seen | " & $RM_NativeFiltered & " filtered | " & ( $RM_NativeOpenFailed + $RM_NativePathFailed + $RM_NativeQueryFailed ) & " inaccessible | " & $RM_NativeNoReduction & " no reduction" & @CRLF & _
 		"Initial empty working sets status: " & $RM_EmptyStatus & @CRLF & _
 		"Flush modified list status: " & $RM_FlushStatus & @CRLF & _
 		"Initial purge standby status: " & $RM_PurgeStatus & @CRLF & _
@@ -698,7 +792,7 @@ EndFunc
 
 Func RM_FinishWorker ( $RM_ExitCode )
 	Local $RM_ResultPath = RM_GetWorkerResultPath ( )
-	If StringLen ( $RM_ResultPath ) > 0 Then FileWrite ( $RM_ResultPath , $RM_ExitCode & @LF & $RM_WorkerTotalTrimmed & @LF & $RM_WorkerTotalReleasedBytes & @LF & $RM_WorkerNativeSteps & @LF & $RM_WorkerPasses & @LF & $RM_WorkerAvailableGainKB & @LF & $RM_WorkerPeakGainKB & @LF & $RM_WorkerStableGainKB & @LF & $RM_WorkerReboundKB & @LF & $RM_WorkerRecoveryPasses & @LF & $RM_WorkerRefaultPageFaults )
+	If StringLen ( $RM_ResultPath ) > 0 Then FileWrite ( $RM_ResultPath , $RM_ExitCode & @LF & $RM_WorkerTotalTrimmed & @LF & $RM_WorkerTotalReleasedBytes & @LF & $RM_WorkerNativeSteps & @LF & $RM_WorkerPasses & @LF & $RM_WorkerAvailableGainKB & @LF & $RM_WorkerPeakGainKB & @LF & $RM_WorkerStableGainKB & @LF & $RM_WorkerReboundKB & @LF & $RM_WorkerRecoveryPasses & @LF & $RM_WorkerRefaultPageFaults & @LF & RM_NativeMetricText ( ) )
 	Exit $RM_ExitCode
 EndFunc
 
@@ -743,6 +837,7 @@ EndFunc
 
 Func RM_ParseWorkerResult ( $RM_ResultText )
 	RM_ResetLastWorkerMetrics ( )
+	RM_ResetNativeMetrics ( )
 	$RM_ResultText = StringReplace ( $RM_ResultText , @CR , "" )
 	Local $RM_ResultFields = StringSplit ( $RM_ResultText , @LF , 1 )
 	If Not IsArray ( $RM_ResultFields ) Or $RM_ResultFields [ 0 ] < 11 Then Return - 1
@@ -761,6 +856,9 @@ Func RM_ParseWorkerResult ( $RM_ResultText )
 	$RM_LastWorkerRecoveryPasses = Int ( Number ( StringStripWS ( $RM_ResultFields [ 10 ] , 3 ) ) )
 	$RM_LastWorkerRefaultPageFaults = Number ( StringStripWS ( $RM_ResultFields [ 11 ] , 3 ) )
 	If $RM_LastWorkerTrimmed < 0 Or $RM_LastWorkerReleasedBytes < 0 Or $RM_LastWorkerNativeSteps < 0 Or $RM_LastWorkerPasses < 0 Or $RM_LastWorkerAvailableGainKB < 0 Or $RM_LastWorkerPeakGainKB < 0 Or $RM_LastWorkerStableGainKB < 0 Or $RM_LastWorkerReboundKB < 0 Or $RM_LastWorkerRecoveryPasses < 0 Or $RM_LastWorkerRefaultPageFaults < 0 Then Return - 1
+	For $RM_MetricIndex = 12 To $RM_ResultFields [ 0 ]
+		RM_ParseNativeMetric ( $RM_ResultFields [ $RM_MetricIndex ] )
+	Next
 	Return $RM_ParsedExitCode
 EndFunc
 
@@ -862,7 +960,7 @@ Func RM_WriteLog ( $RM_StableGain , $RM_ReboundDetected )
 	If FileExists ( $RM_LogPath ) And FileGetSize ( $RM_LogPath ) > 131072 Then FileDelete ( $RM_LogPath )
 	Local $RM_ReboundValue = "no"
 	If $RM_ReboundDetected = 1 Then $RM_ReboundValue = "yes"
-	FileWriteLine ( $RM_LogPath , @YEAR & "-" & StringFormat ( "%02d" , @MON ) & "-" & StringFormat ( "%02d" , @MDAY ) & " " & StringFormat ( "%02d:%02d:%02d" , @HOUR , @MIN , @SEC ) & " | mode=" & $RM_LastModeName & " | immediate=" & $RM_ImmediateGainMB & " MB | stable=" & $RM_StableGain & " MB | process_trim=" & $RM_LastProcessTrimMB & " MB | trim_operations=" & $RM_LastTrimmedCount & " | worker_available=" & Round ( $RM_LastWorkerAvailableGainKB / 1024 , 1 ) & " MB | worker_peak=" & Round ( $RM_LastWorkerPeakGainKB / 1024 , 1 ) & " MB | worker_stable=" & Round ( $RM_LastWorkerStableGainKB / 1024 , 1 ) & " MB | worker_rebound=" & Round ( $RM_LastWorkerReboundKB / 1024 , 1 ) & " MB | recovery_passes=" & $RM_LastWorkerRecoveryPasses & " | recovery_faults=" & $RM_LastWorkerRefaultPageFaults & " | worker_passes=" & $RM_LastWorkerPasses & " | native_steps=" & $RM_LastWorkerNativeSteps & "/" & $RM_LastNativeStageTarget & " | rebound=" & $RM_ReboundValue & " | " & $RM_StablePressureText )
+	FileWriteLine ( $RM_LogPath , @YEAR & "-" & StringFormat ( "%02d" , @MON ) & "-" & StringFormat ( "%02d" , @MDAY ) & " " & StringFormat ( "%02d:%02d:%02d" , @HOUR , @MIN , @SEC ) & " | mode=" & $RM_LastModeName & " | immediate=" & $RM_ImmediateGainMB & " MB | stable=" & $RM_StableGain & " MB | process_trim=" & $RM_LastProcessTrimMB & " MB | trim_operations=" & $RM_LastTrimmedCount & " | worker_available=" & Round ( $RM_LastWorkerAvailableGainKB / 1024 , 1 ) & " MB | worker_peak=" & Round ( $RM_LastWorkerPeakGainKB / 1024 , 1 ) & " MB | worker_stable=" & Round ( $RM_LastWorkerStableGainKB / 1024 , 1 ) & " MB | worker_rebound=" & Round ( $RM_LastWorkerReboundKB / 1024 , 1 ) & " MB | recovery_passes=" & $RM_LastWorkerRecoveryPasses & " | recovery_faults=" & $RM_LastWorkerRefaultPageFaults & " | native_seen=" & $RM_NativeSeen & " | native_filtered=" & $RM_NativeFiltered & " | native_access_fail=" & ( $RM_NativeOpenFailed + $RM_NativePathFailed + $RM_NativeQueryFailed ) & " | native_trim_fail=" & $RM_NativeTrimFailed & " | native_no_reduction=" & $RM_NativeNoReduction & " | worker_passes=" & $RM_LastWorkerPasses & " | native_steps=" & $RM_LastWorkerNativeSteps & "/" & $RM_LastNativeStageTarget & " | rebound=" & $RM_ReboundValue & " | " & $RM_StablePressureText )
 EndFunc
 
 Func RM_GetMemoryLoadPercent ( )
@@ -1114,6 +1212,7 @@ Func RM_RunOptimize ( )
 			"Measured elevated available gain: " & Round ( $RM_LastWorkerAvailableGainKB / 1024 , 1 ) & " MB" & @CRLF & _
 			"Peak/stable gain: " & Round ( $RM_LastWorkerPeakGainKB / 1024 , 1 ) & "/" & Round ( $RM_LastWorkerStableGainKB / 1024 , 1 ) & " MB" & @CRLF & _
 			"Observed rebound: " & Round ( $RM_LastWorkerReboundKB / 1024 , 1 ) & " MB | recovery passes: " & $RM_LastWorkerRecoveryPasses & " | refaults: " & $RM_LastWorkerRefaultPageFaults & @CRLF & _
+			"Native scan: " & $RM_NativeSeen & " seen | " & $RM_NativeFiltered & " filtered | " & ( $RM_NativeOpenFailed + $RM_NativePathFailed + $RM_NativeQueryFailed ) & " inaccessible | " & $RM_NativeNoReduction & " no reduction" & @CRLF & _
 			"Native stages successful: " & $RM_LastWorkerNativeSteps & "/" & $RM_LastNativeStageTarget
 		GUICtrlSetTip ( $A3411D0002B [ 4 ] , $RM_ResultTip )
 	Else
@@ -1231,8 +1330,8 @@ Func RM_HandleCommandLine ( )
 		If RM_StartupMonitorSelfTest ( ) <> 1 Then Exit 16
 		If RM_IsAIProcessName ( "ollama.exe" ) <> 1 Then Exit 17
 		If RM_IsAIProcessName ( "notepad.exe" ) <> 0 Then Exit 18
-		If RM_ParseWorkerResult ( "0" & @LF & "7" & @LF & "134217728" & @LF & "6" & @LF & "2" & @LF & "65536" & @LF & "98304" & @LF & "73728" & @LF & "24576" & @LF & "1" & @LF & "4096" ) <> 0 Then Exit 22
-		If $RM_LastWorkerTrimmed <> 7 Or $RM_LastWorkerReleasedBytes <> 134217728 Or $RM_LastWorkerNativeSteps <> 6 Or $RM_LastWorkerPasses <> 2 Or $RM_LastWorkerAvailableGainKB <> 65536 Or $RM_LastWorkerPeakGainKB <> 98304 Or $RM_LastWorkerStableGainKB <> 73728 Or $RM_LastWorkerReboundKB <> 24576 Or $RM_LastWorkerRecoveryPasses <> 1 Or $RM_LastWorkerRefaultPageFaults <> 4096 Then Exit 23
+		If RM_ParseWorkerResult ( "0" & @LF & "7" & @LF & "134217728" & @LF & "6" & @LF & "2" & @LF & "65536" & @LF & "98304" & @LF & "73728" & @LF & "24576" & @LF & "1" & @LF & "4096" & @LF & "seen=50" & @LF & "filtered=12" & @LF & "no_reduction=3" ) <> 0 Then Exit 22
+		If $RM_LastWorkerTrimmed <> 7 Or $RM_LastWorkerReleasedBytes <> 134217728 Or $RM_LastWorkerNativeSteps <> 6 Or $RM_LastWorkerPasses <> 2 Or $RM_LastWorkerAvailableGainKB <> 65536 Or $RM_LastWorkerPeakGainKB <> 98304 Or $RM_LastWorkerStableGainKB <> 73728 Or $RM_LastWorkerReboundKB <> 24576 Or $RM_LastWorkerRecoveryPasses <> 1 Or $RM_LastWorkerRefaultPageFaults <> 4096 Or $RM_NativeSeen <> 50 Or $RM_NativeFiltered <> 12 Or $RM_NativeNoReduction <> 3 Then Exit 23
 		If RM_ParseWorkerResult ( "broken" & @LF & "7" & @LF & "134217728" & @LF & "6" & @LF & "2" & @LF & "65536" & @LF & "98304" & @LF & "73728" & @LF & "24576" & @LF & "1" & @LF & "4096" ) <> - 1 Then Exit 29
 		If RM_ShouldRecoverRebound ( 1048576 , 983040 ) <> 0 Then Exit 30
 		If RM_ShouldRecoverRebound ( 1048576 , 524288 ) <> 1 Then Exit 31
@@ -1240,6 +1339,18 @@ Func RM_HandleCommandLine ( )
 		If StringLen ( $RM_SelfNativeWorker ) > 0 Then
 			If RunWait ( '"' & $RM_SelfNativeWorker & '" /selftest' , @ScriptDir , @SW_HIDE ) <> 0 Then Exit 35
 		EndIf
+		Local $RM_SelfHistoryPath = $RM_EffectivenessPath
+		$RM_EffectivenessPath = @TempDir & "\ReduceMemory-effectiveness-selftest-" & @AutoItPID & ".ini"
+		FileDelete ( $RM_EffectivenessPath )
+		RM_RecordEffectivenessAttempt ( "selftest-worker.exe" , 1048576 )
+		RM_RecordEffectivenessAttempt ( "selftest-worker.exe" , 2097152 )
+		RM_RecordEffectivenessRefault ( "selftest-worker.exe" )
+		RM_RecordEffectivenessRefault ( "selftest-worker.exe" )
+		Local $RM_SelfHistory = RM_ReadEffectiveness ( "selftest-worker.exe" )
+		If $RM_SelfHistory [ 1 ] <> 2 Or $RM_SelfHistory [ 2 ] <> 3145728 Or $RM_SelfHistory [ 3 ] <> 2 Then Exit 36
+		If StringInStr ( RM_GetChurnExclusions ( ) , "|selftest-worker.exe|" ) = 0 Then Exit 37
+		FileDelete ( $RM_EffectivenessPath )
+		$RM_EffectivenessPath = $RM_SelfHistoryPath
 		RM_ResetLastWorkerMetrics ( )
 		If RM_GetProfileMinimumMB ( $RM_PROFILE_NORMAL ) < 16 Or RM_GetProfileMinimumMB ( $RM_PROFILE_NORMAL ) < $RM_MinProcessMB Then Exit 24
 		If RM_GetProfileMinimumMB ( $RM_PROFILE_SMOOTH ) < 8 Then Exit 25
@@ -2077,20 +2188,75 @@ Func RM_GetNativeWorkerPath ( )
 	Return ""
 EndFunc
 
+Func RM_ResetNativeMetrics ( )
+	$RM_NativeSeen = 0
+	$RM_NativeProtected = 0
+	$RM_NativeFiltered = 0
+	$RM_NativeForeground = 0
+	$RM_NativeOpenFailed = 0
+	$RM_NativePathFailed = 0
+	$RM_NativeWindowsProcess = 0
+	$RM_NativeQueryFailed = 0
+	$RM_NativeBelowMinimum = 0
+	$RM_NativeTrimFailed = 0
+	$RM_NativeNoReduction = 0
+EndFunc
+
+Func RM_NativeMetricText ( )
+	Return "seen=" & $RM_NativeSeen & @LF & "protected=" & $RM_NativeProtected & @LF & "filtered=" & $RM_NativeFiltered & @LF & "foreground=" & $RM_NativeForeground & @LF & "open_failed=" & $RM_NativeOpenFailed & @LF & "path_failed=" & $RM_NativePathFailed & @LF & "windows_process=" & $RM_NativeWindowsProcess & @LF & "query_failed=" & $RM_NativeQueryFailed & @LF & "below_minimum=" & $RM_NativeBelowMinimum & @LF & "trim_failed=" & $RM_NativeTrimFailed & @LF & "no_reduction=" & $RM_NativeNoReduction
+EndFunc
+
+Func RM_ParseNativeMetric ( $RM_Line )
+	Local $RM_Parts = StringSplit ( StringStripWS ( $RM_Line , 3 ) , "=" , 1 )
+	If Not IsArray ( $RM_Parts ) Or $RM_Parts [ 0 ] <> 2 Or Not StringRegExp ( $RM_Parts [ 2 ] , "^[0-9]+$" ) Then Return 0
+	Local $RM_Value = Number ( $RM_Parts [ 2 ] )
+	Switch $RM_Parts [ 1 ]
+		Case "seen"
+			$RM_NativeSeen = $RM_Value
+		Case "protected"
+			$RM_NativeProtected = $RM_Value
+		Case "filtered"
+			$RM_NativeFiltered = $RM_Value
+		Case "foreground"
+			$RM_NativeForeground = $RM_Value
+		Case "open_failed"
+			$RM_NativeOpenFailed = $RM_Value
+		Case "path_failed"
+			$RM_NativePathFailed = $RM_Value
+		Case "windows_process"
+			$RM_NativeWindowsProcess = $RM_Value
+		Case "query_failed"
+			$RM_NativeQueryFailed = $RM_Value
+		Case "below_minimum"
+			$RM_NativeBelowMinimum = $RM_Value
+		Case "trim_failed"
+			$RM_NativeTrimFailed = $RM_Value
+		Case "no_reduction"
+			$RM_NativeNoReduction = $RM_Value
+		Case Else
+			Return 0
+	EndSwitch
+	Return 1
+EndFunc
+
 Func RM_RunNativeProcessPass ( $RM_Profile , $RM_IncludeOnly , $RM_ProcessFilter )
+	RM_ResetNativeMetrics ( )
 	Local $RM_WorkerPath = RM_GetNativeWorkerPath ( )
 	If StringLen ( $RM_WorkerPath ) = 0 Then Return - 1
 	Local $RM_ResultPath = @TempDir & "\ReduceMemory-native-" & @AutoItPID & "-" & Int ( Random ( 100000 , 999999 , 1 ) ) & ".result"
 	Local $RM_ForegroundPID = 0
 	If $RM_Profile <> $RM_PROFILE_EMERGENCY And $RM_ProtectForeground = 1 Then $RM_ForegroundPID = WinGetProcess ( "[ACTIVE]" )
 	Local $RM_Arguments = "/all /profile=" & $RM_Profile & " /foreground=" & $RM_ForegroundPID & " /exclude-pid=" & @AutoItPID & ' /result="' & $RM_ResultPath & '"'
-	If StringLen ( $RM_ProcessFilter ) > 1 Then
-		If $RM_IncludeOnly = 1 Then
-			$RM_Arguments &= ' /include="' & $RM_ProcessFilter & '"'
-		Else
-			$RM_Arguments &= ' /exclude="' & $RM_ProcessFilter & '"'
-		EndIf
+	Local $RM_EffectiveExclude = "|"
+	If $RM_IncludeOnly = 1 Then
+		If StringLen ( $RM_ProcessFilter ) > 1 Then $RM_Arguments &= ' /include="' & $RM_ProcessFilter & '"'
+	ElseIf StringLen ( $RM_ProcessFilter ) > 1 Then
+		$RM_EffectiveExclude &= StringTrimLeft ( $RM_ProcessFilter , 1 )
 	EndIf
+	; Emergency always honors the explicit user filter but bypasses learned churn
+	; cooldown. Aggressive protects repeat refaulters for a bounded 30 minutes.
+	If $RM_Profile = $RM_PROFILE_AGGRESSIVE Then $RM_EffectiveExclude &= StringTrimLeft ( RM_GetChurnExclusions ( ) , 1 )
+	If StringLen ( $RM_EffectiveExclude ) > 1 Then $RM_Arguments &= ' /exclude="' & $RM_EffectiveExclude & '"'
 	FileDelete ( $RM_ResultPath )
 	Local $RM_ExitCode = RunWait ( '"' & $RM_WorkerPath & '" ' & $RM_Arguments , @ScriptDir , @SW_HIDE )
 	If $RM_ExitCode <> 0 Or Not FileExists ( $RM_ResultPath ) Then
@@ -2112,9 +2278,13 @@ Func RM_RunNativeProcessPass ( $RM_Profile , $RM_IncludeOnly , $RM_ProcessFilter
 	RM_ResetLastPassTargets ( )
 	For $RM_TargetIndex = 1 To $RM_TargetCount
 		Local $RM_TargetFields = StringSplit ( $RM_Lines [ $RM_TargetIndex + 4 ] , "|" , 1 )
-		If Not IsArray ( $RM_TargetFields ) Or $RM_TargetFields [ 0 ] < 4 Then ContinueLoop
-		If Not StringRegExp ( $RM_TargetFields [ 1 ] , "^[0-9]+$" ) Or Not StringRegExp ( $RM_TargetFields [ 2 ] , "^[0-9]+$" ) Or Not StringRegExp ( $RM_TargetFields [ 3 ] , "^[0-9]+$" ) Then ContinueLoop
-		RM_RecordLastPassTarget ( $RM_TargetFields [ 4 ] , Int ( $RM_TargetFields [ 1 ] ) , Number ( $RM_TargetFields [ 2 ] ) , Number ( $RM_TargetFields [ 3 ] ) )
+		If Not IsArray ( $RM_TargetFields ) Or $RM_TargetFields [ 0 ] < 5 Then ContinueLoop
+		If Not StringRegExp ( $RM_TargetFields [ 1 ] , "^[0-9]+$" ) Or Not StringRegExp ( $RM_TargetFields [ 2 ] , "^[0-9]+$" ) Or Not StringRegExp ( $RM_TargetFields [ 3 ] , "^[0-9]+$" ) Or Not StringRegExp ( $RM_TargetFields [ 4 ] , "^[0-9]+$" ) Then ContinueLoop
+		RM_RecordLastPassTarget ( $RM_TargetFields [ 5 ] , Int ( $RM_TargetFields [ 1 ] ) , Number ( $RM_TargetFields [ 2 ] ) , Number ( $RM_TargetFields [ 3 ] ) , Number ( $RM_TargetFields [ 4 ] ) )
+	Next
+	RM_ResetNativeMetrics ( )
+	For $RM_MetricIndex = $RM_TargetCount + 5 To $RM_Lines [ 0 ]
+		RM_ParseNativeMetric ( $RM_Lines [ $RM_MetricIndex ] )
 	Next
 	$RM_LastTrimReleasedBytes = $RM_ReleasedBytes
 	Return $RM_Trimmed
@@ -2194,7 +2364,9 @@ Func A2A20200810 ( $A3C42101753 = 0 , $A6242203763 = "" , $RM_Profile = - 1 )
 				Local $RM_AfterWorkingSet = 0 , $RM_AfterPageFaults = 0
 				RM_QueryProcessMemory ( $RM_TargetHandle , $RM_AfterWorkingSet , $RM_AfterPageFaults )
 				If $RM_BeforeWorkingSet > $RM_AfterWorkingSet Then $RM_TotalReleasedBytes += $RM_BeforeWorkingSet - $RM_AfterWorkingSet
-				RM_RecordLastPassTarget ( $A5E4240211A [ $A17A0803B53 ] [ 0 ] , $RM_TargetPID , $RM_AfterWorkingSet , $RM_AfterPageFaults )
+				Local $RM_ProcessReleased = 0
+				If $RM_BeforeWorkingSet > $RM_AfterWorkingSet Then $RM_ProcessReleased = $RM_BeforeWorkingSet - $RM_AfterWorkingSet
+				RM_RecordLastPassTarget ( $A5E4240211A [ $A17A0803B53 ] [ 0 ] , $RM_TargetPID , $RM_AfterWorkingSet , $RM_AfterPageFaults , $RM_ProcessReleased )
 			EndIf
 			RM_CloseProcessHandle ( $RM_TargetHandle )
 		EndIf

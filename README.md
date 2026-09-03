@@ -80,6 +80,15 @@ memproses target yang working set-nya naik tanpa aktivitas page fault nyata.
 Worker native juga mencatat alasan kandidat dilewati atau gagal (protected,
 filter, foreground, akses, Windows path, ukuran, query, dan trim), sehingga
 hasil nol dapat didiagnosis tanpa menebak.
+
+Aggressive menyimpan riwayat efektivitas kecil di
+`%LOCALAPPDATA%\ReduceMemory\effectiveness.ini`. Isinya hanya nama executable,
+jumlah percobaan, byte yang pernah dilepas, refault, dan waktu terakhir—tanpa
+PID atau full path. Maksimal 128 entri; entri tertua diganti agar aplikasi baru
+tetap dapat dipelajari. Setelah executable menunjukkan dua rebound nyata, mode
+Aggressive memberinya cooldown 30 menit untuk mencegah siklus trim/refault yang
+membuat aplikasi tersendat. Emergency tetap mengabaikan cooldown ini.
+
 Untuk Aggressive dan Emergency, pass proses memakai worker C native sesuai
 arsitektur. Jika helper hilang, gagal, atau mengembalikan hasil malformed,
 aplikasi otomatis kembali ke pipeline AutoIt yang sudah tervalidasi; Normal,

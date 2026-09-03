@@ -7,6 +7,12 @@
   faults, including safe handling when the 32-bit fault counter wraps.
 - Expanded the elevated worker result to report recovery faults through the UI,
   log, self-test, and disposable x64/x86 CI gates.
+- Added a bounded, path-free per-executable effectiveness history. Two proven
+  refault events apply a 30-minute Aggressive cooldown; Emergency remains an
+  explicit bypass. Old entries are evicted so future software can still be
+  learned without shipping a static application list.
+- Added per-target released-byte metrics and propagated native skip/failure
+  taxonomy through elevated results, tooltips, logs, and CI.
 - Added dependency-free native C process workers for Windows x64 and x86.
   Aggressive/Emergency process passes now use a single native Toolhelp snapshot
   and owned handle lifecycle, with validated structured results and automatic
