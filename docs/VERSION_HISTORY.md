@@ -7,6 +7,14 @@
   candidate filter's working-set measurement during trimming. This reduces
   source size and per-pass process queries without weakening safety checks or
   changing the visible mode contract.
+- Replaced magic mode/profile numbers and the active obfuscated UI/optimizer
+  entry points with named constants and descriptive functions. Mode labels now
+  have one source of truth while retaining the established dropdown order and
+  numeric INI compatibility.
+- Preserved the original `AdjustTokenPrivileges` call error before handle
+  cleanup, hardened worker-result numeric validation, and made a timed-out
+  elevated worker stop with its temporary result removed instead of continuing
+  an unobserved release pass.
 - Separated the real Windows candidate floors: Normal now defaults to 96 MB,
   Smooth to 48 MB, Aggressive to 4 MB, and AI Shield to 64 MB. The compatible
   legacy `MinProcessMB` setting remains the baseline for conservative profiles.

@@ -105,7 +105,19 @@ Global $RM_ProtectForeground = A5560304940 ( "ProtectForeground" , 1 , 0 , 1 )
 Global $RM_LastAutoOptimize = 0
 Global $RM_PressureArmed = 1
 Global $RM_AutoTrigger = 0
-Global $RM_OptimizeMode = 0
+Global Const $RM_MODE_NORMAL = 0
+Global Const $RM_MODE_AGGRESSIVE = 1
+Global Const $RM_MODE_SMOOTH = 2
+Global Const $RM_MODE_TEMP = 3
+Global Const $RM_MODE_EMERGENCY = 4
+Global Const $RM_MODE_AI_SHIELD = 5
+Global Const $RM_MODE_OPTIONS = "Normal Optimize|AI Shield|Aggressive Release|Aggressive Smooth|Aggressive + Delete Temp|Emergency Release"
+Global Const $RM_PROFILE_NORMAL = 0
+Global Const $RM_PROFILE_SMOOTH = 1
+Global Const $RM_PROFILE_AGGRESSIVE = 2
+Global Const $RM_PROFILE_EMERGENCY = 3
+Global Const $RM_PROFILE_AI_SHIELD = 4
+Global $RM_OptimizeMode = $RM_MODE_NORMAL
 Global $RM_ModeControl = 0
 Global $RM_LastAggressiveDetail = ""
 Global $RM_LastAggressiveOk = 0
@@ -164,7 +176,7 @@ If $A43B0C04E3E = 1 Then
 EndIf
 Global $A3201805C5F = $A5101402158
 Local $A2601902115 = 0
-A2C10200057 ( )
+RM_HandleCommandLine ( )
 If $A38E0C03950 = 1 And $A2FA0C0483E = 1 And $A1BA0E00F18 = 1 And $A38D0702849 = 0 Then
 	Local $A1401A05743 = A6230A05C33 ( $A5BB0001B63 , $CMDLINERAW , $A4CB0F0301B )
 	If ProcessExists ( $A1401A05743 ) <> 0 Then Exit
@@ -185,22 +197,22 @@ Global $A4711C0341E = 0
 Global $A3411D0002B [ 6 ] = [ 5 ]
 Global $A5F11E00002 , $A5B11F00549 , $A3021000C60 , $A4B21101353
 Global $A3C21204863 , $A2221302C07 , $A0921401758 , $A262150561E
-A5A00100C3D ( )
+RM_RunMainWindow ( )
 Exit
-Func A5A00100C3D ( )
-	If Not IsDeclared ( "SSA5A00100C3D" ) Then
+Func RM_RunMainWindow ( )
+	If Not IsDeclared ( "SSRM_RunMainWindow" ) Then
 		Global $A462160023C = "GUIOnEventMode" , $A4221704B05 = "GUIResizeMode" , $A3B21805E0C = "GUICloseOnESC" , $A0E21A05814 = "..." , $A1521B02F4F = "..." , $A3F21C04544 = "..." , $A4921D0244C = "01.png" , $A0921E04E55 = "02.png" , $A0621F03120 = "03.png" , $A093100290E = "04.png" , $A1A31200525 = "{F1}" , $A4131302140 = "{F5}" , $A243140333E = "TrayOnEventMode" , $A3331506247 = "TrayMenuMode" , $A5931600305 = " @AutoItExe " , $A5831704B55 = "TrayIconHide" , $A1131804C3E = " @SW_HIDE " , $A0231904840 = " @SW_SHOW "
-		Global $SSA5A00100C3D = 1
+		Global $SSRM_RunMainWindow = 1
 	EndIf
 	A4720B0314B ( )
 	Opt ( $A462160023C , 1 )
 	Opt ( $A4221704B05 , 802 )
 	Opt ( $A3B21805E0C , 0 )
 	$A59A0605008 = GUICreate ( $A2A90E0262F , $A3611106234 , $A5511204129 , - 1 , - 1 )
-	$RM_OptimizeMode = Int ( Number ( A3560501B29 ( "OptimizeMode" , 0 ) ) )
-	If $RM_OptimizeMode < 0 Or $RM_OptimizeMode > 5 Then $RM_OptimizeMode = 0
-	GUISetOnEvent ( - 3 , "A2E00E00137" )
-	GUISetOnEvent ( - 4 , "A5900F01A18" )
+	$RM_OptimizeMode = Int ( Number ( A3560501B29 ( "OptimizeMode" , $RM_MODE_NORMAL ) ) )
+	If $RM_OptimizeMode < $RM_MODE_NORMAL Or $RM_OptimizeMode > $RM_MODE_AI_SHIELD Then $RM_OptimizeMode = $RM_MODE_NORMAL
+	GUISetOnEvent ( - 3 , "RM_HandleWindowClose" )
+	GUISetOnEvent ( - 4 , "RM_HandleWindowMinimize" )
 	GUISetFont ( $A6301F02853 , 400 , 0 , $A2E01D02B1C )
 	Local $A4621900D63 = GUICtrlCreateLabel ( 0 , - 50 , - 50 , 1 , 1 )
 	GUICtrlSetResizing ( $A4621900D63 , 802 )
@@ -220,32 +232,27 @@ Func A5A00100C3D ( )
 
 	GUICtrlCreateLabel ( "Optimize mode:" , 10 , 170 , 105 , 20 )
 
-	Local $RM_ModeDefault = "Normal Optimize"
-	If $RM_OptimizeMode = 1 Then $RM_ModeDefault = "Aggressive Release"
-	If $RM_OptimizeMode = 2 Then $RM_ModeDefault = "Aggressive Smooth"
-	If $RM_OptimizeMode = 3 Then $RM_ModeDefault = "Aggressive + Delete Temp"
-	If $RM_OptimizeMode = 4 Then $RM_ModeDefault = "Emergency Release"
-	If $RM_OptimizeMode = 5 Then $RM_ModeDefault = "AI Shield"
+	Local $RM_ModeDefault = RM_GetModeName ( )
 	$RM_ModeControl = GUICtrlCreateCombo ( "" , 115 , 165 , 295 , 25 , 3 )
-	GUICtrlSetData ( $RM_ModeControl , "Normal Optimize|AI Shield|Aggressive Release|Aggressive Smooth|Aggressive + Delete Temp|Emergency Release" , $RM_ModeDefault )
+	GUICtrlSetData ( $RM_ModeControl , $RM_MODE_OPTIONS , $RM_ModeDefault )
 
 	GUICtrlSetOnEvent ( $RM_ModeControl , "RM_ModeChanged" )
 	$A3C21204863 = GUICtrlCreateButton ( $A2F80F00960 , 285 , 15 , 125 , 30 , 1 )
 	GUICtrlSetFont ( $A3C21204863 , $A6301F02853 , 800 , 0 , $A2E01D02B1C )
 	GUICtrlSetCursor ( $A3C21204863 , 0 )
-	GUICtrlSetOnEvent ( $A3C21204863 , "A4800704447" )
+	GUICtrlSetOnEvent ( $A3C21204863 , "RM_RunOptimize" )
 	A4C70005146 ( $A3C21204863 , $A4921D0244C , 0 )
 	$A2221302C07 = GUICtrlCreateButton ( $A2F80F00960 , 285 , 52 , 125 , 30 )
 	GUICtrlSetCursor ( $A2221302C07 , 0 )
-	GUICtrlSetOnEvent ( $A2221302C07 , "A1C10305225" )
+	GUICtrlSetOnEvent ( $A2221302C07 , "RM_ShowOptionsWindow" )
 	A4C70005146 ( $A2221302C07 , $A0921E04E55 , 0 )
 	$A0921401758 = GUICtrlCreateButton ( $A2F80F00960 , 285 , 89 , 125 , 30 )
 	GUICtrlSetCursor ( $A0921401758 , 0 )
-	GUICtrlSetOnEvent ( $A0921401758 , "A4980401114" )
+	GUICtrlSetOnEvent ( $A0921401758 , "RM_ShowAboutWindow" )
 	A4C70005146 ( $A0921401758 , $A0621F03120 , 0 )
 	$A262150561E = GUICtrlCreateButton ( $A2F80F00960 , 285 , 126 , 125 , 30 )
 	GUICtrlSetCursor ( $A262150561E , 0 )
-	GUICtrlSetOnEvent ( $A262150561E , "A1C00D01A54" )
+	GUICtrlSetOnEvent ( $A262150561E , "RM_ExitApplication" )
 	A4C70005146 ( $A262150561E , $A093100290E , 0 )
 	$A2311B0565F = GUICtrlCreateLabel ( "" , - 5 , $A5511204129 - 20 , $A3611106234 + 10 , 19 , 1 + 512 + 4096 , 1048576 )
 	GUICtrlSetResizing ( $A2311B0565F , 576 )
@@ -253,30 +260,30 @@ Func A5A00100C3D ( )
 	GUICtrlSetFont ( $A2311B0565F , $A2811001E12 , 400 , 0 , $A2E01D02B1C )
 	$A2311B0565F = GUICtrlGetHandle ( $A2311B0565F )
 	Local $A2931105120 [ 2 ] [ 2 ] = [ [ $A1A31200525 , GUICtrlCreateDummy ( ) ] , [ $A4131302140 , GUICtrlCreateDummy ( ) ] ]
-	GUICtrlSetOnEvent ( $A2931105120 [ 0 ] [ 1 ] , "A4980401114" )
-	GUICtrlSetOnEvent ( $A2931105120 [ 1 ] [ 1 ] , "A140040081E" )
+	GUICtrlSetOnEvent ( $A2931105120 [ 0 ] [ 1 ] , "RM_ShowAboutWindow" )
+	GUICtrlSetOnEvent ( $A2931105120 [ 1 ] [ 1 ] , "RM_RefreshMemoryDisplay" )
 	GUISetAccelerators ( $A2931105120 , $A59A0605008 )
 	Opt ( $A243140333E , 1 )
 	Opt ( $A3331506247 , 1 )
 	$A6111305636 = TrayCreateItem ( $A2F80F00960 , - 1 , - 1 , 1 )
 	TrayItemSetState ( $A6111305636 , 1 )
-	TrayItemSetOnEvent ( $A6111305636 , "A4800704447" )
+	TrayItemSetOnEvent ( $A6111305636 , "RM_RunOptimize" )
 	TrayCreateItem ( $A0B9010005E )
 	$A3F11404954 = TrayCreateItem ( $A2F80F00960 )
-	TrayItemSetOnEvent ( $A3F11404954 , "A4700C01A1B" )
-	$A0C11503D1C = A2100902E58 ( $A2F80F00960 )
-	$A5A11601452 = A2100902E58 ( $A2F80F00960 )
+	TrayItemSetOnEvent ( $A3F11404954 , "RM_ShowMainWindow" )
+	$A0C11503D1C = RM_CreateTrayMenuItem ( $A2F80F00960 )
+	$A5A11601452 = RM_CreateTrayMenuItem ( $A2F80F00960 )
 	TrayCreateItem ( $A0B9010005E )
 	$A3411700721 = TrayCreateItem ( $A2F80F00960 )
-	TrayItemSetOnEvent ( $A3411700721 , "A1C00D01A54" )
+	TrayItemSetOnEvent ( $A3411700721 , "RM_ExitApplication" )
 	TraySetIcon ( Execute ( $A5931600305 ) , 1 )
 	Opt ( $A5831704B55 , 0 )
 	TraySetClick ( 16 )
 	TraySetState ( 1 )
-	TraySetOnEvent ( - 13 , "A4700C01A1B" )
-	TraySetOnEvent ( - 7 , "A4700C01A1B" )
+	TraySetOnEvent ( - 13 , "RM_ShowMainWindow" )
+	TraySetOnEvent ( - 7 , "RM_ShowMainWindow" )
 	TraySetToolTip ( $A2A90E0262F )
-	A1B50A0493D ( )
+	RM_ApplyLocalizedText ( )
 	If $A00B0D02000 = 0 Then GUIRegisterMsg ( 32 , "A1620900B0B" )
 	If $A2FE0A05C11 = 1 Then WinSetOnTop ( $A59A0605008 , "" , $A2FE0A05C11 )
 	If $A43E0600648 = 1 Or $A2601902115 = 2 Then
@@ -285,20 +292,20 @@ Func A5A00100C3D ( )
 		GUISetState ( Execute ( $A0231904840 ) , $A59A0605008 )
 	EndIf
 	If $A2601902115 <> 0 Then
-		A1C10305225 ( )
+		RM_ShowOptionsWindow ( )
 	EndIf
 	Local $A2931A04161 = 750
-	A5B20104156 ( )
+	RM_TrimOwnWorkingSet ( )
 	While 1
 		If $A2931A04161 > 745 Then
-			A2700503407 ( )
+			RM_UpdateMemoryDisplay ( )
 			$A2931A04161 = 0
 		EndIf
 		If Number ( GUICtrlRead ( $A4621900D63 ) ) = 1 Then
 			GUICtrlSetData ( $A4621900D63 , 0 )
-			A4700C01A1B ( )
+			RM_ShowMainWindow ( )
 		EndIf
-		A0D00301D0F ( )
+		RM_CheckAutoOptimize ( )
 		Sleep ( 250 )
 		$A2931A04161 += 250
 	WEnd
@@ -313,10 +320,10 @@ Func A4B00201602 ( $A5A31B00E55 , $A5731C04348 )
 	If @error Then Return SetError ( @error , @extended , False )
 	Return $A5731D04046 [ 0 ]
 EndFunc
-Func A0D00301D0F ( )
-	If Not IsDeclared ( "SSA0D00301D0F" ) Then
+Func RM_CheckAutoOptimize ( )
+	If Not IsDeclared ( "SSRM_CheckAutoOptimize" ) Then
 		Global $A5E41205634 = "" , $A0541303A18 = "#TIMER"
-		Global $SSA0D00301D0F = 1
+		Global $SSRM_CheckAutoOptimize = 1
 	EndIf
 	If $A1AF0101F06 = 0 Or ( $A1AF0101F06 = 1 And $A38F0304C08 > Round ( $A5D11902426 [ 3 ] ) ) Then
 		If IsArray ( $A5211A05C62 ) = 1 Then
@@ -346,26 +353,26 @@ Func A0D00301D0F ( )
 		If $A5211A05C62 [ 3 ] = 0 Then
 			$A5211A05C62 [ 3 ] = 0
 			$RM_AutoTrigger = 1
-			A4800704447 ( )
+			RM_RunOptimize ( )
 			$RM_AutoTrigger = 0
 			$RM_LastAutoOptimize = TimerInit ( )
 			$RM_PressureArmed = 0
 		EndIf
 	EndIf
 EndFunc
-Func A140040081E ( )
+Func RM_RefreshMemoryDisplay ( )
 	RM_TrackActiveProcess ( )
-	A2700503407 ( )
+	RM_UpdateMemoryDisplay ( )
 EndFunc
-Func A2700503407 ( $A1E41404E44 = 0 )
-	If Not IsDeclared ( "SSA2700503407" ) Then
+Func RM_UpdateMemoryDisplay ( $A1E41404E44 = 0 )
+	If Not IsDeclared ( "SSRM_UpdateMemoryDisplay" ) Then
 		Global $A5E41B01D23 = " - " , $A3641C0523B = "#RAM" , $A1F41D00D5C = "#RAM" , $A1D41E0100C = " @CRLF " , $A4741F00A18 = "#RAM" , $A6051001606 = "#RAM"
-		Global $SSA2700503407 = 1
+		Global $SSRM_UpdateMemoryDisplay = 1
 	EndIf
 	Local $A0141502E2D = MemGetStats ( )
-	Local $A0441604F5B = A3800802059 ( $A0141502E2D [ 1 ] )
-	Local $A4041702E28 = A3800802059 ( $A0141502E2D [ 1 ] - $A0141502E2D [ 2 ] , 1 )
-	Local $A3741801E52 = A3800802059 ( $A0141502E2D [ 2 ] , 1 )
+	Local $A0441604F5B = RM_FormatMemorySize ( $A0141502E2D [ 1 ] )
+	Local $A4041702E28 = RM_FormatMemorySize ( $A0141502E2D [ 1 ] - $A0141502E2D [ 2 ] , 1 )
+	Local $A3741801E52 = RM_FormatMemorySize ( $A0141502E2D [ 2 ] , 1 )
 	Local $A1441905A12 = Round ( ( 100 / $A0141502E2D [ 1 ] ) * ( $A0141502E2D [ 1 ] - $A0141502E2D [ 2 ] ) , 1 )
 	Local $A4541A02444 = Round ( $A1441905A12 )
 	If $A5D11902426 [ 0 ] <> $A0441604F5B Then GUICtrlSetData ( $A3411D0002B [ 1 ] , $A0441604F5B )
@@ -376,7 +383,7 @@ Func A2700503407 ( $A1E41404E44 = 0 )
 		GUICtrlSetData ( $A3411D0002B [ 5 ] , $A1441905A12 )
 		TrayItemSetText ( $A6111305636 , StringReplace ( $A3AE0005046 [ 11 ] , $A1F41D00D5C , $A4541A02444 ) )
 		TraySetToolTip ( $A2A90E0262F & Execute ( $A1D41E0100C ) & StringReplace ( $A3AE0005046 [ 17 ] , $A4741F00A18 , $A4541A02444 ) )
-		A0F00603C36 ( $A4541A02444 )
+		RM_UpdateTrayIcon ( $A4541A02444 )
 	EndIf
 	If $A1E41404E44 <> 0 Or ( $A4711C0341E = 0 And $A5D11902426 [ 3 ] <> $A1441905A12 ) Or ( $A4711C0341E <> 0 And Int ( TimerDiff ( $A4711C0341E ) / 1000 ) > 1 ) Then
 		GUICtrlSetData ( $A3411D0002B [ 4 ] , StringReplace ( $A3AE0005046 [ 6 ] , $A6051001606 , $A4541A02444 ) )
@@ -387,10 +394,10 @@ Func A2700503407 ( $A1E41404E44 = 0 )
 	$A5D11902426 [ 2 ] = $A3741801E52
 	$A5D11902426 [ 3 ] = $A1441905A12
 EndFunc
-Func A0F00603C36 ( $A155110093D , $A5651200B2D = 0 )
-	If Not IsDeclared ( "SSA0F00603C36" ) Then
+Func RM_UpdateTrayIcon ( $A155110093D , $A5651200B2D = 0 )
+	If Not IsDeclared ( "SSRM_UpdateTrayIcon" ) Then
 		Global $A005150540F = "0" , $A4651602158 = ".ico"
-		Global $SSA0F00603C36 = 1
+		Global $SSRM_UpdateTrayIcon = 1
 	EndIf
 	Local $A285130441A
 	Switch $A01E0E06159
@@ -443,9 +450,10 @@ Func RM_EnablePrivilege ( $RM_PrivilegeName )
 		Return 0
 	EndIf
 	Local $RM_Adjust = DllCall ( "advapi32.dll" , "bool" , "AdjustTokenPrivileges" , "handle" , $RM_TokenHandle , "bool" , False , "ptr" , DllStructGetPtr ( $RM_Privileges ) , "dword" , 0 , "ptr" , 0 , "ptr" , 0 )
+	Local $RM_AdjustCallError = @error
 	Local $RM_LastError = DllCall ( "kernel32.dll" , "dword" , "GetLastError" )
 	DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_TokenHandle )
-	If @error Or Not IsArray ( $RM_Adjust ) Or $RM_Adjust [ 0 ] = 0 Then Return 0
+	If $RM_AdjustCallError Or Not IsArray ( $RM_Adjust ) Or $RM_Adjust [ 0 ] = 0 Then Return 0
 	If IsArray ( $RM_LastError ) And $RM_LastError [ 0 ] <> 0 Then Return 0
 	Return 1
 EndFunc
@@ -590,6 +598,9 @@ Func RM_ParseWorkerResult ( $RM_ResultText )
 	$RM_ResultText = StringReplace ( $RM_ResultText , @CR , "" )
 	Local $RM_ResultFields = StringSplit ( $RM_ResultText , @LF , 1 )
 	If Not IsArray ( $RM_ResultFields ) Or $RM_ResultFields [ 0 ] < 6 Then Return - 1
+	For $RM_FieldIndex = 1 To 6
+		If Not StringRegExp ( StringStripWS ( $RM_ResultFields [ $RM_FieldIndex ] , 3 ) , "^-?[0-9]+$" ) Then Return - 1
+	Next
 	Local $RM_ParsedExitCode = Int ( Number ( StringStripWS ( $RM_ResultFields [ 1 ] , 3 ) ) )
 	$RM_LastWorkerTrimmed = Int ( Number ( StringStripWS ( $RM_ResultFields [ 2 ] , 3 ) ) )
 	$RM_LastWorkerReleasedBytes = Number ( StringStripWS ( $RM_ResultFields [ 3 ] , 3 ) )
@@ -628,12 +639,19 @@ Func RM_RunAggressiveWorker ( $RM_Smooth = 0 )
 	While ProcessExists ( $RM_WorkerPid ) And TimerDiff ( $RM_WorkerTimer ) < $RM_WorkerTimeoutMs
 		Sleep ( 50 )
 	WEnd
-	If ProcessExists ( $RM_WorkerPid ) Then Return 0
+	If ProcessExists ( $RM_WorkerPid ) Then
+		ProcessClose ( $RM_WorkerPid )
+		FileDelete ( $RM_ResultPath )
+		Return 0
+	EndIf
 	Local $RM_ResultTimer = TimerInit ( )
 	While Not FileExists ( $RM_ResultPath ) And TimerDiff ( $RM_ResultTimer ) < 1000
 		Sleep ( 25 )
 	WEnd
-	If Not FileExists ( $RM_ResultPath ) Then Return 0
+	If Not FileExists ( $RM_ResultPath ) Then
+		FileDelete ( $RM_ResultPath )
+		Return 0
+	EndIf
 	Local $RM_WorkerExitCode = RM_ParseWorkerResult ( FileRead ( $RM_ResultPath ) )
 	FileDelete ( $RM_ResultPath )
 	Return ( $RM_WorkerExitCode = 0 )
@@ -641,34 +659,28 @@ EndFunc
 
 Func RM_ModeChanged ( )
 	Local $RM_ModeText = GUICtrlRead ( $RM_ModeControl )
-	Switch $RM_ModeText
-		Case "Aggressive Release"
-			$RM_OptimizeMode = 1
-		Case "Aggressive Smooth"
-			$RM_OptimizeMode = 2
-		Case "Aggressive + Delete Temp"
-			$RM_OptimizeMode = 3
-		Case "Emergency Release"
-			$RM_OptimizeMode = 4
-		Case "AI Shield"
-			$RM_OptimizeMode = 5
-		Case Else
-			$RM_OptimizeMode = 0
-	EndSwitch
+	$RM_OptimizeMode = $RM_MODE_NORMAL
+	For $RM_ModeIndex = $RM_MODE_NORMAL To $RM_MODE_AI_SHIELD
+		If $RM_ModeText = RM_GetModeName ( $RM_ModeIndex ) Then
+			$RM_OptimizeMode = $RM_ModeIndex
+			ExitLoop
+		EndIf
+	Next
 	IniWrite ( @ScriptDir & "\ReduceMemory.ini" , "Main" , "OptimizeMode" , $RM_OptimizeMode )
 EndFunc
 
-Func RM_GetModeName ( )
-	Switch $RM_OptimizeMode
-		Case 1
+Func RM_GetModeName ( $RM_Mode = - 1 )
+	If $RM_Mode < $RM_MODE_NORMAL Then $RM_Mode = $RM_OptimizeMode
+	Switch $RM_Mode
+		Case $RM_MODE_AGGRESSIVE
 			Return "Aggressive Release"
-		Case 2
+		Case $RM_MODE_SMOOTH
 			Return "Aggressive Smooth"
-		Case 3
+		Case $RM_MODE_TEMP
 			Return "Aggressive + Delete Temp"
-		Case 4
+		Case $RM_MODE_EMERGENCY
 			Return "Emergency Release"
-		Case 5
+		Case $RM_MODE_AI_SHIELD
 			Return "AI Shield"
 		Case Else
 			Return "Normal Optimize"
@@ -676,16 +688,16 @@ Func RM_GetModeName ( )
 EndFunc
 
 Func RM_ModeUsesSystemRelease ( )
-	Return ( $RM_OptimizeMode >= 1 And $RM_OptimizeMode <= 4 )
+	Return ( $RM_OptimizeMode = $RM_MODE_AGGRESSIVE Or $RM_OptimizeMode = $RM_MODE_SMOOTH Or $RM_OptimizeMode = $RM_MODE_TEMP Or $RM_OptimizeMode = $RM_MODE_EMERGENCY )
 EndFunc
 
 Func RM_GetNativeStageTarget ( )
 	Switch $RM_OptimizeMode
-		Case 2
+		Case $RM_MODE_SMOOTH
 			Return 1
-		Case 4
+		Case $RM_MODE_EMERGENCY
 			Return 12
-		Case 1 , 3
+		Case $RM_MODE_AGGRESSIVE , $RM_MODE_TEMP
 			Return 6
 		Case Else
 			Return 0
@@ -870,10 +882,10 @@ Func RM_DeleteTempTree ( $RM_Root , ByRef $RM_Deleted , ByRef $RM_Skipped )
 	FileClose ( $RM_Search )
 EndFunc
 
-Func A4800704447 ( )
-	If Not IsDeclared ( "SSA4800704447" ) Then
+Func RM_RunOptimize ( )
+	If Not IsDeclared ( "SSRM_RunOptimize" ) Then
 		Global $A1251701F38 = " @SW_DISABLE " , $A5251C01F41 = "#SIZE" , $A0A51D04231 = " @SW_ENABLE "
-		Global $SSA4800704447 = 1
+		Global $SSRM_RunOptimize = 1
 	EndIf
 	If RM_ModeUsesSystemRelease ( ) And $RM_ReboundAt > 0 And TimerDiff ( $RM_ReboundAt ) < $RM_ReboundCooldownSeconds * 1000 Then
 		GUICtrlSetData ( $A3411D0002B [ 4 ] , "Rebound protection active - wait " & Ceiling ( $RM_ReboundCooldownSeconds - TimerDiff ( $RM_ReboundAt ) / 1000 ) & " seconds" )
@@ -881,7 +893,7 @@ Func A4800704447 ( )
 	EndIf
 	If $RM_ReboundAt > 0 And TimerDiff ( $RM_ReboundAt ) >= $RM_ReboundCooldownSeconds * 1000 Then $RM_ReboundAt = 0
 	; Ask before Stage 1 so cancelling Emergency never trims anything first.
-	If $RM_OptimizeMode = 4 And $RM_AutoTrigger = 0 Then
+	If $RM_OptimizeMode = $RM_MODE_EMERGENCY And $RM_AutoTrigger = 0 Then
 		If MsgBox ( 48 + 4 , "ReduceMemory", "Emergency Release akan memangkas aplikasi user termasuk aplikasi aktif, lalu melakukan pelepasan memory Windows penuh dua kali." & @CRLF & @CRLF & "Aplikasi tidak akan ditutup, tetapi reload atau stutter sementara dapat terjadi." & @CRLF & @CRLF & "Lanjutkan sekarang?" , 0 , $A59A0605008 ) <> 6 Then
 			GUICtrlSetData ( $A3411D0002B [ 4 ] , "Emergency cancelled - no memory was changed" )
 			Return
@@ -889,7 +901,7 @@ Func A4800704447 ( )
 	EndIf
 	GUISetState ( Execute ( $A1251701F38 ) , $A59A0605008 )
 	GUICtrlSetOnEvent ( $A3C21204863 , "" )
-	A4F00B01B0E ( 1 )
+	RM_SetTrayInteractionPaused ( 1 )
 	Local $A0141502E2D = MemGetStats ( )
 	$RM_StableBeforeFree = $A0141502E2D [ 2 ]
 	$RM_StablePressureText = RM_GetPressureSummary ( )
@@ -899,18 +911,18 @@ Func A4800704447 ( )
 	GUICtrlSetTip ( $A3411D0002B [ 4 ] , "" )
 	Local $RM_CurrentTrimProfile = RM_GetTrimProfile ( )
 	Local $RM_StageOneText = "Stage 1/3 - trimming safe background applications"
-	If $RM_CurrentTrimProfile = 2 Then $RM_StageOneText = "Stage 1/3 - trimming broad user/background set"
-	If $RM_CurrentTrimProfile = 3 Then $RM_StageOneText = "Stage 1/3 - trimming all eligible user applications"
-	If $RM_CurrentTrimProfile = 4 Then $RM_StageOneText = "Stage 1/3 - protecting AI and trimming other background apps"
+	If $RM_CurrentTrimProfile = $RM_PROFILE_AGGRESSIVE Then $RM_StageOneText = "Stage 1/3 - trimming broad user/background set"
+	If $RM_CurrentTrimProfile = $RM_PROFILE_EMERGENCY Then $RM_StageOneText = "Stage 1/3 - trimming all eligible user applications"
+	If $RM_CurrentTrimProfile = $RM_PROFILE_AI_SHIELD Then $RM_StageOneText = "Stage 1/3 - protecting AI and trimming other background apps"
 	GUICtrlSetData ( $A3411D0002B [ 4 ] , $RM_StageOneText )
 	Local $A2751A01544 = RM_RunConfiguredTrim ( $RM_CurrentTrimProfile )
 	Local $RM_FirstPassReleasedBytes = $RM_LastTrimReleasedBytes
 	Local $RM_AggressiveResult = 0
 	If RM_ModeUsesSystemRelease ( ) Then GUICtrlSetData ( $A3411D0002B [ 4 ] , "Stage 2/3 - releasing Windows memory" )
-	If $RM_OptimizeMode = 1 Or $RM_OptimizeMode = 3 Then $RM_AggressiveResult = RM_RunAggressiveWorker ( 0 )
-	If $RM_OptimizeMode = 2 Then $RM_AggressiveResult = RM_RunAggressiveWorker ( 1 )
-	If $RM_OptimizeMode = 4 Then $RM_AggressiveResult = RM_RunAggressiveWorker ( 2 )
-	If $RM_OptimizeMode = 3 And $RM_AutoTrigger = 0 Then
+	If $RM_OptimizeMode = $RM_MODE_AGGRESSIVE Or $RM_OptimizeMode = $RM_MODE_TEMP Then $RM_AggressiveResult = RM_RunAggressiveWorker ( 0 )
+	If $RM_OptimizeMode = $RM_MODE_SMOOTH Then $RM_AggressiveResult = RM_RunAggressiveWorker ( 1 )
+	If $RM_OptimizeMode = $RM_MODE_EMERGENCY Then $RM_AggressiveResult = RM_RunAggressiveWorker ( 2 )
+	If $RM_OptimizeMode = $RM_MODE_TEMP And $RM_AutoTrigger = 0 Then
 		If MsgBox ( 48 + 4 , "ReduceMemory", "Aggressive + Delete Temp akan menghapus file secara permanen dari %TEMP% dan C:\Windows\Temp." & @CRLF & @CRLF & "File yang sedang digunakan akan dilewati. Jangan jalankan saat instalasi atau Windows Update sedang berlangsung." & @CRLF & @CRLF & "Lanjutkan sekarang?" , 0 , $A59A0605008 ) = 6 Then RM_DeleteTempFiles ( )
 	EndIf
 	If RM_ModeUsesSystemRelease ( ) Then
@@ -919,28 +931,28 @@ Func A4800704447 ( )
 		Sleep ( 25 )
 	EndIf
 	GUICtrlSetData ( $A3411D0002B [ 4 ] , "Stage 3/3 - measuring immediate result" )
-	A2700503407 ( )
+	RM_UpdateMemoryDisplay ( )
 	Local $A1F51B0452B = MemGetStats ( )
 	$A0141502E2D = Round ( ( $A1F51B0452B [ 2 ] - $A0141502E2D [ 2 ] ) / 1024 )
 	If $A0141502E2D < 1 Then $A0141502E2D = 0
 	$RM_ImmediateGainMB = $A0141502E2D
 	$RM_LastTrimmedCount = $A2751A01544 + $RM_LastWorkerTrimmed
 	$RM_LastProcessTrimMB = Round ( ( $RM_FirstPassReleasedBytes + $RM_LastWorkerReleasedBytes ) / 1048576 , 1 )
-	If $RM_OptimizeMode = 0 Or $RM_OptimizeMode = 5 Or $RM_AggressiveResult = 1 Then
+	If $RM_OptimizeMode = $RM_MODE_NORMAL Or $RM_OptimizeMode = $RM_MODE_AI_SHIELD Or $RM_AggressiveResult = 1 Then
 		$RM_StablePending = 1
 		$RM_StableStartedAt = TimerInit ( )
 		AdlibUnRegister ( "RM_StableCheck" )
 		AdlibRegister ( "RM_StableCheck" , 1000 )
 	EndIf
-	If $A2751A01544 = 0 And ( $RM_OptimizeMode = 0 Or $RM_OptimizeMode = 5 ) Then $A0141502E2D = 0
-	If $RM_OptimizeMode = 0 Then
+	If $A2751A01544 = 0 And ( $RM_OptimizeMode = $RM_MODE_NORMAL Or $RM_OptimizeMode = $RM_MODE_AI_SHIELD ) Then $A0141502E2D = 0
+	If $RM_OptimizeMode = $RM_MODE_NORMAL Then
 		GUICtrlSetData ( $A3411D0002B [ 4 ] , "Normal available: +" & $A0141502E2D & " MB | working set: -" & $RM_LastProcessTrimMB & " MB | trims: " & $RM_LastTrimmedCount )
-	ElseIf $RM_OptimizeMode = 5 Then
+	ElseIf $RM_OptimizeMode = $RM_MODE_AI_SHIELD Then
 		GUICtrlSetData ( $A3411D0002B [ 4 ] , "AI Shield available: +" & $A0141502E2D & " MB | working set: -" & $RM_LastProcessTrimMB & " MB | AI protected: " & $RM_AIProtectedCount )
 	ElseIf $RM_AggressiveResult = 1 Then
 		Local $RM_ModeResultText = "Aggressive"
-		If $RM_OptimizeMode = 2 Then $RM_ModeResultText = "Smooth"
-		If $RM_OptimizeMode = 4 Then $RM_ModeResultText = "Emergency"
+		If $RM_OptimizeMode = $RM_MODE_SMOOTH Then $RM_ModeResultText = "Smooth"
+		If $RM_OptimizeMode = $RM_MODE_EMERGENCY Then $RM_ModeResultText = "Emergency"
 		GUICtrlSetData ( $A3411D0002B [ 4 ] , $RM_ModeResultText & ": +" & $A0141502E2D & " MB | native " & $RM_LastWorkerNativeSteps & "/" & RM_GetNativeStageTarget ( ) & " | WS -" & $RM_LastProcessTrimMB & " MB" )
 		Local $RM_ResultTip = $RM_LastAggressiveDetail
 		If StringLen ( $RM_ResultTip ) = 0 Then $RM_ResultTip = "Elevated process passes: " & $RM_LastWorkerPasses & @CRLF & _
@@ -954,15 +966,15 @@ Func A4800704447 ( )
 	Sleep ( 25 )
 	$A4711C0341E = TimerInit ( )
 	If IsArray ( $A5211A05C62 ) = 1 Then $A5211A05C62 [ 3 ] = 0
-	A4F00B01B0E ( 0 )
-	GUICtrlSetOnEvent ( $A3C21204863 , "A4800704447" )
+	RM_SetTrayInteractionPaused ( 0 )
+	GUICtrlSetOnEvent ( $A3C21204863 , "RM_RunOptimize" )
 	GUISetState ( Execute ( $A0A51D04231 ) , $A59A0605008 )
 	GUISwitch ( $A59A0605008 )
 EndFunc
-Func A3800802059 ( $A0A51E05D01 , $A0351F03359 = 0 )
-	If Not IsDeclared ( "SSA3800802059" ) Then
+Func RM_FormatMemorySize ( $A0A51E05D01 , $A0351F03359 = 0 )
+	If Not IsDeclared ( "SSRM_FormatMemorySize" ) Then
 		Global $A3E61103C21 = " KB" , $A1661204508 = " MB" , $A006130400A = " GB" , $A1161405E62 = " TB"
-		Global $SSA3800802059 = 1
+		Global $SSRM_FormatMemorySize = 1
 	EndIf
 	Local $A036100094E [ 4 ] = [ $A3E61103C21 , $A1661204508 , $A006130400A , $A1161405E62 ]
 	For $A17A0803B53 = 3 To 1 Step - 1
@@ -973,29 +985,29 @@ Func A3800802059 ( $A0A51E05D01 , $A0351F03359 = 0 )
 	Next
 	Return Round ( $A0A51E05D01 , $A0351F03359 ) & $A036100094E [ 0 ]
 EndFunc
-Func A2100902E58 ( $A0361505653 , $A376160155D = - 1 )
+Func RM_CreateTrayMenuItem ( $A0361505653 , $A376160155D = - 1 )
 	Local $A1A61703360 = TrayCreateItem ( $A0361505653 , $A376160155D )
-	TrayItemSetOnEvent ( $A1A61703360 , "A4C00A03C4D" )
+	TrayItemSetOnEvent ( $A1A61703360 , "RM_HandleTrayMenuItem" )
 	Return $A1A61703360
 EndFunc
-Func A4C00A03C4D ( )
-	If Not IsDeclared ( "SSA4C00A03C4D" ) Then
+Func RM_HandleTrayMenuItem ( )
+	If Not IsDeclared ( "SSRM_HandleTrayMenuItem" ) Then
 		Global $A2261902008 = " @TRAY_ID "
-		Global $SSA4C00A03C4D = 1
+		Global $SSRM_HandleTrayMenuItem = 1
 	EndIf
 	Local $A3C6180431F = Execute ( $A2261902008 )
 	TrayItemSetState ( $A3C6180431F , 4 )
 	Switch $A3C6180431F
 	Case $A0C11503D1C
-		A1C10305225 ( )
+		RM_ShowOptionsWindow ( )
 	Case $A5A11601452
-		A4980401114 ( )
+		RM_ShowAboutWindow ( )
 	EndSwitch
 EndFunc
-Func A4F00B01B0E ( $A1B61A0193E = 1 )
-	If Not IsDeclared ( "SSA4F00B01B0E" ) Then
+Func RM_SetTrayInteractionPaused ( $A1B61A0193E = 1 )
+	If Not IsDeclared ( "SSRM_SetTrayInteractionPaused" ) Then
 		Global $A0261B04761 = "TrayOnEventMode" , $A0861C00A36 = "TrayOnEventMode"
-		Global $SSA4F00B01B0E = 1
+		Global $SSRM_SetTrayInteractionPaused = 1
 	EndIf
 	If $A1B61A0193E = 1 Then
 		TraySetClick ( 0 )
@@ -1005,38 +1017,38 @@ Func A4F00B01B0E ( $A1B61A0193E = 1 )
 	Else
 		TraySetClick ( 16 )
 		Opt ( $A0861C00A36 , 1 )
-		TraySetOnEvent ( - 13 , "A4700C01A1B" )
-		TraySetOnEvent ( - 7 , "A4700C01A1B" )
+		TraySetOnEvent ( - 13 , "RM_ShowMainWindow" )
+		TraySetOnEvent ( - 7 , "RM_ShowMainWindow" )
 	EndIf
 EndFunc
-Func A4700C01A1B ( )
-	If Not IsDeclared ( "SSA4700C01A1B" ) Then
+Func RM_ShowMainWindow ( )
+	If Not IsDeclared ( "SSRM_ShowMainWindow" ) Then
 		Global $A4961D04D2D = " @TRAY_ID " , $A2A61E00247 = " @TRAY_ID " , $A0671002710 = " @SW_SHOW " , $A5071100C24 = " @SW_RESTORE "
-		Global $SSA4700C01A1B = 1
+		Global $SSRM_ShowMainWindow = 1
 	EndIf
 	If $A3F11404954 = Execute ( $A4961D04D2D ) Then TrayItemSetState ( Execute ( $A2A61E00247 ) , 4 )
 	Local $A1B61F01D02 = WinGetState ( $A59A0605008 )
 	If BitAND ( $A1B61F01D02 , 2 ) = 0 Then GUISetState ( Execute ( $A0671002710 ) , $A59A0605008 )
 	GUISetState ( Execute ( $A5071100C24 ) , $A59A0605008 )
 EndFunc
-Func A1C00D01A54 ( )
+Func RM_ExitApplication ( )
 	Exit
 EndFunc
-Func A2E00E00137 ( )
-	If Not IsDeclared ( "SSA2E00E00137" ) Then
+Func RM_HandleWindowClose ( )
+	If Not IsDeclared ( "SSRM_HandleWindowClose" ) Then
 		Global $A177120413C = " @SW_HIDE "
-		Global $SSA2E00E00137 = 1
+		Global $SSRM_HandleWindowClose = 1
 	EndIf
 	If $A2BE0802D2F = 1 And $A1BA0E00F18 = 1 Then
 		GUISetState ( Execute ( $A177120413C ) , $A59A0605008 )
 	Else
-		A1C00D01A54 ( )
+		RM_ExitApplication ( )
 	EndIf
 EndFunc
-Func A5900F01A18 ( )
-	If Not IsDeclared ( "SSA5900F01A18" ) Then
+Func RM_HandleWindowMinimize ( )
+	If Not IsDeclared ( "SSRM_HandleWindowMinimize" ) Then
 		Global $A4471301F2B = " @SW_HIDE "
-		Global $SSA5900F01A18 = 1
+		Global $SSRM_HandleWindowMinimize = 1
 	EndIf
 	If $A2BE0802D2F = 1 Then GUISetState ( Execute ( $A4471301F2B ) , $A59A0605008 )
 EndFunc
@@ -1047,10 +1059,10 @@ Func A0710101E3F ( $A2371403C59 = 0 , $A5A31B00E55 = 0 )
 	EndIf
 	Return MsgBox ( 64 , $A2A90E0262F , $A3C71505F40 & Execute ( $A247160244E ) & Execute ( $A4471700260 ) & $A1C71805041 & Execute ( $A3971905624 ) & $A0771A04D5F & Execute ( $A1371B05B01 ) & $A4271C0585A & Execute ( $A5171D0201C ) & Execute ( $A0671E01413 ) & $A4D71F00327 & Execute ( $A228100052F ) & Execute ( $A2A81103623 ) & $A2181201247 & Execute ( $A0281304132 ) & Execute ( $A2881401807 ) & $A5381502700 & Execute ( $A3F81604A2D ) & Execute ( $A2381701806 ) & $A0081802543 & Execute ( $A4D81905260 ) & Execute ( $A0681A04E0A ) & $A5181B03427 & Execute ( $A4781C05F60 ) & Execute ( $A1781D06341 ) & $A0681E03128 & $A2FA0403447 & $A0881F00431 & Execute ( $A2B91002223 ) & $A5C9110001C , $A2371403C59 , $A5A31B00E55 )
 EndFunc
-Func A2C10200057 ( )
-	If Not IsDeclared ( "SSA2C10200057" ) Then
+Func RM_HandleCommandLine ( )
+	If Not IsDeclared ( "SSRM_HandleCommandLine" ) Then
 		Global $A4191204E34 = "/OPT" , $A039130111D = "/H" , $A3191504925 = "/O" , $A1F9160184B = "/E" , $A3C9170523D = "/E" , $A3291801B5C = "/?" , $A3491B0165C = "/O" , $A2691C02627 = "/O /E"
-		Global $SSA2C10200057 = 1
+		Global $SSRM_HandleCommandLine = 1
 	EndIf
 	If $CMDLINE [ 0 ] = 0 Then Return 0
 	If $CMDLINE [ 1 ] = "/RMSELFTEST" Then
@@ -1065,15 +1077,16 @@ Func A2C10200057 ( )
 		If RM_IsAIProcessName ( "notepad.exe" ) <> 0 Then Exit 18
 		If RM_ParseWorkerResult ( "0" & @LF & "7" & @LF & "134217728" & @LF & "6" & @LF & "2" & @LF & "65536" ) <> 0 Then Exit 22
 		If $RM_LastWorkerTrimmed <> 7 Or $RM_LastWorkerReleasedBytes <> 134217728 Or $RM_LastWorkerNativeSteps <> 6 Or $RM_LastWorkerPasses <> 2 Or $RM_LastWorkerAvailableGainKB <> 65536 Then Exit 23
+		If RM_ParseWorkerResult ( "broken" & @LF & "7" & @LF & "134217728" & @LF & "6" & @LF & "2" & @LF & "65536" ) <> - 1 Then Exit 29
 		RM_ResetLastWorkerMetrics ( )
-		If RM_GetProfileMinimumMB ( 0 ) < 16 Or RM_GetProfileMinimumMB ( 0 ) < $RM_MinProcessMB Then Exit 24
-		If RM_GetProfileMinimumMB ( 1 ) < 8 Then Exit 25
-		If RM_GetProfileMinimumMB ( 2 ) < 4 Or RM_GetProfileMinimumMB ( 2 ) <> $RM_AggressiveMinProcessMB Then Exit 26
-		If RM_GetProfileMinimumMB ( 3 ) <> 0 Then Exit 27
-		If RM_GetProfileMinimumMB ( 4 ) < 16 Or RM_GetProfileMinimumMB ( 4 ) < $RM_MinProcessMB Then Exit 28
+		If RM_GetProfileMinimumMB ( $RM_PROFILE_NORMAL ) < 16 Or RM_GetProfileMinimumMB ( $RM_PROFILE_NORMAL ) < $RM_MinProcessMB Then Exit 24
+		If RM_GetProfileMinimumMB ( $RM_PROFILE_SMOOTH ) < 8 Then Exit 25
+		If RM_GetProfileMinimumMB ( $RM_PROFILE_AGGRESSIVE ) < 4 Or RM_GetProfileMinimumMB ( $RM_PROFILE_AGGRESSIVE ) <> $RM_AggressiveMinProcessMB Then Exit 26
+		If RM_GetProfileMinimumMB ( $RM_PROFILE_EMERGENCY ) <> 0 Then Exit 27
+		If RM_GetProfileMinimumMB ( $RM_PROFILE_AI_SHIELD ) < 16 Or RM_GetProfileMinimumMB ( $RM_PROFILE_AI_SHIELD ) < $RM_MinProcessMB Then Exit 28
 		Local $RM_SelfOriginalMode = $RM_OptimizeMode
-		Local $RM_SelfExpectedProfiles [ 6 ] = [ 0 , 2 , 1 , 2 , 3 , 4 ]
-		For $RM_SelfModeIndex = 0 To 5
+		Local $RM_SelfExpectedProfiles [ 6 ] = [ $RM_PROFILE_NORMAL , $RM_PROFILE_AGGRESSIVE , $RM_PROFILE_SMOOTH , $RM_PROFILE_AGGRESSIVE , $RM_PROFILE_EMERGENCY , $RM_PROFILE_AI_SHIELD ]
+		For $RM_SelfModeIndex = $RM_MODE_NORMAL To $RM_MODE_AI_SHIELD
 			$RM_OptimizeMode = $RM_SelfModeIndex
 			If StringLen ( RM_GetModeName ( ) ) = 0 Then Exit 12
 			If RM_GetTrimProfile ( ) <> $RM_SelfExpectedProfiles [ $RM_SelfModeIndex ] Then Exit 19
@@ -1097,7 +1110,7 @@ Func A2C10200057 ( )
 		Local $RM_TrimTestPID = Int ( Number ( $CMDLINE [ 2 ] ) )
 		If $RM_TrimTestPID <= 0 Or $RM_TrimTestPID = @AutoItPID Then Exit 20
 		Local $RM_TrimTestBefore = RM_GetWorkingSetBytes ( $RM_TrimTestPID )
-		Local $RM_TrimTestOk = A502000511B ( $RM_TrimTestPID )
+		Local $RM_TrimTestOk = RM_TrimProcessWorkingSet ( $RM_TrimTestPID )
 		Sleep ( 100 )
 		Local $RM_TrimTestAfter = RM_GetWorkingSetBytes ( $RM_TrimTestPID )
 		If $CMDLINE [ 0 ] >= 3 Then FileWrite ( $CMDLINE [ 3 ] , $RM_TrimTestBefore & @LF & $RM_TrimTestAfter )
@@ -1173,11 +1186,11 @@ Case Else
 	EndIf
 	Exit 2
 EndFunc
-Func A1C10305225 ( )
-	If Not IsDeclared ( "SSA1C10305225" ) Then
+Func RM_ShowOptionsWindow ( )
+	If Not IsDeclared ( "SSRM_ShowOptionsWindow" ) Then
 		Global $A0E91E02239 = "/OPT" , $A2291F04835 = " @AutoItExe " , $A2BA100410C = "runas" , $A44A1602F0E = " @SW_DISABLE " , $A20A1901C0B = "GUIOnEventMode" , $A2CA1B0353F = "GUICloseOnESC" , $A5AA1D02B57 = " - " , $A56A1F05406 = "WindowText" , $A4FB1800345 = "06.png" , $A48B1901F02 = "07.png" , $A1EB1A0403F = "08.png" , $A06B1E03E0A = "0" , $A03B1F02B1E = ".ico" , $A0AC1302119 = "3|5|10|15|20|30|40|50|60|80|100|120|300|600" , $A11C1500D2C = "15" , $A26C1904B18 = "|app1.exe|app2.exe|" , $A44C1B04C2B = "|app1.exe|app2.exe|" , $A1BC1C00621 = "Language" , $A2BC1E0044C = "English" , $A5DD1202861 = " @SW_SHOW " , $A44D1902562 = "Main" , $A55D1A00D5D = "HideWindowOnStartup" , $A5BD1B02B00 = "Main" , $A05D1C04B37 = "HideWhenMinimized" , $A46D1D00452 = "Main" , $A4AD1E00D30 = "TrayIconPack" , $A59D1F04508 = "Main" , $A2CE1005E2D = "WinSetOnTop" , $A4EE1100160 = "Main" , _
 		$A2DE1204C37 = "TaskOptions" , $A11E1302537 = "Main" , $A00E1402315 = "UsedMemory" , $A16E150272D = "Main" , $A1CE1600D06 = "CountDown" , $A31E1701D0F = "Main" , $A60E1803611 = "ExclusionOpt" , $A21E190273F = "Main" , $A42E1A04704 = "Exclusions" , $A34E1B05058 = "Main" , $A31E1C05202 = "Processes" , $A30E1D00E57 = "Main" , $A38E1E0472F = "Language" , $A2EE1F0082E = " @CRLF " , $A50F1000115 = " @CRLF " , $A31F1105508 = " @SW_ENABLE " , $A2AF120131D = "GUIOnEventMode" , $A39F1303947 = "GUICloseOnESC"
-		Global $SSA1C10305225 = 1
+		Global $SSRM_ShowOptionsWindow = 1
 	EndIf
 	Local $A3B91D05229 = $A0E91E02239
 	If $A2FA0C0483E = 0 And A0220803C04 ( $A45D0C00410 ) = 0 Then
@@ -1202,7 +1215,7 @@ Func A1C10305225 ( )
 	EndIf
 	Local $A01A1805D03 = Opt ( $A20A1901C0B , 0 )
 	Local $A3BA1A04626 = Opt ( $A2CA1B0353F , 1 )
-	A4F00B01B0E ( 1 )
+	RM_SetTrayInteractionPaused ( 1 )
 	Local $A59A1C0365F = GUICreate ( $A2A90E0262F & $A5AA1D02B57 & $A3AE0005046 [ 8 ] , $A54A1203F2A , $A25A130492D , $A27A1401932 [ 0 ] , $A27A1401932 [ 1 ] , BitOR ( 2156396544 , 12582912 ) , - 1 , $A58A1103A15 )
 	GUISetFont ( $A6301F02853 , 400 , 0 , $A2E01D02B1C )
 	Local $A41A1E02D59 = A2480301717 ( $A56A1F05406 )
@@ -1322,7 +1335,7 @@ Func A1C10305225 ( )
 	GUICtrlSetCursor ( $A2CD1103C27 , 0 )
 	GUICtrlSetState ( $A2CD1103C27 , 256 )
 	GUISetState ( Execute ( $A5DD1202861 ) , $A59A1C0365F )
-	A5B20104156 ( )
+	RM_TrimOwnWorkingSet ( )
 	Local $A0FD1304F39 , $A4DD1400C25 , $A58D1505E5A , $A5DD1604B29 , $A05D1705811 [ 2 ] , $A26D180183F
 	While 1
 		$A0FD1304F39 = GUIGetMsg ( )
@@ -1395,7 +1408,7 @@ Func A1C10305225 ( )
 					A2B20502C21 ( $A17A0803B53 , 0 )
 				EndIf
 			Next
-			A0F00603C36 ( Round ( $A5D11902426 [ 3 ] ) , 1 )
+			RM_UpdateTrayIcon ( Round ( $A5D11902426 [ 3 ] ) , 1 )
 			$A4DD1400C25 = BitAND ( GUICtrlRead ( $A1CB1600363 ) , 1 )
 			If $A2FE0A05C11 <> $A4DD1400C25 Then
 				$A2FE0A05C11 = $A4DD1400C25
@@ -1440,7 +1453,7 @@ Func A1C10305225 ( )
 				$A5DD1604B29 = IniWrite ( $A45D0C00410 , $A30E1D00E57 , $A38E1E0472F , $A50D0F02863 [ 1 ] )
 				$A50D0F02863 = A495010444D ( )
 				$A3AE0005046 = A0E50304D18 ( )
-				A1B50A0493D ( )
+				RM_ApplyLocalizedText ( )
 			EndIf
 			If $A5DD1604B29 = 0 Then
 				MsgBox ( 16 , $A2A90E0262F , $A45D0C00410 & Execute ( $A2EE1F0082E ) & Execute ( $A50F1000115 ) & $A3AE0005046 [ 30 ] , 0 , $A59A1C0365F )
@@ -1487,10 +1500,10 @@ Func A1C10305225 ( )
 		GUISwitch ( $A59A0605008 )
 	EndIf
 	GUIDelete ( $A59A1C0365F )
-	A4F00B01B0E ( 0 )
+	RM_SetTrayInteractionPaused ( 0 )
 	Opt ( $A2AF120131D , $A01A1805D03 )
 	Opt ( $A39F1303947 , $A3BA1A04626 )
-	A5B20104156 ( )
+	RM_TrimOwnWorkingSet ( )
 	Return 1
 EndFunc
 Func A2710401F1D ( $A4CF1401813 , $A56F1502A4E = 0 , $A3CF1602433 = 0 )
@@ -1655,10 +1668,10 @@ Func A3C10F0125A ( $A0522602B41 , $A012270461C = @DesktopDir )
 	FileClose ( $A5722B04646 )
 	Return $A092280353D
 EndFunc
-Func A502000511B ( $A3822F01F2E = 0 )
-	If Not IsDeclared ( "SSA502000511B" ) Then
+Func RM_TrimProcessWorkingSet ( $A3822F01F2E = 0 )
+	If Not IsDeclared ( "SSRM_TrimProcessWorkingSet" ) Then
 		Global $A3632003763 = " @AutoItPID " , $A5A32202E2C = "ptr" , $A033230552B = "OpenProcess" , $A4E32404148 = "dword" , $A3632503E29 = "int" , $A2132605706 = "dword" , $A5432802A34 = "int" , $A2B32900D63 = "EmptyWorkingSet" , $A0632A0541B = "ptr" , $A1532B04830 = "bool" , $A2D32C00F3F = "CloseHandle" , $A6032D01255 = "handle"
-		Global $SSA502000511B = 1
+		Global $SSRM_TrimProcessWorkingSet = 1
 	EndIf
 	If Not $A3822F01F2E Then $A3822F01F2E = Execute ( $A3632003763 )
 	Local $A0D3210155D = DllCall ( $A55C0703122 , $A5A32202E2C , $A033230552B , $A4E32404148 , $A4301102A51 , $A3632503E29 , 0 , $A2132605706 , $A3822F01F2E )
@@ -1675,13 +1688,13 @@ Func A502000511B ( $A3822F01F2E = 0 )
 	If Not IsArray ( $A1132703101 ) Then Return SetError ( 1 , 0 , 0 )
 	Return 1
 EndFunc
-Func A5B20104156 ( )
-	If Not IsDeclared ( "SSA5B20104156" ) Then
+Func RM_TrimOwnWorkingSet ( )
+	If Not IsDeclared ( "SSRM_TrimOwnWorkingSet" ) Then
 		Global $A4432E0631F = "int" , $A3432F00362 = "EmptyWorkingSet" , $A6042005352 = "long"
-		Global $SSA5B20104156 = 1
+		Global $SSRM_TrimOwnWorkingSet = 1
 	EndIf
-	Local $A5B20104156_Result = DllCall ( $A29D0503B5E , $A4432E0631F , $A3432F00362 , $A6042005352 , - 1 )
-	If @error Or Not IsArray ( $A5B20104156_Result ) Or Not $A5B20104156_Result [ 0 ] Then Return SetError ( 1 , 0 , 0 )
+	Local $RM_TrimOwnResult = DllCall ( $A29D0503B5E , $A4432E0631F , $A3432F00362 , $A6042005352 , - 1 )
+	If @error Or Not IsArray ( $RM_TrimOwnResult ) Or Not $RM_TrimOwnResult [ 0 ] Then Return SetError ( 1 , 0 , 0 )
 	Return 1
 EndFunc
 
@@ -1798,16 +1811,16 @@ EndFunc
 ;   0 Normal, 1 Smooth, 2 Aggressive, 3 Emergency, 4 AI Shield.
 Func RM_GetTrimProfile ( )
 	Switch $RM_OptimizeMode
-		Case 1 , 3
-			Return 2
-		Case 2
-			Return 1
-		Case 4
-			Return 3
-		Case 5
-			Return 4
+		Case $RM_MODE_AGGRESSIVE , $RM_MODE_TEMP
+			Return $RM_PROFILE_AGGRESSIVE
+		Case $RM_MODE_SMOOTH
+			Return $RM_PROFILE_SMOOTH
+		Case $RM_MODE_EMERGENCY
+			Return $RM_PROFILE_EMERGENCY
+		Case $RM_MODE_AI_SHIELD
+			Return $RM_PROFILE_AI_SHIELD
 		Case Else
-			Return 0
+			Return $RM_PROFILE_NORMAL
 	EndSwitch
 EndFunc
 
@@ -1845,17 +1858,17 @@ EndFunc
 Func RM_GetProfileMinimumMB ( $RM_Profile )
 	Local $RM_ProfileMinimumMB = $RM_MinProcessMB
 	Switch $RM_Profile
-		Case 0
+		Case $RM_PROFILE_NORMAL
 			If $RM_NormalMinProcessMB > $RM_ProfileMinimumMB Then $RM_ProfileMinimumMB = $RM_NormalMinProcessMB
-		Case 1
+		Case $RM_PROFILE_SMOOTH
 			$RM_ProfileMinimumMB = Int ( $RM_MinProcessMB / 2 )
 			If $RM_ProfileMinimumMB < 8 Then $RM_ProfileMinimumMB = 8
 			If $RM_SmoothMinProcessMB > $RM_ProfileMinimumMB Then $RM_ProfileMinimumMB = $RM_SmoothMinProcessMB
-		Case 2
+		Case $RM_PROFILE_AGGRESSIVE
 			$RM_ProfileMinimumMB = $RM_AggressiveMinProcessMB
-		Case 3
+		Case $RM_PROFILE_EMERGENCY
 			$RM_ProfileMinimumMB = 0
-		Case 4
+		Case $RM_PROFILE_AI_SHIELD
 			If $RM_AIShieldMinProcessMB > $RM_ProfileMinimumMB Then $RM_ProfileMinimumMB = $RM_AIShieldMinProcessMB
 	EndSwitch
 	Return $RM_ProfileMinimumMB
@@ -1866,7 +1879,7 @@ Func A2A20200810 ( $A3C42101753 = 0 , $A6242203763 = "" , $RM_Profile = - 1 )
 	Local $RM_TotalReleasedBytes = 0
 	$RM_LastTrimReleasedBytes = 0
 	If $RM_Profile < 0 Then $RM_Profile = RM_GetTrimProfile ( )
-	If $RM_Profile = 4 Then
+	If $RM_Profile = $RM_PROFILE_AI_SHIELD Then
 		RM_BuildAIShield ( )
 	Else
 		$RM_AIShieldPIDs = "|"
@@ -1878,7 +1891,7 @@ Func A2A20200810 ( $A3C42101753 = 0 , $A6242203763 = "" , $RM_Profile = - 1 )
 	If Not IsArray ( $A5E4240211A ) Then Return 0
 	Local $RM_ForegroundPID = 0
 	RM_TrackActiveProcess ( )
-	If $A3C42101753 = 0 And ( $RM_Profile = 0 Or $RM_Profile = 1 Or $RM_Profile = 4 ) Then
+	If $A3C42101753 = 0 And ( $RM_Profile = $RM_PROFILE_NORMAL Or $RM_Profile = $RM_PROFILE_SMOOTH Or $RM_Profile = $RM_PROFILE_AI_SHIELD ) Then
 		RM_BuildCPUShield ( )
 	Else
 		$RM_CPUShieldPIDs = "|"
@@ -1893,9 +1906,9 @@ Func A2A20200810 ( $A3C42101753 = 0 , $A6242203763 = "" , $RM_Profile = - 1 )
 			If RM_ShouldSkipProcess ( $A5E4240211A [ $A17A0803B53 ] [ 0 ] , $RM_TargetPID , $RM_ForegroundPID , $RM_Profile , $RM_BeforeWorkingSet ) Then ContinueLoop
 			Local $RM_TrimSucceeded = 0
 			If $A26B0601541 = $A5E4240211A [ $A17A0803B53 ] [ 1 ] Then
-				$RM_TrimSucceeded = A5B20104156 ( )
+				$RM_TrimSucceeded = RM_TrimOwnWorkingSet ( )
 			Else
-				$RM_TrimSucceeded = A502000511B ( $RM_TargetPID )
+				$RM_TrimSucceeded = RM_TrimProcessWorkingSet ( $RM_TargetPID )
 			EndIf
 			If $RM_TrimSucceeded = 1 Then
 				$A2A4230391F += 1
@@ -1914,7 +1927,7 @@ Func RM_ShouldSkipProcess ( $RM_ProcessName , $RM_ProcessPID , $RM_ForegroundPID
 	$RM_WorkingSetBytes = 0
 	Local $RM_Name = StringLower ( StringStripWS ( $RM_ProcessName , 3 ) )
 	If $RM_ProcessPID = @AutoItPID Then Return 1
-	If $RM_Profile = 4 And StringInStr ( $RM_AIShieldPIDs , "|" & $RM_ProcessPID & "|" ) > 0 Then Return 1
+	If $RM_Profile = $RM_PROFILE_AI_SHIELD And StringInStr ( $RM_AIShieldPIDs , "|" & $RM_ProcessPID & "|" ) > 0 Then Return 1
 	Local $RM_Protected = "|system idle process|system|registry|memory compression|secure system|csrss.exe|smss.exe|wininit.exe|winlogon.exe|services.exe|lsass.exe|dwm.exe|audiodg.exe|fontdrvhost.exe|"
 	If StringInStr ( $RM_Protected , "|" & $RM_Name & "|" ) > 0 Then Return 1
 	Local $RM_Path = StringLower ( StringStripWS ( RM_GetProcessPath ( $RM_ProcessPID ) , 3 ) )
@@ -1925,18 +1938,18 @@ Func RM_ShouldSkipProcess ( $RM_ProcessName , $RM_ProcessPID , $RM_ForegroundPID
 	; Emergency is intentionally the only profile that may trim the foreground.
 	; Full Aggressive still protects the current window, but unlike Normal,
 	; Smooth, and AI Shield it may reclaim an app after it moves to background.
-	If $RM_Profile <> 3 Then
+	If $RM_Profile <> $RM_PROFILE_EMERGENCY Then
 		If $RM_ProtectForeground = 1 And $RM_ForegroundPID > 0 And $RM_ProcessPID = $RM_ForegroundPID Then Return 1
 	EndIf
-	If $RM_Profile = 0 Or $RM_Profile = 1 Or $RM_Profile = 4 Then
+	If $RM_Profile = $RM_PROFILE_NORMAL Or $RM_Profile = $RM_PROFILE_SMOOTH Or $RM_Profile = $RM_PROFILE_AI_SHIELD Then
 		If $RM_RecentActivePID > 0 And $RM_ProcessPID = $RM_RecentActivePID And $RM_RecentActiveAt > 0 And TimerDiff ( $RM_RecentActiveAt ) < $RM_ActiveShieldSeconds * 1000 Then Return 1
 	EndIf
-	If ( $RM_Profile = 0 Or $RM_Profile = 1 Or $RM_Profile = 4 ) And StringInStr ( $RM_CPUShieldPIDs , "|" & $RM_ProcessPID & "|" ) > 0 Then Return 1
+	If ( $RM_Profile = $RM_PROFILE_NORMAL Or $RM_Profile = $RM_PROFILE_SMOOTH Or $RM_Profile = $RM_PROFILE_AI_SHIELD ) And StringInStr ( $RM_CPUShieldPIDs , "|" & $RM_ProcessPID & "|" ) > 0 Then Return 1
 	Local $RM_Stats = ProcessGetStats ( $RM_ProcessPID , 0 )
 	If IsArray ( $RM_Stats ) And Number ( $RM_Stats [ 0 ] ) > 0 Then
 		$RM_WorkingSetBytes = Number ( $RM_Stats [ 0 ] )
 		Local $RM_ProfileMinimumMB = RM_GetProfileMinimumMB ( $RM_Profile )
-		If $RM_Profile <> 3 And $RM_WorkingSetBytes < $RM_ProfileMinimumMB * 1024 * 1024 Then Return 1
+		If $RM_Profile <> $RM_PROFILE_EMERGENCY And $RM_WorkingSetBytes < $RM_ProfileMinimumMB * 1024 * 1024 Then Return 1
 	EndIf
 	Return 0
 EndFunc
@@ -2906,7 +2919,7 @@ Func A1350504361 ( )
 	$A60E0103904 = $A4A35001614
 	Return $A60E0103904
 EndFunc
-Func A1B50A0493D ( $A4935F00349 = 1 )
+Func RM_ApplyLocalizedText ( $A4935F00349 = 1 )
 	GUICtrlSetData ( $A5F11E00002 , $A3AE0005046 [ 2 ] )
 	GUICtrlSetData ( $A5B11F00549 , $A3AE0005046 [ 3 ] )
 	GUICtrlSetData ( $A3021000C60 , $A3AE0005046 [ 4 ] )
@@ -2920,7 +2933,7 @@ Func A1B50A0493D ( $A4935F00349 = 1 )
 	TrayItemSetText ( $A0C11503D1C , $A3AE0005046 [ 13 ] )
 	TrayItemSetText ( $A5A11601452 , $A3AE0005046 [ 14 ] )
 	TrayItemSetText ( $A3411700721 , $A3AE0005046 [ 15 ] )
-	A2700503407 ( 1 )
+	RM_UpdateMemoryDisplay ( 1 )
 EndFunc
 Func A2C50D04958 ( )
 	If Not IsDeclared ( "SSA2C50D04958" ) Then
@@ -3306,7 +3319,7 @@ Func A5660800244 ( $A3CF1602433 = $A59A0605008 )
 		Global $SSA5660800244 = 1
 	EndIf
 	If IsHWnd ( $A3CF1602433 ) = 1 Then
-		A4F00B01B0E ( 1 )
+		RM_SetTrayInteractionPaused ( 1 )
 		GUISetState ( Execute ( $A37C6201C2A ) , $A3CF1602433 )
 		GUIRegisterMsg ( 78 , "" )
 	EndIf
@@ -3512,7 +3525,7 @@ Func A5660800244 ( $A3CF1602433 = $A59A0605008 )
 				$A3AE0005046 = A0E50304D18 ( )
 				A1350504361 ( )
 				Opt ( $A0207C0494D , $A58C6B02E23 )
-				A1B50A0493D ( )
+				RM_ApplyLocalizedText ( )
 				Opt ( $A1B07D05A0F , $A5580E05E46 )
 				DllCall ( $A2A07E04C2B , $A5707F02163 , $A1717005557 , $A0C17102109 , 4294967295 )
 				GUIRegisterMsg ( 78 , "A2C60904A01" )
@@ -3598,7 +3611,7 @@ Func A5660800244 ( $A3CF1602433 = $A59A0605008 )
 	WEnd
 	GUIRegisterMsg ( 78 , "" )
 	If IsHWnd ( $A3CF1602433 ) = 1 Then
-		A4F00B01B0E ( 0 )
+		RM_SetTrayInteractionPaused ( 0 )
 		GUISetState ( Execute ( $A2C37003914 ) , $A3CF1602433 )
 		GUISwitch ( $A59A0605008 )
 	EndIf
@@ -4112,10 +4125,10 @@ Func A2480301717 ( $A2AB9102C1C , $A14B9205B5B = - 1 )
 	If $A2BB9005A4F [ 0 ] <> 3 Then Return SetError ( 1 , 0 , $A14B9205B5B )
 	Return String ( $A10B940354F & Hex ( $A2BB9005A4F [ 1 ] , 2 ) & Hex ( $A2BB9005A4F [ 2 ] , 2 ) & Hex ( $A2BB9005A4F [ 3 ] , 2 ) )
 EndFunc
-Func A4980401114 ( )
-	If Not IsDeclared ( "SSA4980401114" ) Then
+Func RM_ShowAboutWindow ( )
+	If Not IsDeclared ( "SSRM_ShowAboutWindow" ) Then
 		Global $A58B980633A = "Translator" , $A3AB9906354 = "Unknown" , $A51B9A05924 = "Unknown" , $A08B9B0322C = " @SW_DISABLE " , $A54B9C0103C = "GUIOnEventMode" , $A30B9D04525 = "GUICloseOnESC" , $A4EC900500D = "alogo.png" , $A41C9201F3E = " @CRLF " , $A14C9301E35 = "WindowText" , $A11C9400D0C = "Copyright @ " , $A49C950484F = "  All rights reserved." , $A1AC9603334 = "ainfo.png" , $A54C970093F = "Donate:" , $A3AC9800F32 = "Contact Page:" , $A4FC990340F = "Home Page:" , $A1AC9A0165A = "Author:" , $A59C9B00B16 = "Translator:" , $A2BC9C04405 = "HotTrackingColor" , $A3BC9E0345F = "" , $A30D9003F1F = "" , $A59D9201A28 = "" , $A46D9305C1B = "BlueLife && Velociraptor" , $A53D950103A = "OK" , $A1BD970631A = " @SW_SHOW " , $A11D980241A = " @SW_ENABLE " , $A2CD990633F = "GUIOnEventMode" , $A52D9A04927 = "GUICloseOnESC"
-		Global $SSA4980401114 = 1
+		Global $SSRM_ShowAboutWindow = 1
 	EndIf
 	Local $A17B9500938 = A5250E0610C ( $A3AE0005046 [ 9 ] )
 	Local $A3CB9604042 = $A3AE0005046 [ 1 ]
@@ -4137,7 +4150,7 @@ Func A4980401114 ( )
 	EndIf
 	Local $A01A1805D03 = Opt ( $A54B9C0103C , 0 )
 	Local $A3BA1A04626 = Opt ( $A30B9D04525 , 1 )
-	A4F00B01B0E ( 1 )
+	RM_SetTrayInteractionPaused ( 1 )
 	Local $A05B9E04432 = GUICreate ( $A17B9500938 , $A54A1203F2A , $A25A130492D , $A27A1401932 [ 0 ] , $A27A1401932 [ 1 ] , BitOR ( 2156396544 , 12582912 ) , - 1 , $A58A1103A15 )
 	GUISetFont ( $A6301F02853 , 400 , 0 , $A2E01D02B1C )
 	GUICtrlCreateGroup ( $A0B9010005E , - 25 , - 25 , $A54A1203F2A + 50 , 82 + 20 )
@@ -4191,10 +4204,10 @@ Func A4980401114 ( )
 		GUISwitch ( $A59A0605008 )
 	EndIf
 	GUIDelete ( $A05B9E04432 )
-	A4F00B01B0E ( 0 )
+	RM_SetTrayInteractionPaused ( 0 )
 	Opt ( $A2CD990633F , $A01A1805D03 )
 	Opt ( $A52D9A04927 , $A3BA1A04626 )
-	A5B20104156 ( )
+	RM_TrimOwnWorkingSet ( )
 	Return 1
 EndFunc
 Func A0080505A42 ( )

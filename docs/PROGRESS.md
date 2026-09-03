@@ -21,6 +21,13 @@ the AutoIt source for every intermediate binary.
   one redundant working-set query per eligible process, and added a safe
   `ProcessList()` failure path. Linux retained all functions because its shell
   and native call graphs contained no unreferenced implementation.
+- Completed a Make It / Make It Work / Make It Pretty pass over the active
+  Windows path: introduced named mode/profile constants without changing INI
+  values, centralized the visible mode labels, renamed the main window,
+  command-line, optimize, working-set, memory-display, tray, Options, and About
+  handlers, preserved the uncertain reconstructed helpers, fixed privilege
+  error capture, rejected malformed worker results, and terminated timed-out
+  owned workers with temporary-result cleanup.
 - Made Normal and Aggressive materially different on Windows: Normal now has a
   96 MB conservative floor plus foreground/recent/CPU shields, while Aggressive
   uses a 4 MB floor, protects only the current foreground among user apps, and
