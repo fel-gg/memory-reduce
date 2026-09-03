@@ -15,6 +15,12 @@ the AutoIt source for every intermediate binary.
 
 - Upgraded the existing engine in place to 2.8; no Windows or Linux path was
   replaced with a from-scratch rewrite.
+- Audited all tracked Windows and Linux functions before refactoring. Removed
+  13 unreachable reconstructed Windows helpers only after call-site and
+  callback-string checks, centralized bounded numeric INI parsing, eliminated
+  one redundant working-set query per eligible process, and added a safe
+  `ProcessList()` failure path. Linux retained all functions because its shell
+  and native call graphs contained no unreferenced implementation.
 - Made Normal and Aggressive materially different on Windows: Normal now has a
   96 MB conservative floor plus foreground/recent/CPU shields, while Aggressive
   uses a 4 MB floor, protects only the current foreground among user apps, and

@@ -91,30 +91,16 @@ If StringLen ( $A37F0703A24 ) > 5 Then $A37F0703A24 = Number ( StringLeft ( $A37
 ; Adaptive optimizer controls.  Missing keys keep the safe defaults so old
 ; ReduceMemory.ini files remain fully compatible.
 Global $RM_SmartOptimize = A5560304940 ( "SmartOptimize" , 1 , 0 , 1 )
-Global $RM_CooldownSeconds = Int ( Number ( A3560501B29 ( "CooldownSeconds" , 300 ) ) )
-If $RM_CooldownSeconds < 30 Then $RM_CooldownSeconds = 30
-If $RM_CooldownSeconds > 86400 Then $RM_CooldownSeconds = 86400
-Global $RM_HysteresisPercent = Int ( Number ( A3560501B29 ( "HysteresisPercent" , 5 ) ) )
-If $RM_HysteresisPercent < 1 Then $RM_HysteresisPercent = 1
-If $RM_HysteresisPercent > 20 Then $RM_HysteresisPercent = 20
-Global $RM_MinProcessMB = Int ( Number ( A3560501B29 ( "MinProcessMB" , 32 ) ) )
-If $RM_MinProcessMB < 4 Then $RM_MinProcessMB = 4
-If $RM_MinProcessMB > 4096 Then $RM_MinProcessMB = 4096
+Global $RM_CooldownSeconds = RM_ReadBoundedInt ( "CooldownSeconds" , 300 , 30 , 86400 )
+Global $RM_HysteresisPercent = RM_ReadBoundedInt ( "HysteresisPercent" , 5 , 1 , 20 )
+Global $RM_MinProcessMB = RM_ReadBoundedInt ( "MinProcessMB" , 32 , 4 , 4096 )
 ; Profile-specific floors keep Normal genuinely light while preserving
 ; MinProcessMB as the compatible baseline for existing INI files. Aggressive
 ; deliberately keeps its own low floor so it has a broader candidate set.
-Global $RM_NormalMinProcessMB = Int ( Number ( A3560501B29 ( "NormalMinProcessMB" , 96 ) ) )
-If $RM_NormalMinProcessMB < 16 Then $RM_NormalMinProcessMB = 16
-If $RM_NormalMinProcessMB > 4096 Then $RM_NormalMinProcessMB = 4096
-Global $RM_SmoothMinProcessMB = Int ( Number ( A3560501B29 ( "SmoothMinProcessMB" , 48 ) ) )
-If $RM_SmoothMinProcessMB < 8 Then $RM_SmoothMinProcessMB = 8
-If $RM_SmoothMinProcessMB > 4096 Then $RM_SmoothMinProcessMB = 4096
-Global $RM_AggressiveMinProcessMB = Int ( Number ( A3560501B29 ( "AggressiveMinProcessMB" , 4 ) ) )
-If $RM_AggressiveMinProcessMB < 4 Then $RM_AggressiveMinProcessMB = 4
-If $RM_AggressiveMinProcessMB > 4096 Then $RM_AggressiveMinProcessMB = 4096
-Global $RM_AIShieldMinProcessMB = Int ( Number ( A3560501B29 ( "AIShieldMinProcessMB" , 64 ) ) )
-If $RM_AIShieldMinProcessMB < 16 Then $RM_AIShieldMinProcessMB = 16
-If $RM_AIShieldMinProcessMB > 4096 Then $RM_AIShieldMinProcessMB = 4096
+Global $RM_NormalMinProcessMB = RM_ReadBoundedInt ( "NormalMinProcessMB" , 96 , 16 , 4096 )
+Global $RM_SmoothMinProcessMB = RM_ReadBoundedInt ( "SmoothMinProcessMB" , 48 , 8 , 4096 )
+Global $RM_AggressiveMinProcessMB = RM_ReadBoundedInt ( "AggressiveMinProcessMB" , 4 , 4 , 4096 )
+Global $RM_AIShieldMinProcessMB = RM_ReadBoundedInt ( "AIShieldMinProcessMB" , 64 , 16 , 4096 )
 Global $RM_ProtectForeground = A5560304940 ( "ProtectForeground" , 1 , 0 , 1 )
 Global $RM_LastAutoOptimize = 0
 Global $RM_PressureArmed = 1
@@ -145,9 +131,7 @@ Global $RM_AIShieldEnabled = A5560304940 ( "AIShield" , 1 , 0 , 1 )
 Global $RM_AIProcessPatterns = A3560501B29 ( "AIProcessPatterns" , "ollama.exe|ollama_llama_server.exe|python.exe|pythonw.exe|llama-server.exe|llama.exe|vllm.exe|torchrun.exe|tritonserver.exe|comfyui.exe|stable-diffusion.exe|local-ai.exe|koboldcpp.exe" )
 Global $RM_AIProtectedCount = 0
 Global $RM_AIShieldPIDs = "|"
-Global $RM_ActiveShieldSeconds = Int ( Number ( A3560501B29 ( "ActiveShieldSeconds" , 10 ) ) )
-If $RM_ActiveShieldSeconds < 3 Then $RM_ActiveShieldSeconds = 3
-If $RM_ActiveShieldSeconds > 60 Then $RM_ActiveShieldSeconds = 60
+Global $RM_ActiveShieldSeconds = RM_ReadBoundedInt ( "ActiveShieldSeconds" , 10 , 3 , 60 )
 Global $RM_StablePending = 0
 Global $RM_StableBeforeFree = 0
 Global $RM_StableStartedAt = 0
@@ -160,24 +144,12 @@ Global $RM_ReboundCooldownSeconds = 60
 ; never runs an elevated/native memory-list purge, so Windows login does not
 ; produce a UAC prompt or an Emergency-mode stutter. The monitor only re-arms
 ; after pressure falls below the lower watermark.
-Global $RM_StartupMonitorThreshold = Int ( Number ( A3560501B29 ( "StartupMonitorThreshold" , 95 ) ) )
-If $RM_StartupMonitorThreshold < 80 Then $RM_StartupMonitorThreshold = 80
-If $RM_StartupMonitorThreshold > 99 Then $RM_StartupMonitorThreshold = 99
-Global $RM_StartupMonitorHysteresis = Int ( Number ( A3560501B29 ( "StartupMonitorHysteresis" , 5 ) ) )
-If $RM_StartupMonitorHysteresis < 1 Then $RM_StartupMonitorHysteresis = 1
-If $RM_StartupMonitorHysteresis > 15 Then $RM_StartupMonitorHysteresis = 15
-Global $RM_StartupMonitorIntervalSeconds = Int ( Number ( A3560501B29 ( "StartupMonitorIntervalSeconds" , 2 ) ) )
-If $RM_StartupMonitorIntervalSeconds < 1 Then $RM_StartupMonitorIntervalSeconds = 1
-If $RM_StartupMonitorIntervalSeconds > 60 Then $RM_StartupMonitorIntervalSeconds = 60
-Global $RM_StartupMonitorCooldownSeconds = Int ( Number ( A3560501B29 ( "StartupMonitorCooldownSeconds" , 300 ) ) )
-If $RM_StartupMonitorCooldownSeconds < 60 Then $RM_StartupMonitorCooldownSeconds = 60
-If $RM_StartupMonitorCooldownSeconds > 3600 Then $RM_StartupMonitorCooldownSeconds = 3600
-Global $RM_StartupDelaySeconds = Int ( Number ( A3560501B29 ( "StartupDelaySeconds" , 10 ) ) )
-If $RM_StartupDelaySeconds < 0 Then $RM_StartupDelaySeconds = 0
-If $RM_StartupDelaySeconds > 120 Then $RM_StartupDelaySeconds = 120
-Global $RM_StartupConfirmSamples = Int ( Number ( A3560501B29 ( "StartupConfirmSamples" , 2 ) ) )
-If $RM_StartupConfirmSamples < 2 Then $RM_StartupConfirmSamples = 2
-If $RM_StartupConfirmSamples > 10 Then $RM_StartupConfirmSamples = 10
+Global $RM_StartupMonitorThreshold = RM_ReadBoundedInt ( "StartupMonitorThreshold" , 95 , 80 , 99 )
+Global $RM_StartupMonitorHysteresis = RM_ReadBoundedInt ( "StartupMonitorHysteresis" , 5 , 1 , 15 )
+Global $RM_StartupMonitorIntervalSeconds = RM_ReadBoundedInt ( "StartupMonitorIntervalSeconds" , 2 , 1 , 60 )
+Global $RM_StartupMonitorCooldownSeconds = RM_ReadBoundedInt ( "StartupMonitorCooldownSeconds" , 300 , 60 , 3600 )
+Global $RM_StartupDelaySeconds = RM_ReadBoundedInt ( "StartupDelaySeconds" , 10 , 0 , 120 )
+Global $RM_StartupConfirmSamples = RM_ReadBoundedInt ( "StartupConfirmSamples" , 2 , 2 , 10 )
 Global $A3FF090012D = A5560304940 ( $A25F0A03415 , 1 , 0 , 1 )
 Global $A1DF0B03725 = A1160200452 ( $A45D0C00410 , $A2AF0C0551E , $A2DF0D02906 , $A5580E05E46 )
 $A1DF0B03725 = A5720304C54 ( $A1DF0B03725 , 1 )
@@ -1068,11 +1040,6 @@ Func A5900F01A18 ( )
 	EndIf
 	If $A2BE0802D2F = 1 Then GUISetState ( Execute ( $A4471301F2B ) , $A59A0605008 )
 EndFunc
-Func A4C10004D2F ( )
-	A4F00B01B0E ( 1 )
-	A0710101E3F ( 10 , $A59A0605008 )
-	A4F00B01B0E ( 0 )
-EndFunc
 Func A0710101E3F ( $A2371403C59 = 0 , $A5A31B00E55 = 0 )
 	If Not IsDeclared ( "SSA0710101E3F" ) Then
 		Global $A3C71505F40 = "Usage: <command>" , $A247160244E = " @CRLF " , $A4471700260 = " @CRLF " , $A1C71805041 = "Command:" , $A3971905624 = " @CRLF " , $A0771A04D5F = "/O : Optimize Memory" , $A1371B05B01 = " @CRLF " , $A4271C0585A = "/E : Exclude Processes" , $A5171D0201C = " @CRLF " , $A0671E01413 = " @CRLF " , $A4D71F00327 = "Examples:" , $A228100052F = " @CRLF " , $A2A81103623 = " @ScriptName " , $A2181201247 = " /O" , $A0281304132 = " @CRLF " , $A2881401807 = " @ScriptName " , $A5381502700 = " /O example1.exe example2.exe" , $A3F81604A2D = " @CRLF " , $A2381701806 = " @ScriptName " , $A0081802543 = " /O ""example1.exe"" ""example2.exe""" , $A4D81905260 = " @CRLF " , $A0681A04E0A = " @ScriptName " , $A5181B03427 = " /O /E example1.exe example2.exe" , $A4781C05F60 = " @CRLF " , $A1781D06341 = " @CRLF " , $A0681E03128 = "Copyright @ " , $A0881F00431 = " " , $A2B91002223 = " @CRLF " , $A5C9110001C = "All rights reserved."
@@ -1866,6 +1833,15 @@ Func RM_GetWorkingSetBytes ( $RM_ProcessPID )
 	Return $RM_WorkingSetBytes
 EndFunc
 
+; Keep every numeric INI setting on the same parse-and-clamp path. This avoids
+; small boundary differences when a new profile or monitor setting is added.
+Func RM_ReadBoundedInt ( $RM_Key , $RM_Default , $RM_Minimum , $RM_Maximum )
+	Local $RM_Value = Int ( Number ( A3560501B29 ( $RM_Key , $RM_Default ) ) )
+	If $RM_Value < $RM_Minimum Then Return $RM_Minimum
+	If $RM_Value > $RM_Maximum Then Return $RM_Maximum
+	Return $RM_Value
+EndFunc
+
 Func RM_GetProfileMinimumMB ( $RM_Profile )
 	Local $RM_ProfileMinimumMB = $RM_MinProcessMB
 	Switch $RM_Profile
@@ -1899,6 +1875,7 @@ Func A2A20200810 ( $A3C42101753 = 0 , $A6242203763 = "" , $RM_Profile = - 1 )
 	If $A3C42101753 <> 1 Then $A3C42101753 = 0
 	$A6242203763 = A5720304C54 ( $A6242203763 , 1 )
 	Local $A5E4240211A = ProcessList ( ) , $A17A0803B53 , $A2B42506363
+	If Not IsArray ( $A5E4240211A ) Then Return 0
 	Local $RM_ForegroundPID = 0
 	RM_TrackActiveProcess ( )
 	If $A3C42101753 = 0 And ( $RM_Profile = 0 Or $RM_Profile = 1 Or $RM_Profile = 4 ) Then
@@ -1911,9 +1888,9 @@ Func A2A20200810 ( $A3C42101753 = 0 , $A6242203763 = "" , $RM_Profile = - 1 )
 		$A2B42506363 = StringInStr ( $A6242203763 , $A5580E05E46 & $A5E4240211A [ $A17A0803B53 ] [ 0 ] & $A5580E05E46 )
 		If ( $A3C42101753 = 0 And $A2B42506363 = 0 ) Or ( $A3C42101753 = 1 And $A2B42506363 <> 0 ) Then
 
-			If RM_ShouldSkipProcess ( $A5E4240211A [ $A17A0803B53 ] [ 0 ] , $A5E4240211A [ $A17A0803B53 ] [ 1 ] , $RM_ForegroundPID , $RM_Profile ) Then ContinueLoop
 			Local $RM_TargetPID = $A5E4240211A [ $A17A0803B53 ] [ 1 ]
-			Local $RM_BeforeWorkingSet = RM_GetWorkingSetBytes ( $RM_TargetPID )
+			Local $RM_BeforeWorkingSet = 0
+			If RM_ShouldSkipProcess ( $A5E4240211A [ $A17A0803B53 ] [ 0 ] , $RM_TargetPID , $RM_ForegroundPID , $RM_Profile , $RM_BeforeWorkingSet ) Then ContinueLoop
 			Local $RM_TrimSucceeded = 0
 			If $A26B0601541 = $A5E4240211A [ $A17A0803B53 ] [ 1 ] Then
 				$RM_TrimSucceeded = A5B20104156 ( )
@@ -1933,7 +1910,8 @@ EndFunc
 ; Return true for processes that should not be trimmed during the normal
 ; (all-processes-except-exclusions) pass. Explicit include mode remains
 ; available for advanced users who intentionally target a small process.
-Func RM_ShouldSkipProcess ( $RM_ProcessName , $RM_ProcessPID , $RM_ForegroundPID = 0 , $RM_Profile = 0 )
+Func RM_ShouldSkipProcess ( $RM_ProcessName , $RM_ProcessPID , $RM_ForegroundPID , $RM_Profile , ByRef $RM_WorkingSetBytes )
+	$RM_WorkingSetBytes = 0
 	Local $RM_Name = StringLower ( StringStripWS ( $RM_ProcessName , 3 ) )
 	If $RM_ProcessPID = @AutoItPID Then Return 1
 	If $RM_Profile = 4 And StringInStr ( $RM_AIShieldPIDs , "|" & $RM_ProcessPID & "|" ) > 0 Then Return 1
@@ -1956,8 +1934,9 @@ Func RM_ShouldSkipProcess ( $RM_ProcessName , $RM_ProcessPID , $RM_ForegroundPID
 	If ( $RM_Profile = 0 Or $RM_Profile = 1 Or $RM_Profile = 4 ) And StringInStr ( $RM_CPUShieldPIDs , "|" & $RM_ProcessPID & "|" ) > 0 Then Return 1
 	Local $RM_Stats = ProcessGetStats ( $RM_ProcessPID , 0 )
 	If IsArray ( $RM_Stats ) And Number ( $RM_Stats [ 0 ] ) > 0 Then
+		$RM_WorkingSetBytes = Number ( $RM_Stats [ 0 ] )
 		Local $RM_ProfileMinimumMB = RM_GetProfileMinimumMB ( $RM_Profile )
-		If $RM_Profile <> 3 And Number ( $RM_Stats [ 0 ] ) < $RM_ProfileMinimumMB * 1024 * 1024 Then Return 1
+		If $RM_Profile <> 3 And $RM_WorkingSetBytes < $RM_ProfileMinimumMB * 1024 * 1024 Then Return 1
 	EndIf
 	Return 0
 EndFunc
@@ -1973,7 +1952,8 @@ Func RM_ValidateNormalSelection ( )
 	RM_BuildCPUShield ( )
 	If $RM_ProtectForeground = 1 Then $RM_ForegroundPID = WinGetProcess ( "[ACTIVE]" )
 	For $RM_ProcessIndex = 1 To $RM_Processes [ 0 ] [ 0 ]
-		RM_ShouldSkipProcess ( $RM_Processes [ $RM_ProcessIndex ] [ 0 ] , $RM_Processes [ $RM_ProcessIndex ] [ 1 ] , $RM_ForegroundPID )
+		Local $RM_ValidatedWorkingSet = 0
+		RM_ShouldSkipProcess ( $RM_Processes [ $RM_ProcessIndex ] [ 0 ] , $RM_Processes [ $RM_ProcessIndex ] [ 1 ] , $RM_ForegroundPID , 0 , $RM_ValidatedWorkingSet )
 	Next
 	Return $RM_Processes [ 0 ] [ 0 ]
 EndFunc
@@ -2186,46 +2166,6 @@ Func A243000135D ( )
 	If $A38B0402436 = 1 Then Return 0
 	If $A1FB020470A = $A1E03D05655 Then Return 0
 	Return 1
-EndFunc
-Func A4730104423 ( $A4103E02659 = 1 )
-	If Not IsDeclared ( "SSA4730104423" ) Then
-		Global $A1B03F01716 = "int" , $A3413003D38 = "Wow64EnableWow64FsRedirection" , $A2013102955 = "int" , $A3313202E10 = "int" , $A3D1330492F = "Wow64DisableWow64FsRedirection" , $A1C13404E33 = "int" , $A0813500E56 = "int" , $A5C13606213 = "Wow64RevertWow64FsRedirection" , $A351370102B = "int"
-		Global $SSA4730104423 = 1
-	EndIf
-	If $A43B0C04E3E = 1 Then
-		Switch $A4103E02659
-		Case 0
-			DllCall ( $A55C0703122 , $A1B03F01716 , $A3413003D38 , $A2013102955 , 1 )
-		Case 1
-			DllCall ( $A55C0703122 , $A3313202E10 , $A3D1330492F , $A1C13404E33 , 1 )
-	Case Else
-			DllCall ( $A55C0703122 , $A0813500E56 , $A5C13606213 , $A351370102B , 0 )
-		EndSwitch
-	EndIf
-EndFunc
-Func A3230202417 ( $A4CF1401813 , $A0361505653 , $A4713800F5A = "" , $A101390620F = 0 , $A1F13A01C15 = 1 )
-	Local $A4A13B06329
-	If A1430301018 ( ) = 0 Then
-		$A4A13B06329 = GUICtrlSetTip ( $A4CF1401813 , $A0361505653 )
-	Else
-		$A4A13B06329 = GUICtrlSetTip ( $A4CF1401813 , $A0361505653 , $A4713800F5A , $A101390620F , $A1F13A01C15 )
-	EndIf
-	Return $A4A13B06329
-EndFunc
-Func A1430301018 ( )
-	If Not IsDeclared ( "SSA1430301018" ) Then
-		Global $A0D13C06102 = "EnableBalloonTips" , $A3D13E03B45 = "\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" , $A2813F04D37 = "EnableBalloonTips"
-		Global $SSA1430301018 = 1
-	EndIf
-	If Not A0660B00D4E ( $A0D13C06102 ) Then
-		Global $A6013D00A04 = RegRead ( $A3201805C5F & $A3D13E03B45 , $A2813F04D37 )
-		If @error = 0 Then
-			$A6013D00A04 = Number ( $A6013D00A04 )
-		Else
-			$A6013D00A04 = 1
-		EndIf
-	EndIf
-	Return $A6013D00A04
 EndFunc
 Func A4430402519 ( $A0A51E05D01 = 8.5 , $A022300013E = 9.5 )
 	If Not IsDeclared ( "SSA4430402519" ) Then
@@ -2650,15 +2590,6 @@ Func A0740A00E53 ( $A0AA0A03206 , $A02A4F0071A )
 	EndIf
 	Return $A02A4F0071A
 EndFunc
-Func A2E40B04905 ( $A0AA0A03206 )
-	If Not IsDeclared ( "SSA2E40B04905" ) Then
-		Global $A04B420380B = "S-1-5-18"
-		Global $SSA2E40B04905 = 1
-	EndIf
-	Local $A46B4000760 = A3640C03C5D ( $A0AA0A03206 )
-	If IsArray ( $A46B4000760 ) = 0 Then Return $A04B420380B
-	Return $A46B4000760 [ 0 ]
-EndFunc
 Func A3640C03C5D ( $A518440504D , $A235450042F = "" )
 	If Not IsDeclared ( "SSA3640C03C5D" ) Then
 		Global $A1BB4303C2F = "byte SID[256]" , $A4BB450095E = "bool" , $A52B4602B12 = "LookupAccountNameW" , $A0DB4702B34 = "wstr" , $A25B4801A5B = "wstr" , $A40B490293E = "ptr" , $A11B4A0195E = "dword*" , $A52B4B00706 = "wstr" , $A0DB4C03B2B = "dword*" , $A3BB4D0465B = "int*" , $A37B4F00D05 = "SID"
@@ -2975,52 +2906,6 @@ Func A1350504361 ( )
 	$A60E0103904 = $A4A35001614
 	Return $A60E0103904
 EndFunc
-Func A4750601103 ( $A3035503F42 , $A1D35603120 = 1 )
-	If Not IsDeclared ( "SSA4750601103" ) Then
-		Global $A5A35701E38 = " @CRLF "
-		Global $SSA4750601103 = 1
-	EndIf
-	Local $A4A13B06329 = StringSplit ( $A3035503F42 , Execute ( $A5A35701E38 ) , 1 )
-	For $A17A0803B53 = 1 To $A4A13B06329 [ 0 ]
-		$A4A13B06329 [ $A17A0803B53 ] = StringStripWS ( $A4A13B06329 [ $A17A0803B53 ] , 3 )
-	Next
-	If $A1D35603120 > $A4A13B06329 [ 0 ] Then Return $A3035503F42
-	Return $A4A13B06329 [ $A1D35603120 ]
-EndFunc
-Func A4A5070011A ( )
-	If Not IsDeclared ( "SSA4A5070011A" ) Then
-		Global $A5D35905C04 = " @GUI_CtrlId " , $A2935A0160C = "Main" , $A5F35B01B3A = "Language"
-		Global $SSA4A5070011A = 1
-	EndIf
-	Local $A3135804558 = Execute ( $A5D35905C04 )
-	For $A17A0803B53 = 1 To $A60E0103904 [ 0 ] [ 0 ]
-		GUICtrlSetState ( $A60E0103904 [ $A17A0803B53 ] [ 0 ] , 4 )
-		If $A3135804558 = $A60E0103904 [ $A17A0803B53 ] [ 0 ] Then
-			$A50D0F02863 [ 1 ] = $A60E0103904 [ $A17A0803B53 ] [ 1 ]
-			GUICtrlSetState ( $A60E0103904 [ $A17A0803B53 ] [ 0 ] , 1 )
-		EndIf
-	Next
-	IniWrite ( $A45D0C00410 , $A2935A0160C , $A5F35B01B3A , $A50D0F02863 [ 1 ] )
-	$A3AE0005046 = A0E50304D18 ( )
-	A1B50A0493D ( )
-EndFunc
-Func A275080522B ( $A3035503F42 , $A2D04601E47 = 0 , $A5735C0435D = 0 )
-	If Not IsDeclared ( "SSA275080522B" ) Then
-		Global $A5C35D0444C = " @CRLF "
-		Global $SSA275080522B = 1
-	EndIf
-	Local $A4A13B06329 = StringSplit ( $A3035503F42 , Execute ( $A5C35D0444C ) , 1 )
-	For $A17A0803B53 = 1 To $A4A13B06329 [ 0 ]
-		$A4A13B06329 [ $A17A0803B53 ] = StringStripWS ( $A4A13B06329 [ $A17A0803B53 ] , 3 )
-	Next
-	If ( $A2D04601E47 <> 0 And $A2D04601E47 > $A4A13B06329 [ 0 ] ) Then ReDim $A4A13B06329 [ $A2D04601E47 + 1 ]
-	If $A5735C0435D = 0 Or $A5735C0435D > $A2D04601E47 Then Return $A4A13B06329
-	Return $A4A13B06329 [ $A5735C0435D ]
-EndFunc
-Func A3050904637 ( $A3035503F42 , $A02A0704B51 )
-	Local $A1435E03B5B = A275080522B ( $A3035503F42 , $A02A0704B51 )
-	Return $A1435E03B5B [ $A02A0704B51 ]
-EndFunc
 Func A1B50A0493D ( $A4935F00349 = 1 )
 	GUICtrlSetData ( $A5F11E00002 , $A3AE0005046 [ 2 ] )
 	GUICtrlSetData ( $A5B11F00549 , $A3AE0005046 [ 3 ] )
@@ -3036,27 +2921,6 @@ Func A1B50A0493D ( $A4935F00349 = 1 )
 	TrayItemSetText ( $A5A11601452 , $A3AE0005046 [ 14 ] )
 	TrayItemSetText ( $A3411700721 , $A3AE0005046 [ 15 ] )
 	A2700503407 ( 1 )
-EndFunc
-Func A3150B03C3A ( $A5A31B00E55 , $A3D45000B41 , $A584510611A , $A2A45202556 , $A4945300E47 , $A6145402515 = True )
-	If Not IsDeclared ( "SSA3150B03C3A" ) Then
-		Global $A5245506319 = "int" , $A5E45603948 = "MoveWindow" , $A4445702002 = "hwnd" , $A5E45806124 = "int" , $A0B45901945 = "int" , $A0245A05E5B = "int" , $A3E45B05E3E = "int" , $A0945C01A59 = "int"
-		Global $SSA3150B03C3A = 1
-	EndIf
-	Local $A5731D04046 = DllCall ( $A49C090200E , $A5245506319 , $A5E45603948 , $A4445702002 , $A5A31B00E55 , $A5E45806124 , $A3D45000B41 , $A0B45901945 , $A584510611A , $A0245A05E5B , $A2A45202556 , $A3E45B05E3E , $A4945300E47 , $A0945C01A59 , $A6145402515 )
-	Return $A5731D04046 [ 0 ] <> 0
-EndFunc
-Func A3850C05147 ( $A5A31B00E55 )
-	If Not IsDeclared ( "SSA3850C05147" ) Then
-		Global $A5045E04051 = "long Left;long Top;long Right;long Bottom" , $A1745F03020 = "int" , $A2A55003526 = "GetClientRect" , $A1155106143 = "hwnd" , $A5455201912 = "ptr" , $A5255305607 = "Right" , $A405540021E = "Left" , $A1855505419 = "Bottom" , $A3255604640 = "Top"
-		Global $SSA3850C05147 = 1
-	EndIf
-	Local $A4A13B06329 [ 2 ] = [ 0 , 0 ]
-	Local $A1B45D0290C = DllStructCreate ( $A5045E04051 )
-	DllCall ( $A49C090200E , $A1745F03020 , $A2A55003526 , $A1155106143 , $A5A31B00E55 , $A5455201912 , DllStructGetPtr ( $A1B45D0290C ) )
-	If @error Then Return SetError ( @error , @extended , $A4A13B06329 )
-	$A4A13B06329 [ 0 ] = DllStructGetData ( $A1B45D0290C , $A5255305607 ) - DllStructGetData ( $A1B45D0290C , $A405540021E )
-	$A4A13B06329 [ 1 ] = DllStructGetData ( $A1B45D0290C , $A1855505419 ) - DllStructGetData ( $A1B45D0290C , $A3255604640 )
-	Return $A4A13B06329
 EndFunc
 Func A2C50D04958 ( )
 	If Not IsDeclared ( "SSA2C50D04958" ) Then
@@ -3139,28 +3003,12 @@ Func A5560304940 ( $A10A590624F , $A08A5A04D06 , $A5FA5B02653 = - 1 , $A27A5C010
 	If ( $A5FA5B02653 <> - 1 And $A5EA5D00B18 < $A5FA5B02653 ) Or ( $A27A5C01042 <> - 1 And $A5EA5D00B18 > $A27A5C01042 ) Then $A5EA5D00B18 = $A08A5A04D06
 	Return $A5EA5D00B18
 EndFunc
-Func A0260400102 ( $A10A590624F , $A08A5A04D06 )
-	If Not IsDeclared ( "SSA0260400102" ) Then
-		Global $A25A5F04A2B = "Main"
-		Global $SSA0260400102 = 1
-	EndIf
-	Local $A11A580153C = Number ( A1160200452 ( $A45D0C00410 , $A25A5F04A2B , $A10A590624F , $A08A5A04D06 ) )
-	If Number ( Not $A11A580153C ) <> $A08A5A04D06 Then $A11A580153C = $A08A5A04D06
-	Return $A11A580153C
-EndFunc
 Func A3560501B29 ( $A10A590624F , $A08A5A04D06 )
 	If Not IsDeclared ( "SSA3560501B29" ) Then
 		Global $A36B5004616 = "Main"
 		Global $SSA3560501B29 = 1
 	EndIf
 	Return A1160200452 ( $A45D0C00410 , $A36B5004616 , $A10A590624F , $A08A5A04D06 )
-EndFunc
-Func A5C6060052A ( $A10A590624F , $A08A5A04D06 )
-	If Not IsDeclared ( "SSA5C6060052A" ) Then
-		Global $A12B5101162 = "Main"
-		Global $SSA5C6060052A = 1
-	EndIf
-	Return IniWrite ( $A45D0C00410 , $A12B5101162 , $A10A590624F , $A08A5A04D06 )
 EndFunc
 Func A2C60706156 ( )
 	If Not IsDeclared ( "SSA2C60706156" ) Then

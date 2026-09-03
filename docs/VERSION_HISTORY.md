@@ -2,6 +2,11 @@
 
 ## Reduce Memory 2.8 — 2026
 
+- Removed 13 provably unreachable helpers inherited from the reconstructed
+  Windows source, consolidated repeated numeric INI validation, and reused the
+  candidate filter's working-set measurement during trimming. This reduces
+  source size and per-pass process queries without weakening safety checks or
+  changing the visible mode contract.
 - Separated the real Windows candidate floors: Normal now defaults to 96 MB,
   Smooth to 48 MB, Aggressive to 4 MB, and AI Shield to 64 MB. The compatible
   legacy `MinProcessMB` setting remains the baseline for conservative profiles.
