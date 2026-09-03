@@ -28,6 +28,8 @@ jobs:
           foreach ($worker in @('.\windows\ReduceMemoryWorker_x64.exe', '.\windows\ReduceMemoryWorker.exe')) {
             $probe = Start-Process -FilePath $worker -ArgumentList '/selftest' -Wait -PassThru
             if ($probe.ExitCode -ne 0) { throw "$worker self-test failed with $($probe.ExitCode)" }
+            $launcher = Start-Process -FilePath $worker -ArgumentList '/launch-test' -Wait -PassThru
+            if ($launcher.ExitCode -ne 0) { throw "$worker cannot locate its matching frontend" }
             $guard = Start-Process -FilePath $worker -ArgumentList '/profile=2','/result=guard.result' -Wait -PassThru
             if ($guard.ExitCode -ne 2) { throw "$worker accepted an implicit system-wide trim" }
           }

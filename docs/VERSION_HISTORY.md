@@ -13,6 +13,9 @@
   learned without shipping a static application list.
 - Added per-target released-byte metrics and propagated native skip/failure
   taxonomy through elevated results, tooltips, logs, and CI.
+- Native workers now open the matching main application when launched directly.
+  `/launch-test` validates pairing in CI; malformed backend calls remain blocked
+  by the explicit `/all` or `/pid` authorization guard.
 - Added dependency-free native C process workers for Windows x64 and x86.
   Aggressive/Emergency process passes now use a single native Toolhelp snapshot
   and owned handle lifecycle, with validated structured results and automatic

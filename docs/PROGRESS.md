@@ -22,6 +22,9 @@ the AutoIt source for every intermediate binary.
   refaults. Emergency bypasses learned cooldowns, and no process is killed.
 - Per-target native output now reports released bytes, while native taxonomy is
   propagated through the elevated worker into the UI tooltip and bounded log.
+- Directly launching either native worker now opens its matching x64/x86
+  frontend. A non-GUI launch-contract check verifies packaging in CI while the
+  explicit `/all` or `/pid` guard still blocks malformed backend calls.
 
 ## Baseline
 

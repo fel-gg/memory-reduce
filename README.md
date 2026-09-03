@@ -93,6 +93,10 @@ Untuk Aggressive dan Emergency, pass proses memakai worker C native sesuai
 arsitektur. Jika helper hilang, gagal, atau mengembalikan hasil malformed,
 aplikasi otomatis kembali ke pipeline AutoIt yang sudah tervalidasi; Normal,
 Smooth, AI Shield, dan startup tidak bergantung pada helper ini.
+Jika `ReduceMemoryWorker_x64.exe` atau `ReduceMemoryWorker.exe` diklik langsung,
+worker sekarang membuka aplikasi utama yang cocok dari folder yang sama. Worker
+tetap menolak argumen backend yang tidak valid dan tidak akan menjalankan trim
+seluruh sistem hanya karena file worker diklik.
 
 ## Isi folder
 
