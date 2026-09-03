@@ -15,6 +15,16 @@ the AutoIt source for every intermediate binary.
 
 - Upgraded the existing engine in place to 2.8; no Windows or Linux path was
   replaced with a from-scratch rewrite.
+- Added the first native Windows backend milestone without replacing the AutoIt
+  application. A dependency-free C worker now owns Aggressive/Emergency process
+  snapshots, protection gates, handle lifecycle, before/after counters, and
+  working-set trims on x64 and x86. AutoIt validates the structured output and
+  falls back to its existing engine on any missing helper or protocol failure.
+- Made system-wide native execution explicit: the worker refuses to enumerate
+  broadly unless `/all` is present, while local and CI probes must provide one
+  disposable `/pid`. CI downloads the official hash-pinned Zig toolchain,
+  rebuilds both workers from source, verifies this guard, and tests each worker
+  against a resident target that must stay alive.
 - Replaced report-only rebound handling inside full Aggressive with a bounded
   stabilization engine. Windows and Linux now measure immediate peak,
   post-refault stable gain, and rebound; a third backend pass runs only when

@@ -10,6 +10,27 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Build native Windows workers
+        shell: pwsh
+        run: |
+          $version = '0.16.0'
+          $expected = '68659eb5f1e4eb1437a722f1dd889c5a322c9954607f5edcf337bc3684a75a7e'
+          $archive = Join-Path $env:RUNNER_TEMP "zig-$version.zip"
+          $toolRoot = Join-Path $env:RUNNER_TEMP 'zig-toolchain'
+          Invoke-WebRequest -Uri "https://ziglang.org/download/$version/zig-x86_64-windows-$version.zip" -OutFile $archive
+          $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "Zig checksum mismatch: $actual" }
+          New-Item -ItemType Directory -Path $toolRoot -Force | Out-Null
+          tar.exe -xf $archive -C $toolRoot
+          $zig = Join-Path $toolRoot "zig-x86_64-windows-$version\zig.exe"
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\native\build.ps1 -ZigPath $zig
+          if ($LASTEXITCODE -ne 0) { throw "Native worker build failed: $LASTEXITCODE" }
+          foreach ($worker in @('.\windows\ReduceMemoryWorker_x64.exe', '.\windows\ReduceMemoryWorker.exe')) {
+            $probe = Start-Process -FilePath $worker -ArgumentList '/selftest' -Wait -PassThru
+            if ($probe.ExitCode -ne 0) { throw "$worker self-test failed with $($probe.ExitCode)" }
+            $guard = Start-Process -FilePath $worker -ArgumentList '/profile=2','/result=guard.result' -Wait -PassThru
+            if ($guard.ExitCode -ne 2) { throw "$worker accepted an implicit system-wide trim" }
+          }
       - name: Verify x64 self-test
         shell: pwsh
         run: |
@@ -91,6 +112,30 @@ jobs:
           $source | Set-Content -LiteralPath $targetCs -Encoding UTF8
           & $csc /nologo /target:exe "/out:$targetExe" $targetCs
           if ($LASTEXITCODE -ne 0) { throw 'Refault target compilation failed' }
+
+          foreach ($worker in @('.\windows\ReduceMemoryWorker_x64.exe', '.\windows\ReduceMemoryWorker.exe')) {
+            $signal = Join-Path $env:RUNNER_TEMP ("native-{0}.signal" -f [IO.Path]::GetFileName($worker))
+            $result = Join-Path $env:RUNNER_TEMP ("native-{0}.result" -f [IO.Path]::GetFileName($worker))
+            $target = Start-Process -FilePath $targetExe -ArgumentList $signal -WindowStyle Hidden -PassThru
+            try {
+              $deadline = [DateTime]::UtcNow.AddSeconds(15)
+              do {
+                if ($target.HasExited) { throw "$worker native target exited early" }
+                $before = (Get-Process -Id $target.Id).WorkingSet64
+                if ($before -ge 128MB) { break }
+                Start-Sleep -Milliseconds 100
+              } while ([DateTime]::UtcNow -lt $deadline)
+              $probe = Start-Process -FilePath $worker -ArgumentList '/profile=2',("/pid=$($target.Id)"),("/result=$result") -Wait -PassThru
+              if ($probe.ExitCode -ne 0) { throw "$worker targeted trim failed with $($probe.ExitCode)" }
+              $after = (Get-Process -Id $target.Id).WorkingSet64
+              $fields = @(Get-Content -LiteralPath $result)
+              if ($fields.Count -lt 5 -or [int]$fields[1] -ne 1) { throw "$worker returned malformed targeted metrics" }
+              if ($before - $after -lt 64MB) { throw "$worker native reduction was too small" }
+              if ($target.HasExited) { throw "$worker terminated its native target" }
+            } finally {
+              if (-not $target.HasExited) { Stop-Process -Id $target.Id -Force }
+            }
+          }
 
           foreach ($binary in @('.\windows\ReduceMemory_x64.exe', '.\windows\ReduceMemory.exe')) {
             $signal = Join-Path $env:RUNNER_TEMP ("refault-{0}.signal" -f [IO.Path]::GetFileName($binary))

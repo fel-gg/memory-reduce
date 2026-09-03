@@ -1211,6 +1211,10 @@ Func RM_HandleCommandLine ( )
 		If RM_ParseWorkerResult ( "broken" & @LF & "7" & @LF & "134217728" & @LF & "6" & @LF & "2" & @LF & "65536" & @LF & "98304" & @LF & "73728" & @LF & "24576" & @LF & "1" ) <> - 1 Then Exit 29
 		If RM_ShouldRecoverRebound ( 1048576 , 983040 ) <> 0 Then Exit 30
 		If RM_ShouldRecoverRebound ( 1048576 , 524288 ) <> 1 Then Exit 31
+		Local $RM_SelfNativeWorker = RM_GetNativeWorkerPath ( )
+		If StringLen ( $RM_SelfNativeWorker ) > 0 Then
+			If RunWait ( '"' & $RM_SelfNativeWorker & '" /selftest' , @ScriptDir , @SW_HIDE ) <> 0 Then Exit 35
+		EndIf
 		RM_ResetLastWorkerMetrics ( )
 		If RM_GetProfileMinimumMB ( $RM_PROFILE_NORMAL ) < 16 Or RM_GetProfileMinimumMB ( $RM_PROFILE_NORMAL ) < $RM_MinProcessMB Then Exit 24
 		If RM_GetProfileMinimumMB ( $RM_PROFILE_SMOOTH ) < 8 Then Exit 25
@@ -2017,7 +2021,62 @@ Func RM_RunConfiguredTrim ( $RM_Profile = - 1 )
 	Else
 		$RM_ProcessFilter = $A1DF0B03725
 	EndIf
+	If $RM_Profile = $RM_PROFILE_AGGRESSIVE Or $RM_Profile = $RM_PROFILE_EMERGENCY Then
+		Local $RM_NativeTrimmed = RM_RunNativeProcessPass ( $RM_Profile , $RM_IncludeOnly , $RM_ProcessFilter )
+		If $RM_NativeTrimmed >= 0 Then Return $RM_NativeTrimmed
+	EndIf
 	Return A2A20200810 ( $RM_IncludeOnly , $RM_ProcessFilter , $RM_Profile )
+EndFunc
+
+Func RM_GetNativeWorkerPath ( )
+	Local $RM_WorkerName = "ReduceMemoryWorker.exe"
+	If @AutoItX64 Then $RM_WorkerName = "ReduceMemoryWorker_x64.exe"
+	Local $RM_WorkerPath = @ScriptDir & "\" & $RM_WorkerName
+	If FileExists ( $RM_WorkerPath ) Then Return $RM_WorkerPath
+	Return ""
+EndFunc
+
+Func RM_RunNativeProcessPass ( $RM_Profile , $RM_IncludeOnly , $RM_ProcessFilter )
+	Local $RM_WorkerPath = RM_GetNativeWorkerPath ( )
+	If StringLen ( $RM_WorkerPath ) = 0 Then Return - 1
+	Local $RM_ResultPath = @TempDir & "\ReduceMemory-native-" & @AutoItPID & "-" & Int ( Random ( 100000 , 999999 , 1 ) ) & ".result"
+	Local $RM_ForegroundPID = 0
+	If $RM_Profile <> $RM_PROFILE_EMERGENCY And $RM_ProtectForeground = 1 Then $RM_ForegroundPID = WinGetProcess ( "[ACTIVE]" )
+	Local $RM_Arguments = "/all /profile=" & $RM_Profile & " /foreground=" & $RM_ForegroundPID & " /exclude-pid=" & @AutoItPID & ' /result="' & $RM_ResultPath & '"'
+	If StringLen ( $RM_ProcessFilter ) > 1 Then
+		If $RM_IncludeOnly = 1 Then
+			$RM_Arguments &= ' /include="' & $RM_ProcessFilter & '"'
+		Else
+			$RM_Arguments &= ' /exclude="' & $RM_ProcessFilter & '"'
+		EndIf
+	EndIf
+	FileDelete ( $RM_ResultPath )
+	Local $RM_ExitCode = RunWait ( '"' & $RM_WorkerPath & '" ' & $RM_Arguments , @ScriptDir , @SW_HIDE )
+	If $RM_ExitCode <> 0 Or Not FileExists ( $RM_ResultPath ) Then
+		FileDelete ( $RM_ResultPath )
+		Return - 1
+	EndIf
+	Local $RM_ResultText = StringReplace ( FileRead ( $RM_ResultPath ) , @CR , "" )
+	FileDelete ( $RM_ResultPath )
+	Local $RM_Lines = StringSplit ( $RM_ResultText , @LF , 1 )
+	If Not IsArray ( $RM_Lines ) Or $RM_Lines [ 0 ] < 4 Then Return - 1
+	For $RM_HeaderIndex = 1 To 4
+		If Not StringRegExp ( StringStripWS ( $RM_Lines [ $RM_HeaderIndex ] , 3 ) , "^[0-9]+$" ) Then Return - 1
+	Next
+	If Int ( $RM_Lines [ 1 ] ) <> 0 Then Return - 1
+	Local $RM_Trimmed = Int ( $RM_Lines [ 2 ] )
+	Local $RM_ReleasedBytes = Number ( $RM_Lines [ 3 ] )
+	Local $RM_TargetCount = Int ( $RM_Lines [ 4 ] )
+	If $RM_Trimmed < 0 Or $RM_ReleasedBytes < 0 Or $RM_TargetCount < 0 Or $RM_TargetCount > $RM_Lines [ 0 ] - 4 Then Return - 1
+	RM_ResetLastPassTargets ( )
+	For $RM_TargetIndex = 1 To $RM_TargetCount
+		Local $RM_TargetFields = StringSplit ( $RM_Lines [ $RM_TargetIndex + 4 ] , "|" , 1 )
+		If Not IsArray ( $RM_TargetFields ) Or $RM_TargetFields [ 0 ] < 3 Then ContinueLoop
+		If Not StringRegExp ( $RM_TargetFields [ 1 ] , "^[0-9]+$" ) Or Not StringRegExp ( $RM_TargetFields [ 2 ] , "^[0-9]+$" ) Then ContinueLoop
+		RM_RecordLastPassTarget ( $RM_TargetFields [ 3 ] , Int ( $RM_TargetFields [ 1 ] ) , Number ( $RM_TargetFields [ 2 ] ) )
+	Next
+	$RM_LastTrimReleasedBytes = $RM_ReleasedBytes
+	Return $RM_Trimmed
 EndFunc
 
 Func RM_GetWorkingSetBytes ( $RM_ProcessPID )

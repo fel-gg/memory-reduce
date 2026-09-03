@@ -74,11 +74,21 @@ sebelum, operasi trim, dan working set sesudah dibaca dari proses yang sama.
 Saat recovery dibutuhkan, hanya proses yang benar-benar mengambil kembali
 minimal 16 MB sejak pass terakhir yang ditrim ulang. Jadi recovery tidak lagi
 menyapu semua aplikasi hanya karena angka RAM sistem berubah.
+Untuk Aggressive dan Emergency, pass proses memakai worker C native sesuai
+arsitektur. Jika helper hilang, gagal, atau mengembalikan hasil malformed,
+aplikasi otomatis kembali ke pipeline AutoIt yang sudah tervalidasi; Normal,
+Smooth, AI Shield, dan startup tidak bergantung pada helper ini.
 
 ## Isi folder
 
 - [`windows/ReduceMemory_x64.exe`](windows/ReduceMemory_x64.exe) — Windows 64-bit.
 - [`windows/ReduceMemory.exe`](windows/ReduceMemory.exe) — Windows 32-bit (x86).
+- [`windows/ReduceMemoryWorker_x64.exe`](windows/ReduceMemoryWorker_x64.exe) —
+  native process engine untuk Windows 64-bit.
+- [`windows/ReduceMemoryWorker.exe`](windows/ReduceMemoryWorker.exe) — native
+  process engine untuk Windows 32-bit.
+- [`windows/native/reduce_memory_worker.c`](windows/native/reduce_memory_worker.c) —
+  source C worker native; AutoIt tetap menjadi UI dan fallback kompatibel.
 - [`windows/ReduceMemory.ini`](windows/ReduceMemory.ini) — pengaturan Windows.
 - [`src/ReduceMemory.au3`](src/ReduceMemory.au3) — source utama AutoIt.
 - [`linux/ReduceMemory_Linux.sh`](linux/ReduceMemory_Linux.sh) — script untuk

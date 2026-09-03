@@ -2,6 +2,13 @@
 
 ## Reduce Memory 2.8 — 2026
 
+- Added dependency-free native C process workers for Windows x64 and x86.
+  Aggressive/Emergency process passes now use a single native Toolhelp snapshot
+  and owned handle lifecycle, with validated structured results and automatic
+  fallback to the maintained AutoIt engine.
+- Added explicit `/all` authorization inside the native worker; without `/all`
+  or one `/pid`, it refuses to trim. CI rebuilds both architectures with the
+  checksum-pinned official Zig compiler and exercises only disposable targets.
 - Added rebound-aware stabilization to full Aggressive on Windows and Linux.
   After the first reclaim settles for three seconds, the backend measures how
   much Available RAM applications took back and performs at most one recovery

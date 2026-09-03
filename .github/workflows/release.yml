@@ -32,6 +32,8 @@ jobs:
             "${RELEASE_TAG}" \
             windows/ReduceMemory_x64.exe \
             windows/ReduceMemory.exe \
+            windows/ReduceMemoryWorker_x64.exe \
+            windows/ReduceMemoryWorker.exe \
             windows/ReduceMemory.ini \
             README.md \
             LICENSE
@@ -75,6 +77,8 @@ jobs:
           windows_root="audit/windows/ReduceMemory-Windows-v${version}"
           test -s "${windows_root}/windows/ReduceMemory_x64.exe"
           test -s "${windows_root}/windows/ReduceMemory.exe"
+          test -s "${windows_root}/windows/ReduceMemoryWorker_x64.exe"
+          test -s "${windows_root}/windows/ReduceMemoryWorker.exe"
           iconv -f UTF-16LE -t UTF-8 "${windows_root}/windows/ReduceMemory.ini" \
             | grep -F 'OptimizeMode=0'
 
