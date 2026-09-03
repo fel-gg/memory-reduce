@@ -11,6 +11,13 @@
   observed rebound, and recovery-pass fields. These stay separate from gross
   per-process working-set reduction so repeated release is not reported as
   unique RAM saved.
+- Consolidated the Windows hot path around a single owned handle per candidate,
+  replacing repeated process opens for path, memory, trim, and measurement.
+  Rebound recovery now revisits only previously trimmed processes that regained
+  at least 16 MB instead of rescanning and trimming the entire candidate set.
+- Added a real refault fixture for both Windows architectures: it re-touches a
+  256 MB allocation after the initial trim, requires exactly one recovery pass,
+  and verifies the target process remains alive.
 - Removed 13 provably unreachable helpers inherited from the reconstructed
   Windows source, consolidated repeated numeric INI validation, and reused the
   candidate filter's working-set measurement during trimming. This reduces

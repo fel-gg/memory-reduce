@@ -124,6 +124,10 @@ Global $RM_LastAggressiveOk = 0
 Global $RM_LastTrimReleasedBytes = 0
 Global $RM_LastProcessTrimMB = 0
 Global $RM_LastTrimmedCount = 0
+Global $RM_LastPassTargetCount = 0
+Global $RM_LastPassTargetPIDs [ 1 ]
+Global $RM_LastPassTargetNames [ 1 ]
+Global $RM_LastPassAfterWorkingSet [ 1 ]
 Global $RM_WorkerTotalTrimmed = 0
 Global $RM_WorkerTotalReleasedBytes = 0
 Global $RM_WorkerNativeSteps = 0
@@ -166,6 +170,7 @@ Global $RM_ReboundCooldownSeconds = 60
 Global $RM_AggressiveStabilizeMs = RM_ReadBoundedInt ( "AggressiveStabilizeMs" , 3000 , 1000 , 15000 )
 Global $RM_AggressiveReboundMinMB = RM_ReadBoundedInt ( "AggressiveReboundMinMB" , 64 , 16 , 2048 )
 Global $RM_AggressiveReboundPercent = RM_ReadBoundedInt ( "AggressiveReboundPercent" , 20 , 5 , 80 )
+Global $RM_ProcessRefaultMinMB = RM_ReadBoundedInt ( "ProcessRefaultMinMB" , 16 , 4 , 1024 )
 ; Startup is a separate silent Normal pass plus a tiny pressure monitor. It
 ; never runs an elevated/native memory-list purge, so Windows login does not
 ; produce a UAC prompt or an Emergency-mode stutter. The monitor only re-arms
@@ -489,6 +494,48 @@ Func RM_ShouldRecoverRebound ( $RM_PeakGainKB , $RM_StableGainKB )
 	Return Number ( $RM_ReboundKB >= $RM_ThresholdKB )
 EndFunc
 
+Func RM_ResetLastPassTargets ( )
+	$RM_LastPassTargetCount = 0
+	ReDim $RM_LastPassTargetPIDs [ 1 ]
+	ReDim $RM_LastPassTargetNames [ 1 ]
+	ReDim $RM_LastPassAfterWorkingSet [ 1 ]
+EndFunc
+
+Func RM_RecordLastPassTarget ( $RM_ProcessName , $RM_ProcessPID , $RM_AfterWorkingSet )
+	$RM_LastPassTargetCount += 1
+	ReDim $RM_LastPassTargetPIDs [ $RM_LastPassTargetCount + 1 ]
+	ReDim $RM_LastPassTargetNames [ $RM_LastPassTargetCount + 1 ]
+	ReDim $RM_LastPassAfterWorkingSet [ $RM_LastPassTargetCount + 1 ]
+	$RM_LastPassTargetPIDs [ $RM_LastPassTargetCount ] = $RM_ProcessPID
+	$RM_LastPassTargetNames [ $RM_LastPassTargetCount ] = $RM_ProcessName
+	$RM_LastPassAfterWorkingSet [ $RM_LastPassTargetCount ] = $RM_AfterWorkingSet
+EndFunc
+
+Func RM_RunRefaultRecovery ( $RM_Profile )
+	Local $RM_RecoveryCount = 0 , $RM_RecoveryReleasedBytes = 0
+	Local $RM_ForegroundPID = 0
+	If $RM_ProtectForeground = 1 Then $RM_ForegroundPID = WinGetProcess ( "[ACTIVE]" )
+	For $RM_TargetIndex = 1 To $RM_LastPassTargetCount
+		Local $RM_TargetPID = $RM_LastPassTargetPIDs [ $RM_TargetIndex ]
+		If Not ProcessExists ( $RM_TargetPID ) Then ContinueLoop
+		Local $RM_CurrentWorkingSet = 0 , $RM_TargetHandle = 0
+		If RM_ShouldSkipProcess ( $RM_LastPassTargetNames [ $RM_TargetIndex ] , $RM_TargetPID , $RM_ForegroundPID , $RM_Profile , $RM_CurrentWorkingSet , $RM_TargetHandle ) Then ContinueLoop
+		Local $RM_RefaultBytes = $RM_CurrentWorkingSet - $RM_LastPassAfterWorkingSet [ $RM_TargetIndex ]
+		If $RM_RefaultBytes < $RM_ProcessRefaultMinMB * 1048576 Then
+			RM_CloseProcessHandle ( $RM_TargetHandle )
+			ContinueLoop
+		EndIf
+		If RM_TrimProcessHandle ( $RM_TargetHandle ) = 1 Then
+			Local $RM_AfterWorkingSet = RM_GetWorkingSetFromHandle ( $RM_TargetHandle )
+			If $RM_CurrentWorkingSet > $RM_AfterWorkingSet Then $RM_RecoveryReleasedBytes += $RM_CurrentWorkingSet - $RM_AfterWorkingSet
+			$RM_RecoveryCount += 1
+		EndIf
+		RM_CloseProcessHandle ( $RM_TargetHandle )
+	Next
+	$RM_LastTrimReleasedBytes = $RM_RecoveryReleasedBytes
+	Return $RM_RecoveryCount
+EndFunc
+
 Func RM_AggressiveRelease ( $RM_Smooth = 0 , $RM_ProcessProfile = 2 )
 	Local $RM_AvailableBefore = MemGetStats ( )
 	Local $RM_ProfilePrivilege = RM_EnablePrivilege ( "SeProfileSingleProcessPrivilege" )
@@ -560,7 +607,7 @@ Func RM_AggressiveRelease ( $RM_Smooth = 0 , $RM_ProcessProfile = 2 )
 			If $RM_ThisReboundKB < 0 Then $RM_ThisReboundKB = 0
 		EndIf
 		If RM_ShouldRecoverRebound ( $RM_ThisPeakGainKB , $RM_ThisStableGainKB ) Then
-			Local $RM_RecoveryTrimmed = RM_RunConfiguredTrim ( $RM_ProcessProfile )
+			Local $RM_RecoveryTrimmed = RM_RunRefaultRecovery ( $RM_ProcessProfile )
 			$RM_ProcessTrimmed += $RM_RecoveryTrimmed
 			$RM_ProcessReleasedBytes += $RM_LastTrimReleasedBytes
 			$RM_ThisPasses += 1
@@ -1195,13 +1242,50 @@ Func RM_HandleCommandLine ( )
 		If $CMDLINE [ 0 ] < 2 Then Exit 20
 		Local $RM_TrimTestPID = Int ( Number ( $CMDLINE [ 2 ] ) )
 		If $RM_TrimTestPID <= 0 Or $RM_TrimTestPID = @AutoItPID Then Exit 20
-		Local $RM_TrimTestBefore = RM_GetWorkingSetBytes ( $RM_TrimTestPID )
-		Local $RM_TrimTestOk = RM_TrimProcessWorkingSet ( $RM_TrimTestPID )
+		Local $RM_TrimTestHandle = RM_OpenTrimProcess ( $RM_TrimTestPID )
+		If $RM_TrimTestHandle = 0 Then Exit 21
+		Local $RM_TrimTestBefore = RM_GetWorkingSetFromHandle ( $RM_TrimTestHandle )
+		Local $RM_TrimTestOk = RM_TrimProcessHandle ( $RM_TrimTestHandle )
 		Sleep ( 100 )
-		Local $RM_TrimTestAfter = RM_GetWorkingSetBytes ( $RM_TrimTestPID )
+		Local $RM_TrimTestAfter = RM_GetWorkingSetFromHandle ( $RM_TrimTestHandle )
+		RM_CloseProcessHandle ( $RM_TrimTestHandle )
 		If $CMDLINE [ 0 ] >= 3 Then FileWrite ( $CMDLINE [ 3 ] , $RM_TrimTestBefore & @LF & $RM_TrimTestAfter )
 		If $RM_TrimTestOk = 1 And ProcessExists ( $RM_TrimTestPID ) And $RM_TrimTestBefore > $RM_TrimTestAfter Then Exit 0
 		Exit 21
+	EndIf
+	; Disposable integration probe for the rebound engine. The target controls
+	; when it re-touches its allocation through a signal file; only that PID is
+	; eligible for the recovery pass and the process must remain alive.
+	If $CMDLINE [ 1 ] = "/RMREFAULTTEST" Then
+		If $CMDLINE [ 0 ] < 4 Then Exit 32
+		Local $RM_RefaultPID = Int ( Number ( $CMDLINE [ 2 ] ) )
+		Local $RM_RefaultResultPath = $CMDLINE [ 3 ]
+		Local $RM_RefaultSignalPath = $CMDLINE [ 4 ]
+		If $RM_RefaultPID <= 0 Or $RM_RefaultPID = @AutoItPID Then Exit 32
+		Local $RM_RefaultHandle = RM_OpenTrimProcess ( $RM_RefaultPID )
+		If $RM_RefaultHandle = 0 Then Exit 33
+		Local $RM_RefaultBefore = RM_GetWorkingSetFromHandle ( $RM_RefaultHandle )
+		If RM_TrimProcessHandle ( $RM_RefaultHandle ) <> 1 Then
+			RM_CloseProcessHandle ( $RM_RefaultHandle )
+			Exit 33
+		EndIf
+		Sleep ( 100 )
+		Local $RM_RefaultInitial = RM_GetWorkingSetFromHandle ( $RM_RefaultHandle )
+		RM_CloseProcessHandle ( $RM_RefaultHandle )
+		Local $RM_RefaultList = ProcessList ( $RM_RefaultPID )
+		Local $RM_RefaultName = "rebound-target.exe"
+		If IsArray ( $RM_RefaultList ) And $RM_RefaultList [ 0 ] [ 0 ] > 0 Then $RM_RefaultName = $RM_RefaultList [ 1 ] [ 0 ]
+		RM_ResetLastPassTargets ( )
+		RM_RecordLastPassTarget ( $RM_RefaultName , $RM_RefaultPID , $RM_RefaultInitial )
+		FileWrite ( $RM_RefaultSignalPath , "retouch" )
+		Sleep ( 1500 )
+		Local $RM_RefaultResident = RM_GetWorkingSetBytes ( $RM_RefaultPID )
+		Local $RM_RefaultRecovered = RM_RunRefaultRecovery ( $RM_PROFILE_AGGRESSIVE )
+		Sleep ( 100 )
+		Local $RM_RefaultFinal = RM_GetWorkingSetBytes ( $RM_RefaultPID )
+		FileWrite ( $RM_RefaultResultPath , $RM_RefaultBefore & @LF & $RM_RefaultInitial & @LF & $RM_RefaultResident & @LF & $RM_RefaultFinal & @LF & $RM_RefaultRecovered )
+		If $RM_RefaultRecovered = 1 And ProcessExists ( $RM_RefaultPID ) And $RM_RefaultResident > $RM_RefaultFinal Then Exit 0
+		Exit 34
 	EndIf
 	; /H remains an alias so existing startup shortcuts automatically receive
 	; the new silent cleanup + 95% monitor after the executable is updated.
@@ -1754,26 +1838,6 @@ Func A3C10F0125A ( $A0522602B41 , $A012270461C = @DesktopDir )
 	FileClose ( $A5722B04646 )
 	Return $A092280353D
 EndFunc
-Func RM_TrimProcessWorkingSet ( $A3822F01F2E = 0 )
-	If Not IsDeclared ( "SSRM_TrimProcessWorkingSet" ) Then
-		Global $A3632003763 = " @AutoItPID " , $A5A32202E2C = "ptr" , $A033230552B = "OpenProcess" , $A4E32404148 = "dword" , $A3632503E29 = "int" , $A2132605706 = "dword" , $A5432802A34 = "int" , $A2B32900D63 = "EmptyWorkingSet" , $A0632A0541B = "ptr" , $A1532B04830 = "bool" , $A2D32C00F3F = "CloseHandle" , $A6032D01255 = "handle"
-		Global $SSRM_TrimProcessWorkingSet = 1
-	EndIf
-	If Not $A3822F01F2E Then $A3822F01F2E = Execute ( $A3632003763 )
-	Local $A0D3210155D = DllCall ( $A55C0703122 , $A5A32202E2C , $A033230552B , $A4E32404148 , $A4301102A51 , $A3632503E29 , 0 , $A2132605706 , $A3822F01F2E )
-	If ( @error ) Or ( Not $A0D3210155D [ 0 ] ) Then Return SetError ( 1 , 0 , 0 )
-	Local $A1132703101 = DllCall ( $A29D0503B5E , $A5432802A34 , $A2B32900D63 , $A0632A0541B , $A0D3210155D [ 0 ] )
-	If ( @error ) Or ( Not IsArray ( $A1132703101 ) ) Or ( Not $A1132703101 [ 0 ] ) Then
-		; EmptyWorkingSet is the primary path. SetProcessWorkingSetSizeEx with
-		; minimum/maximum -1 is the documented Windows fallback for processes
-		; whose working set can be adjusted but whose PSAPI call was unavailable.
-		$A1132703101 = DllCall ( $A55C0703122 , "bool" , "SetProcessWorkingSetSizeEx" , "handle" , $A0D3210155D [ 0 ] , "ulong_ptr" , - 1 , "ulong_ptr" , - 1 , "dword" , 0 )
-		If @error Or Not IsArray ( $A1132703101 ) Or $A1132703101 [ 0 ] = 0 Then $A1132703101 = 0
-	EndIf
-	DllCall ( $A55C0703122 , $A1532B04830 , $A2D32C00F3F , $A6032D01255 , $A0D3210155D [ 0 ] )
-	If Not IsArray ( $A1132703101 ) Then Return SetError ( 1 , 0 , 0 )
-	Return 1
-EndFunc
 Func RM_TrimOwnWorkingSet ( )
 	If Not IsDeclared ( "SSRM_TrimOwnWorkingSet" ) Then
 		Global $A4432E0631F = "int" , $A3432F00362 = "EmptyWorkingSet" , $A6042005352 = "long"
@@ -1782,6 +1846,42 @@ Func RM_TrimOwnWorkingSet ( )
 	Local $RM_TrimOwnResult = DllCall ( $A29D0503B5E , $A4432E0631F , $A3432F00362 , $A6042005352 , - 1 )
 	If @error Or Not IsArray ( $RM_TrimOwnResult ) Or Not $RM_TrimOwnResult [ 0 ] Then Return SetError ( 1 , 0 , 0 )
 	Return 1
+EndFunc
+
+Func RM_OpenTrimProcess ( $RM_ProcessPID )
+	Local $RM_OpenResult = DllCall ( $A55C0703122 , "handle" , "OpenProcess" , "dword" , $A4301102A51 , "bool" , False , "dword" , $RM_ProcessPID )
+	If @error Or Not IsArray ( $RM_OpenResult ) Or $RM_OpenResult [ 0 ] = 0 Then Return 0
+	Return $RM_OpenResult [ 0 ]
+EndFunc
+
+Func RM_CloseProcessHandle ( $RM_ProcessHandle )
+	If $RM_ProcessHandle = 0 Then Return
+	DllCall ( $A55C0703122 , "bool" , "CloseHandle" , "handle" , $RM_ProcessHandle )
+EndFunc
+
+Func RM_GetWorkingSetFromHandle ( $RM_ProcessHandle )
+	; PROCESS_MEMORY_COUNTERS_EX uses pointer-sized counters on both x86 and x64.
+	Local $RM_Counters = DllStructCreate ( "dword cb;dword PageFaultCount;ulong_ptr PeakWorkingSetSize;ulong_ptr WorkingSetSize;ulong_ptr QuotaPeakPagedPoolUsage;ulong_ptr QuotaPagedPoolUsage;ulong_ptr QuotaPeakNonPagedPoolUsage;ulong_ptr QuotaNonPagedPoolUsage;ulong_ptr PagefileUsage;ulong_ptr PeakPagefileUsage;ulong_ptr PrivateUsage" )
+	DllStructSetData ( $RM_Counters , "cb" , DllStructGetSize ( $RM_Counters ) )
+	Local $RM_Query = DllCall ( $A29D0503B5E , "bool" , "GetProcessMemoryInfo" , "handle" , $RM_ProcessHandle , "ptr" , DllStructGetPtr ( $RM_Counters ) , "dword" , DllStructGetSize ( $RM_Counters ) )
+	If @error Or Not IsArray ( $RM_Query ) Or $RM_Query [ 0 ] = 0 Then Return 0
+	Return Number ( DllStructGetData ( $RM_Counters , "WorkingSetSize" ) )
+EndFunc
+
+Func RM_GetProcessPathFromHandle ( $RM_ProcessHandle )
+	Local $RM_PathCapacity = 32768
+	Local $RM_PathBuffer = DllStructCreate ( "wchar[" & $RM_PathCapacity & "]" )
+	Local $RM_PathResult = DllCall ( $A55C0703122 , "bool" , "QueryFullProcessImageNameW" , "handle" , $RM_ProcessHandle , "dword" , 0 , "ptr" , DllStructGetPtr ( $RM_PathBuffer ) , "dword*" , $RM_PathCapacity )
+	If @error Or Not IsArray ( $RM_PathResult ) Or $RM_PathResult [ 0 ] = 0 Then Return ""
+	Return DllStructGetData ( $RM_PathBuffer , 1 )
+EndFunc
+
+Func RM_TrimProcessHandle ( $RM_ProcessHandle )
+	Local $RM_TrimResult = DllCall ( $A29D0503B5E , "bool" , "EmptyWorkingSet" , "handle" , $RM_ProcessHandle )
+	If @error Or Not IsArray ( $RM_TrimResult ) Or $RM_TrimResult [ 0 ] = 0 Then
+		$RM_TrimResult = DllCall ( $A55C0703122 , "bool" , "SetProcessWorkingSetSizeEx" , "handle" , $RM_ProcessHandle , "ulong_ptr" , - 1 , "ulong_ptr" , - 1 , "dword" , 0 )
+	EndIf
+	Return Number ( Not @error And IsArray ( $RM_TrimResult ) And $RM_TrimResult [ 0 ] <> 0 )
 EndFunc
 
 Func RM_TrackActiveProcess ( )
@@ -1883,13 +1983,9 @@ EndFunc
 Func RM_GetProcessPath ( $RM_ProcessPID )
 	Local $RM_ProcessHandle = DllCall ( "kernel32.dll" , "handle" , "OpenProcess" , "dword" , 0x1000 , "bool" , False , "dword" , $RM_ProcessPID )
 	If @error Or Not IsArray ( $RM_ProcessHandle ) Or $RM_ProcessHandle [ 0 ] = 0 Then Return ""
-	Local $RM_PathCapacity = 32768
-	Local $RM_PathBuffer = DllStructCreate ( "wchar[" & $RM_PathCapacity & "]" )
-	Local $RM_PathResult = DllCall ( "kernel32.dll" , "bool" , "QueryFullProcessImageNameW" , "handle" , $RM_ProcessHandle [ 0 ] , "dword" , 0 , "ptr" , DllStructGetPtr ( $RM_PathBuffer ) , "dword*" , $RM_PathCapacity )
-	Local $RM_PathError = @error
-	DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_ProcessHandle [ 0 ] )
-	If $RM_PathError Or Not IsArray ( $RM_PathResult ) Or $RM_PathResult [ 0 ] = 0 Then Return ""
-	Return DllStructGetData ( $RM_PathBuffer , 1 )
+	Local $RM_Path = RM_GetProcessPathFromHandle ( $RM_ProcessHandle [ 0 ] )
+	RM_CloseProcessHandle ( $RM_ProcessHandle [ 0 ] )
+	Return $RM_Path
 EndFunc
 
 ; Internal trim profiles keep the visible mode list simple while giving every
@@ -1964,6 +2060,7 @@ Func A2A20200810 ( $A3C42101753 = 0 , $A6242203763 = "" , $RM_Profile = - 1 )
 	Local $A2A4230391F = 0
 	Local $RM_TotalReleasedBytes = 0
 	$RM_LastTrimReleasedBytes = 0
+	RM_ResetLastPassTargets ( )
 	If $RM_Profile < 0 Then $RM_Profile = RM_GetTrimProfile ( )
 	If $RM_Profile = $RM_PROFILE_AI_SHIELD Then
 		RM_BuildAIShield ( )
@@ -1989,18 +2086,16 @@ Func A2A20200810 ( $A3C42101753 = 0 , $A6242203763 = "" , $RM_Profile = - 1 )
 
 			Local $RM_TargetPID = $A5E4240211A [ $A17A0803B53 ] [ 1 ]
 			Local $RM_BeforeWorkingSet = 0
-			If RM_ShouldSkipProcess ( $A5E4240211A [ $A17A0803B53 ] [ 0 ] , $RM_TargetPID , $RM_ForegroundPID , $RM_Profile , $RM_BeforeWorkingSet ) Then ContinueLoop
-			Local $RM_TrimSucceeded = 0
-			If $A26B0601541 = $A5E4240211A [ $A17A0803B53 ] [ 1 ] Then
-				$RM_TrimSucceeded = RM_TrimOwnWorkingSet ( )
-			Else
-				$RM_TrimSucceeded = RM_TrimProcessWorkingSet ( $RM_TargetPID )
-			EndIf
+			Local $RM_TargetHandle = 0
+			If RM_ShouldSkipProcess ( $A5E4240211A [ $A17A0803B53 ] [ 0 ] , $RM_TargetPID , $RM_ForegroundPID , $RM_Profile , $RM_BeforeWorkingSet , $RM_TargetHandle ) Then ContinueLoop
+			Local $RM_TrimSucceeded = RM_TrimProcessHandle ( $RM_TargetHandle )
 			If $RM_TrimSucceeded = 1 Then
 				$A2A4230391F += 1
-				Local $RM_AfterWorkingSet = RM_GetWorkingSetBytes ( $RM_TargetPID )
+				Local $RM_AfterWorkingSet = RM_GetWorkingSetFromHandle ( $RM_TargetHandle )
 				If $RM_BeforeWorkingSet > $RM_AfterWorkingSet Then $RM_TotalReleasedBytes += $RM_BeforeWorkingSet - $RM_AfterWorkingSet
+				RM_RecordLastPassTarget ( $A5E4240211A [ $A17A0803B53 ] [ 0 ] , $RM_TargetPID , $RM_AfterWorkingSet )
 			EndIf
+			RM_CloseProcessHandle ( $RM_TargetHandle )
 		EndIf
 	Next
 	$RM_LastTrimReleasedBytes = $RM_TotalReleasedBytes
@@ -2009,33 +2104,59 @@ EndFunc
 ; Return true for processes that should not be trimmed during the normal
 ; (all-processes-except-exclusions) pass. Explicit include mode remains
 ; available for advanced users who intentionally target a small process.
-Func RM_ShouldSkipProcess ( $RM_ProcessName , $RM_ProcessPID , $RM_ForegroundPID , $RM_Profile , ByRef $RM_WorkingSetBytes )
+Func RM_ShouldSkipProcess ( $RM_ProcessName , $RM_ProcessPID , $RM_ForegroundPID , $RM_Profile , ByRef $RM_WorkingSetBytes , ByRef $RM_ProcessHandle )
 	$RM_WorkingSetBytes = 0
+	$RM_ProcessHandle = 0
 	Local $RM_Name = StringLower ( StringStripWS ( $RM_ProcessName , 3 ) )
 	If $RM_ProcessPID = @AutoItPID Then Return 1
 	If $RM_Profile = $RM_PROFILE_AI_SHIELD And StringInStr ( $RM_AIShieldPIDs , "|" & $RM_ProcessPID & "|" ) > 0 Then Return 1
 	Local $RM_Protected = "|system idle process|system|registry|memory compression|secure system|csrss.exe|smss.exe|wininit.exe|winlogon.exe|services.exe|lsass.exe|dwm.exe|audiodg.exe|fontdrvhost.exe|"
 	If StringInStr ( $RM_Protected , "|" & $RM_Name & "|" ) > 0 Then Return 1
-	Local $RM_Path = StringLower ( StringStripWS ( RM_GetProcessPath ( $RM_ProcessPID ) , 3 ) )
+	$RM_ProcessHandle = RM_OpenTrimProcess ( $RM_ProcessPID )
+	If $RM_ProcessHandle = 0 Then Return 1
+	Local $RM_Path = StringLower ( StringStripWS ( RM_GetProcessPathFromHandle ( $RM_ProcessHandle ) , 3 ) )
 	Local $RM_WindowsRoot = @WindowsDir
 	If StringRight ( $RM_WindowsRoot , 1 ) <> "\" Then $RM_WindowsRoot &= "\"
 	$RM_WindowsRoot = StringLower ( $RM_WindowsRoot )
-	If StringLen ( $RM_Path ) > 0 And StringLeft ( $RM_Path , StringLen ( $RM_WindowsRoot ) ) = $RM_WindowsRoot Then Return 1
+	If StringLen ( $RM_Path ) > 0 And StringLeft ( $RM_Path , StringLen ( $RM_WindowsRoot ) ) = $RM_WindowsRoot Then
+		RM_CloseProcessHandle ( $RM_ProcessHandle )
+		$RM_ProcessHandle = 0
+		Return 1
+	EndIf
 	; Emergency is intentionally the only profile that may trim the foreground.
 	; Full Aggressive still protects the current window, but unlike Normal,
 	; Smooth, and AI Shield it may reclaim an app after it moves to background.
 	If $RM_Profile <> $RM_PROFILE_EMERGENCY Then
-		If $RM_ProtectForeground = 1 And $RM_ForegroundPID > 0 And $RM_ProcessPID = $RM_ForegroundPID Then Return 1
+		If $RM_ProtectForeground = 1 And $RM_ForegroundPID > 0 And $RM_ProcessPID = $RM_ForegroundPID Then
+			RM_CloseProcessHandle ( $RM_ProcessHandle )
+			$RM_ProcessHandle = 0
+			Return 1
+		EndIf
 	EndIf
 	If $RM_Profile = $RM_PROFILE_NORMAL Or $RM_Profile = $RM_PROFILE_SMOOTH Or $RM_Profile = $RM_PROFILE_AI_SHIELD Then
-		If $RM_RecentActivePID > 0 And $RM_ProcessPID = $RM_RecentActivePID And $RM_RecentActiveAt > 0 And TimerDiff ( $RM_RecentActiveAt ) < $RM_ActiveShieldSeconds * 1000 Then Return 1
+		If $RM_RecentActivePID > 0 And $RM_ProcessPID = $RM_RecentActivePID And $RM_RecentActiveAt > 0 And TimerDiff ( $RM_RecentActiveAt ) < $RM_ActiveShieldSeconds * 1000 Then
+			RM_CloseProcessHandle ( $RM_ProcessHandle )
+			$RM_ProcessHandle = 0
+			Return 1
+		EndIf
 	EndIf
-	If ( $RM_Profile = $RM_PROFILE_NORMAL Or $RM_Profile = $RM_PROFILE_SMOOTH Or $RM_Profile = $RM_PROFILE_AI_SHIELD ) And StringInStr ( $RM_CPUShieldPIDs , "|" & $RM_ProcessPID & "|" ) > 0 Then Return 1
-	Local $RM_Stats = ProcessGetStats ( $RM_ProcessPID , 0 )
-	If IsArray ( $RM_Stats ) And Number ( $RM_Stats [ 0 ] ) > 0 Then
-		$RM_WorkingSetBytes = Number ( $RM_Stats [ 0 ] )
+	If ( $RM_Profile = $RM_PROFILE_NORMAL Or $RM_Profile = $RM_PROFILE_SMOOTH Or $RM_Profile = $RM_PROFILE_AI_SHIELD ) And StringInStr ( $RM_CPUShieldPIDs , "|" & $RM_ProcessPID & "|" ) > 0 Then
+		RM_CloseProcessHandle ( $RM_ProcessHandle )
+		$RM_ProcessHandle = 0
+		Return 1
+	EndIf
+	$RM_WorkingSetBytes = RM_GetWorkingSetFromHandle ( $RM_ProcessHandle )
+	If $RM_WorkingSetBytes > 0 Then
 		Local $RM_ProfileMinimumMB = RM_GetProfileMinimumMB ( $RM_Profile )
-		If $RM_Profile <> $RM_PROFILE_EMERGENCY And $RM_WorkingSetBytes < $RM_ProfileMinimumMB * 1024 * 1024 Then Return 1
+		If $RM_Profile <> $RM_PROFILE_EMERGENCY And $RM_WorkingSetBytes < $RM_ProfileMinimumMB * 1024 * 1024 Then
+			RM_CloseProcessHandle ( $RM_ProcessHandle )
+			$RM_ProcessHandle = 0
+			Return 1
+		EndIf
+	Else
+		RM_CloseProcessHandle ( $RM_ProcessHandle )
+		$RM_ProcessHandle = 0
+		Return 1
 	EndIf
 	Return 0
 EndFunc
@@ -2052,7 +2173,9 @@ Func RM_ValidateNormalSelection ( )
 	If $RM_ProtectForeground = 1 Then $RM_ForegroundPID = WinGetProcess ( "[ACTIVE]" )
 	For $RM_ProcessIndex = 1 To $RM_Processes [ 0 ] [ 0 ]
 		Local $RM_ValidatedWorkingSet = 0
-		RM_ShouldSkipProcess ( $RM_Processes [ $RM_ProcessIndex ] [ 0 ] , $RM_Processes [ $RM_ProcessIndex ] [ 1 ] , $RM_ForegroundPID , 0 , $RM_ValidatedWorkingSet )
+		Local $RM_ValidatedHandle = 0
+		RM_ShouldSkipProcess ( $RM_Processes [ $RM_ProcessIndex ] [ 0 ] , $RM_Processes [ $RM_ProcessIndex ] [ 1 ] , $RM_ForegroundPID , 0 , $RM_ValidatedWorkingSet , $RM_ValidatedHandle )
+		RM_CloseProcessHandle ( $RM_ValidatedHandle )
 	Next
 	Return $RM_Processes [ 0 ] [ 0 ]
 EndFunc

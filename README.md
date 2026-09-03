@@ -69,6 +69,12 @@ dihitung ulang sekali lagi. Kalau memori masih langsung diambil kembali,
 rebound protection menahan operasi berat selama 60 detik. Ringkasan setiap
 operasi juga disimpan di `windows/ReduceMemory.log` dengan ukuran terbatas.
 
+Pemindaian Windows sekarang memakai satu handle per kandidat: path, working set
+sebelum, operasi trim, dan working set sesudah dibaca dari proses yang sama.
+Saat recovery dibutuhkan, hanya proses yang benar-benar mengambil kembali
+minimal 16 MB sejak pass terakhir yang ditrim ulang. Jadi recovery tidak lagi
+menyapu semua aplikasi hanya karena angka RAM sistem berubah.
+
 ## Isi folder
 
 - [`windows/ReduceMemory_x64.exe`](windows/ReduceMemory_x64.exe) — Windows 64-bit.
@@ -89,7 +95,8 @@ operasi juga disimpan di `windows/ReduceMemory.log` dengan ukuran terbatas.
 
 Self-test biasa tidak memangkas RAM atau membersihkan cache. Ia memeriksa pembacaan
 RAM/commit, CPU time, process-path WinAPI, seluruh jalur pemilihan kandidat
-Normal, keenam mode, AI Shield, parser hasil worker, logika trigger 95%/re-arm
+Normal, keenam mode, AI Shield, parser hasil worker, logika rebound/recovery,
+logika trigger 95%/re-arm
 90%, minimum kandidat tiap profil, dan penulisan log:
 
 ```powershell

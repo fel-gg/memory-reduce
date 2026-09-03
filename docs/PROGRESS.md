@@ -24,6 +24,15 @@ the AutoIt source for every intermediate binary.
 - Extended the Windows worker protocol from six to ten validated integer
   fields for peak/stable/rebound/recovery metrics, and taught CI to reject
   malformed stabilization results or an unbounded pass count.
+- Replaced repeated Windows path/stat/trim queries with one owned process handle
+  per eligible candidate. `GetProcessMemoryInfo`, path validation, working-set
+  trim, and the after measurement now share that handle and close it exactly
+  once. The old duplicate per-process trim helper was removed after all callers
+  moved to the new pipeline.
+- Made rebound recovery target-aware: the final pass remembers every process it
+  actually trimmed and only revisits entries that refault at least 16 MB. A
+  disposable x64/x86 integration target now allocates, gets trimmed, deliberately
+  re-touches all pages, gets recovered once, and must remain alive.
 - Audited all tracked Windows and Linux functions before refactoring. Removed
   13 unreachable reconstructed Windows helpers only after call-site and
   callback-string checks, centralized bounded numeric INI parsing, eliminated

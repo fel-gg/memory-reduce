@@ -61,6 +61,65 @@ jobs:
               if (-not $target.HasExited) { Stop-Process -Id $target.Id -Force }
             }
           }
+      - name: Verify bounded Windows refault recovery
+        shell: pwsh
+        run: |
+          $source = @'
+          using System;
+          using System.IO;
+          using System.Threading;
+
+          public static class ReduceMemoryRefaultTarget
+          {
+              public static void Main(string[] args)
+              {
+                  byte[] buffer = new byte[256 * 1024 * 1024];
+                  for (int offset = 0; offset < buffer.Length; offset += 4096)
+                      buffer[offset] = 1;
+                  while (!File.Exists(args[0]))
+                      Thread.Sleep(10);
+                  for (int offset = 0; offset < buffer.Length; offset += 4096)
+                      buffer[offset] = 2;
+                  Thread.Sleep(TimeSpan.FromSeconds(30));
+                  GC.KeepAlive(buffer);
+              }
+          }
+          '@
+          $targetExe = Join-Path $env:RUNNER_TEMP 'ReduceMemoryRefaultTarget.exe'
+          $targetCs = Join-Path $env:RUNNER_TEMP 'ReduceMemoryRefaultTarget.cs'
+          $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          $source | Set-Content -LiteralPath $targetCs -Encoding UTF8
+          & $csc /nologo /target:exe "/out:$targetExe" $targetCs
+          if ($LASTEXITCODE -ne 0) { throw 'Refault target compilation failed' }
+
+          foreach ($binary in @('.\windows\ReduceMemory_x64.exe', '.\windows\ReduceMemory.exe')) {
+            $signal = Join-Path $env:RUNNER_TEMP ("refault-{0}.signal" -f [IO.Path]::GetFileName($binary))
+            $result = Join-Path $env:RUNNER_TEMP ("refault-{0}.result" -f [IO.Path]::GetFileName($binary))
+            Remove-Item -LiteralPath $signal,$result -Force -ErrorAction SilentlyContinue
+            $target = Start-Process -FilePath $targetExe -ArgumentList $signal -WindowStyle Hidden -PassThru
+            try {
+              $deadline = [DateTime]::UtcNow.AddSeconds(15)
+              do {
+                if ($target.HasExited) { throw "$binary refault target exited early" }
+                $resident = (Get-Process -Id $target.Id).WorkingSet64
+                if ($resident -ge 128MB) { break }
+                Start-Sleep -Milliseconds 100
+              } while ([DateTime]::UtcNow -lt $deadline)
+              $probe = Start-Process -FilePath $binary -ArgumentList '/RMREFAULTTEST',$target.Id,$result,$signal -Wait -PassThru
+              if ($probe.ExitCode -ne 0) { throw "$binary refault probe failed with $($probe.ExitCode)" }
+              if ($target.HasExited) { throw "$binary terminated its refault target" }
+              $values = @(Get-Content -LiteralPath $result | ForEach-Object { [int64]$_ })
+              if ($values.Count -ne 5) { throw "$binary returned malformed refault metrics" }
+              $before,$initial,$refaulted,$final,$recoveries = $values
+              if ($before - $initial -lt 64MB) { throw "$binary initial trim was too small" }
+              if ($refaulted - $initial -lt 64MB) { throw "$binary fixture did not refault materially" }
+              if ($refaulted - $final -lt 64MB) { throw "$binary recovery released too little" }
+              if ($recoveries -ne 1) { throw "$binary recovery count was $recoveries instead of 1" }
+              Write-Output "$binary refaulted $([math]::Round(($refaulted-$initial)/1MB,1)) MB and recovered $([math]::Round(($refaulted-$final)/1MB,1)) MB"
+            } finally {
+              if (-not $target.HasExited) { Stop-Process -Id $target.Id -Force }
+            }
+          }
       - name: Verify full Windows Aggressive engine
         if: ${{ !cancelled() }}
         shell: pwsh
