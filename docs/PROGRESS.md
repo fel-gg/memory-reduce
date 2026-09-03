@@ -4,6 +4,18 @@ This file records real milestones. It intentionally distinguishes reconstructed
 build artifacts from source-level history; the original folder did not contain
 the AutoIt source for every intermediate binary.
 
+## 2026-09-03 - Refault-aware native diagnostics
+
+- Native Windows worker now records working set and `PageFaultCount` after each
+  successful process trim.
+- Aggressive recovery requires both at least 16 MB of working-set regrowth and
+  at least 64 new page faults on that same process.
+- Native output separates protected/filter/foreground candidates, access or
+  path/query failures, Windows processes, minimum-size skips, trim failures, and
+  successful calls that produced no measurable reduction.
+- The elevated result contract, UI tooltip, bounded log, self-test, and CI carry
+  and validate the recovery page-fault metric on x64 and x86.
+
 ## Baseline
 
 - Original portable Reduce Memory v1.7 binaries and INI were preserved under

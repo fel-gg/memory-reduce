@@ -130,6 +130,11 @@ jobs:
               $after = (Get-Process -Id $target.Id).WorkingSet64
               $fields = @(Get-Content -LiteralPath $result)
               if ($fields.Count -lt 5 -or [int]$fields[1] -ne 1) { throw "$worker returned malformed targeted metrics" }
+              $targetFields = @($fields[4] -split '\|')
+              if ($targetFields.Count -lt 4 -or [int64]$targetFields[2] -lt 0) { throw "$worker omitted the target page-fault snapshot" }
+              foreach ($metric in @('seen','protected','filtered','foreground','open_failed','path_failed','windows_process','query_failed','below_minimum','trim_failed','no_reduction')) {
+                if (-not ($fields -match "^$metric=\d+$")) { throw "$worker omitted taxonomy metric $metric" }
+              }
               if ($before - $after -lt 64MB) { throw "$worker native reduction was too small" }
               if ($target.HasExited) { throw "$worker terminated its native target" }
             } finally {
@@ -154,12 +159,13 @@ jobs:
               if ($probe.ExitCode -ne 0) { throw "$binary refault probe failed with $($probe.ExitCode)" }
               if ($target.HasExited) { throw "$binary terminated its refault target" }
               $values = @(Get-Content -LiteralPath $result | ForEach-Object { [int64]$_ })
-              if ($values.Count -ne 5) { throw "$binary returned malformed refault metrics" }
-              $before,$initial,$refaulted,$final,$recoveries = $values
+              if ($values.Count -ne 6) { throw "$binary returned malformed refault metrics" }
+              $before,$initial,$refaulted,$final,$recoveries,$refaults = $values
               if ($before - $initial -lt 64MB) { throw "$binary initial trim was too small" }
               if ($refaulted - $initial -lt 64MB) { throw "$binary fixture did not refault materially" }
               if ($refaulted - $final -lt 64MB) { throw "$binary recovery released too little" }
               if ($recoveries -ne 1) { throw "$binary recovery count was $recoveries instead of 1" }
+              if ($refaults -lt 64) { throw "$binary did not observe enough page faults: $refaults" }
               Write-Output "$binary refaulted $([math]::Round(($refaulted-$initial)/1MB,1)) MB and recovered $([math]::Round(($refaulted-$final)/1MB,1)) MB"
             } finally {
               if (-not $target.HasExited) { Stop-Process -Id $target.Id -Force }
@@ -220,7 +226,7 @@ jobs:
             if ($target.HasExited) { throw 'Aggressive terminated the disposable target' }
 
             $fields = @(Get-Content -LiteralPath $resultPath | ForEach-Object { [int64]$_ })
-            if ($fields.Count -ne 10) { throw "Aggressive returned $($fields.Count) fields instead of 10" }
+            if ($fields.Count -ne 11) { throw "Aggressive returned $($fields.Count) fields instead of 11" }
             $trimOperations = $fields[1]
             $workingSetReduction = $fields[2]
             $nativeStages = $fields[3]
@@ -229,11 +235,13 @@ jobs:
             $stableGain = $fields[7]
             $rebound = $fields[8]
             $recoveryPasses = $fields[9]
+            $recoveryFaults = $fields[10]
             if ($trimOperations -lt 1) { throw 'Aggressive did not trim an eligible process' }
             if ($workingSetReduction -lt 64MB) { throw "Aggressive measured only $workingSetReduction bytes of working-set reduction" }
             if ($nativeStages -lt 4) { throw "Aggressive completed only $nativeStages of 6 native stages" }
             if ($processPasses -lt 2 -or $processPasses -gt 3) { throw "Aggressive completed unexpected process pass count: $processPasses" }
             if ($recoveryPasses -lt 0 -or $recoveryPasses -gt 1) { throw "Aggressive returned invalid recovery pass count: $recoveryPasses" }
+            if ($recoveryFaults -lt 0) { throw "Aggressive returned invalid recovery page faults: $recoveryFaults" }
             if ($stableGain -lt 0 -or $peakGain -lt 0 -or $rebound -lt 0) { throw 'Aggressive returned invalid stabilization metrics' }
             Write-Output "Aggressive: $trimOperations trims, $([math]::Round($workingSetReduction / 1MB, 1)) MB working set, $nativeStages native stages, $processPasses passes, recovery=$recoveryPasses, rebound=$([math]::Round($rebound / 1MB, 1)) MB"
           } catch {

@@ -2,6 +2,11 @@
 
 ## Reduce Memory 2.8 — 2026
 
+- Added per-process page-fault snapshots and native skip/failure diagnostics.
+  Rebound recovery now requires material working-set regrowth plus real page
+  faults, including safe handling when the 32-bit fault counter wraps.
+- Expanded the elevated worker result to report recovery faults through the UI,
+  log, self-test, and disposable x64/x86 CI gates.
 - Added dependency-free native C process workers for Windows x64 and x86.
   Aggressive/Emergency process passes now use a single native Toolhelp snapshot
   and owned handle lifecycle, with validated structured results and automatic

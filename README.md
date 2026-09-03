@@ -37,6 +37,8 @@ Jadi software baru tetap ikut scan tanpa harus menunggu daftar nama diperbarui.
   memberi aplikasi hidup waktu 3 detik untuk melakukan refault normal. Kalau
   Available RAM turun lagi secara material (minimal 64 MB dan 20% dari gain
   awal), satu recovery pass terbatas dijalankan untuk menangkap rebound pertama.
+  Recovery itu juga memerlukan bukti page fault pada proses yang sama, bukan
+  hanya perubahan angka RAM global.
   Jendela yang
   sedang dipakai dan proses kritis Windows tetap dilindungi, tetapi aplikasi
   yang baru dipindah ke background boleh direclaim.
@@ -73,7 +75,11 @@ Pemindaian Windows sekarang memakai satu handle per kandidat: path, working set
 sebelum, operasi trim, dan working set sesudah dibaca dari proses yang sama.
 Saat recovery dibutuhkan, hanya proses yang benar-benar mengambil kembali
 minimal 16 MB sejak pass terakhir yang ditrim ulang. Jadi recovery tidak lagi
-menyapu semua aplikasi hanya karena angka RAM sistem berubah.
+menyapu semua aplikasi hanya karena angka RAM sistem berubah, dan tidak
+memproses target yang working set-nya naik tanpa aktivitas page fault nyata.
+Worker native juga mencatat alasan kandidat dilewati atau gagal (protected,
+filter, foreground, akses, Windows path, ukuran, query, dan trim), sehingga
+hasil nol dapat didiagnosis tanpa menebak.
 Untuk Aggressive dan Emergency, pass proses memakai worker C native sesuai
 arsitektur. Jika helper hilang, gagal, atau mengembalikan hasil malformed,
 aplikasi otomatis kembali ke pipeline AutoIt yang sudah tervalidasi; Normal,

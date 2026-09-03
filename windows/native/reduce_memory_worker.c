@@ -9,8 +9,15 @@
 typedef struct {
     DWORD pid;
     SIZE_T after_ws;
+    DWORD after_faults;
     WCHAR name[MAX_PATH];
 } TrimTarget;
+
+typedef struct {
+    DWORD seen, protected_process, filtered, foreground, open_failed;
+    DWORD path_failed, windows_process, query_failed, below_minimum;
+    DWORD trim_failed, no_reduction;
+} TrimStats;
 
 static const WCHAR *protected_names[] = {
     L"system", L"registry", L"memory compression", L"secure system",
@@ -49,13 +56,13 @@ static int filter_contains_name(const WCHAR *filter, const WCHAR *name) {
     return 0;
 }
 
-static int path_is_under_windows(HANDLE process) {
+static int path_location(HANDLE process) {
     WCHAR path[32768];
     WCHAR windows_path[MAX_PATH];
     DWORD length = (DWORD)(sizeof(path) / sizeof(path[0]));
     UINT windows_length = GetWindowsDirectoryW(windows_path, MAX_PATH);
-    if (!windows_length || windows_length >= MAX_PATH) return 1;
-    if (!QueryFullProcessImageNameW(process, 0, path, &length)) return 1;
+    if (!windows_length || windows_length >= MAX_PATH) return -1;
+    if (!QueryFullProcessImageNameW(process, 0, path, &length)) return -1;
     if (windows_path[windows_length - 1] != L'\\') {
         windows_path[windows_length++] = L'\\';
         windows_path[windows_length] = L'\0';
@@ -63,12 +70,14 @@ static int path_is_under_windows(HANDLE process) {
     return _wcsnicmp(path, windows_path, windows_length) == 0;
 }
 
-static SIZE_T working_set(HANDLE process) {
+static int memory_snapshot(HANDLE process, SIZE_T *working_set, DWORD *page_faults) {
     PROCESS_MEMORY_COUNTERS_EX counters;
     ZeroMemory(&counters, sizeof(counters));
     counters.cb = sizeof(counters);
     if (!GetProcessMemoryInfo(process, (PROCESS_MEMORY_COUNTERS *)&counters, sizeof(counters))) return 0;
-    return counters.WorkingSetSize;
+    *working_set = counters.WorkingSetSize;
+    *page_faults = counters.PageFaultCount;
+    return 1;
 }
 
 static int trim_handle(HANDLE process) {
@@ -94,15 +103,24 @@ static const WCHAR *string_arg(const WCHAR *argument, const WCHAR *prefix) {
 }
 
 static int write_result(const WCHAR *path, DWORD trimmed, unsigned long long released,
-                        const TrimTarget *targets, DWORD target_count) {
+                        const TrimTarget *targets, DWORD target_count,
+                        const TrimStats *stats) {
     FILE *output = NULL;
     DWORD index;
     if (_wfopen_s(&output, path, L"w, ccs=UTF-8") != 0 || !output) return 0;
     fwprintf(output, L"0\n%lu\n%llu\n%lu\n", trimmed, released, target_count);
     for (index = 0; index < target_count; ++index) {
-        fwprintf(output, L"%lu|%llu|%ls\n", targets[index].pid,
-                 (unsigned long long)targets[index].after_ws, targets[index].name);
+        fwprintf(output, L"%lu|%llu|%lu|%ls\n", targets[index].pid,
+                 (unsigned long long)targets[index].after_ws,
+                 targets[index].after_faults, targets[index].name);
     }
+    fwprintf(output, L"seen=%lu\nprotected=%lu\nfiltered=%lu\nforeground=%lu\n"
+             L"open_failed=%lu\npath_failed=%lu\nwindows_process=%lu\n"
+             L"query_failed=%lu\nbelow_minimum=%lu\ntrim_failed=%lu\nno_reduction=%lu\n",
+             stats->seen, stats->protected_process, stats->filtered, stats->foreground,
+             stats->open_failed, stats->path_failed, stats->windows_process,
+             stats->query_failed, stats->below_minimum, stats->trim_failed,
+             stats->no_reduction);
     fclose(output);
     return 1;
 }
@@ -115,9 +133,11 @@ static int run_trim(DWORD profile, DWORD foreground_pid, DWORD excluded_pid,
     PROCESSENTRY32W entry;
     TrimTarget *targets = NULL;
     DWORD capacity = 0, target_count = 0, trimmed = 0;
+    TrimStats stats;
     unsigned long long released = 0;
     SIZE_T minimum = profile == 3 ? 0 : 4ULL * 1024ULL * 1024ULL;
 
+    ZeroMemory(&stats, sizeof(stats));
     snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snapshot == INVALID_HANDLE_VALUE) return 10;
     ZeroMemory(&entry, sizeof(entry));
@@ -129,32 +149,54 @@ static int run_trim(DWORD profile, DWORD foreground_pid, DWORD excluded_pid,
 
     do {
         HANDLE process;
-        SIZE_T before, after;
+        SIZE_T before = 0, after = 0;
+        DWORD before_faults = 0, after_faults = 0;
+        int location;
+        ++stats.seen;
         if (entry.th32ProcessID == 0 || entry.th32ProcessID == 4 ||
             entry.th32ProcessID == GetCurrentProcessId() ||
             entry.th32ProcessID == excluded_pid ||
-            (target_pid && entry.th32ProcessID != target_pid) ||
-            is_protected_name(entry.szExeFile) ||
+            is_protected_name(entry.szExeFile)) { ++stats.protected_process; continue; }
+        if ((target_pid && entry.th32ProcessID != target_pid) ||
             filter_contains_name(exclude_filter, entry.szExeFile) ||
             (include_filter && *include_filter &&
-             !filter_contains_name(include_filter, entry.szExeFile)) ||
-            (profile != 3 && foreground_pid && entry.th32ProcessID == foreground_pid)) continue;
+             !filter_contains_name(include_filter, entry.szExeFile))) { ++stats.filtered; continue; }
+        if (profile != 3 && foreground_pid && entry.th32ProcessID == foreground_pid) {
+            ++stats.foreground; continue;
+        }
 
         process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SET_QUOTA,
                               FALSE, entry.th32ProcessID);
-        if (!process) continue;
-        if (path_is_under_windows(process)) {
+        if (!process) { ++stats.open_failed; continue; }
+        location = path_location(process);
+        if (location != 0) {
+            if (location < 0) ++stats.path_failed; else ++stats.windows_process;
             CloseHandle(process);
             continue;
         }
-        before = working_set(process);
-        if (!before || before < minimum || !trim_handle(process)) {
+        if (!memory_snapshot(process, &before, &before_faults)) {
+            ++stats.query_failed;
             CloseHandle(process);
             continue;
         }
-        after = working_set(process);
+        if (before < minimum) {
+            ++stats.below_minimum;
+            CloseHandle(process);
+            continue;
+        }
+        if (!trim_handle(process)) {
+            ++stats.trim_failed;
+            CloseHandle(process);
+            continue;
+        }
+        if (!memory_snapshot(process, &after, &after_faults)) {
+            ++stats.query_failed;
+            CloseHandle(process);
+            continue;
+        }
         ++trimmed;
         if (before > after) released += (unsigned long long)(before - after);
+        else ++stats.no_reduction;
 
         if (target_count == capacity) {
             DWORD new_capacity = capacity ? capacity * 2 : 64;
@@ -174,13 +216,14 @@ static int run_trim(DWORD profile, DWORD foreground_pid, DWORD excluded_pid,
         }
         targets[target_count].pid = entry.th32ProcessID;
         targets[target_count].after_ws = after;
+        targets[target_count].after_faults = after_faults;
         wcsncpy_s(targets[target_count].name, MAX_PATH, entry.szExeFile, _TRUNCATE);
         ++target_count;
         CloseHandle(process);
     } while (Process32NextW(snapshot, &entry));
 
     CloseHandle(snapshot);
-    if (!write_result(result_path, trimmed, released, targets, target_count)) {
+    if (!write_result(result_path, trimmed, released, targets, target_count, &stats)) {
         if (targets) HeapFree(GetProcessHeap(), 0, targets);
         return 12;
     }
@@ -198,7 +241,9 @@ int wmain(int argc, WCHAR **argv) {
         HANDLE current = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SET_QUOTA,
                                      FALSE, GetCurrentProcessId());
         if (!current) return 20;
-        if (!working_set(current)) { CloseHandle(current); return 21; }
+        SIZE_T ws = 0;
+        DWORD faults = 0;
+        if (!memory_snapshot(current, &ws, &faults) || !ws) { CloseHandle(current); return 21; }
         CloseHandle(current);
         return 0;
     }
