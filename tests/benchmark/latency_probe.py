@@ -22,6 +22,14 @@ def percentile(values: list[float], fraction: float) -> float | None:
     return ordered[low] + (ordered[high] - ordered[low]) * (index - low)
 
 
+def split_command(command: str) -> list[str]:
+    tokens = shlex.split(command, posix=(os.name != "nt"))
+    if os.name == "nt":
+        tokens = [token[1:-1] if len(token) >= 2 and token[0] == token[-1] == '"' else token
+                  for token in tokens]
+    return tokens
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--command", required=True)
@@ -36,7 +44,7 @@ def main() -> int:
 
     samples: list[float] = []
     failures: list[dict[str, object]] = []
-    argv = shlex.split(args.command, posix=(os.name != "nt"))
+    argv = split_command(args.command)
     for iteration in range(1, args.iterations + 1):
         started = time.perf_counter()
         try:
