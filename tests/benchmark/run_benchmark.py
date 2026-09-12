@@ -105,6 +105,15 @@ def cpu_seconds(pid: int) -> float | None:
             return (kernel_ticks + user_ticks) / 10_000_000.0
         finally:
             kernel32.CloseHandle(handle)
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
+        fields = stat[stat.rfind(")") + 2 :].split()
+        if len(fields) < 13:
+            return None
+        ticks = os.sysconf("SC_CLK_TCK")
+        return (int(fields[11]) + int(fields[12])) / float(ticks)
+    except (OSError, ValueError, IndexError, TypeError):
+        return None
 
 def io_bytes(pid: int) -> dict[str, int] | None:
     """Return kernel-accounted read/write bytes for a Linux child."""
@@ -131,15 +140,7 @@ def swap_bytes(pid: int) -> int | None:
     except (OSError, ValueError, IndexError):
         return None
     return None
-    try:
-        stat = Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
-        fields = stat[stat.rfind(")") + 2 :].split()
-        if len(fields) < 13:
-            return None
-        ticks = os.sysconf("SC_CLK_TCK")
-        return (int(fields[11]) + int(fields[12])) / float(ticks)
-    except (OSError, ValueError, IndexError, TypeError):
-        return None
+
 def run_trial(label: str, command: str, timeout: float, after_seconds: list[float]) -> dict[str, object]:
     started = time.perf_counter()
     peak_rss = None
