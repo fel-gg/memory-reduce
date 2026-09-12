@@ -9,7 +9,50 @@ permissions:
   contents: write
 
 jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build tagged Windows artifacts from source
+        shell: pwsh
+        run: |
+          $zigVersion = '0.16.0'
+          $zigExpected = '68659eb5f1e4eb1437a722f1dd889c5a322c9954607f5edcf337bc3684a75a7e'
+          $zigArchive = Join-Path $env:RUNNER_TEMP "zig-$zigVersion.zip"
+          $zigRoot = Join-Path $env:RUNNER_TEMP 'zig-toolchain'
+          Invoke-WebRequest -Uri "https://ziglang.org/download/$zigVersion/zig-x86_64-windows-$zigVersion.zip" -OutFile $zigArchive
+          if ((Get-FileHash -LiteralPath $zigArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $zigExpected) { throw 'Zig checksum mismatch' }
+          Expand-Archive -LiteralPath $zigArchive -DestinationPath $zigRoot -Force
+          $zig = Join-Path $zigRoot "zig-x86_64-windows-$zigVersion\zig.exe"
+          $autoItVersion = '3.3.18.0'
+          $autoItExpected = 'ceb666a993a9f62621c3a0d4ee602774b2e7f543de1f08ec0380632ee3f89beb'
+          $autoItArchive = Join-Path $env:RUNNER_TEMP "autoit-v$autoItVersion.zip"
+          $autoItRoot = Join-Path $env:RUNNER_TEMP 'autoit-toolchain'
+          Invoke-WebRequest -Uri "https://www.autoitscript.com/autoit3/files/archive/autoit/autoit-v$autoItVersion.zip" -OutFile $autoItArchive
+          if ((Get-FileHash -LiteralPath $autoItArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $autoItExpected) { throw 'AutoIt checksum mismatch' }
+          Expand-Archive -LiteralPath $autoItArchive -DestinationPath $autoItRoot -Force
+          $autoIt = Join-Path $autoItRoot 'install'
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\windows\Build.Tests.ps1 -AutoItRoot $autoIt -ZigPath $zig -OutputDirectory .\windows
+          if ($LASTEXITCODE -ne 0) { throw "Tagged Windows source build failed: $LASTEXITCODE" }
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\Verify-BuildManifest.ps1 -ManifestPath .\windows\BUILD-MANIFEST.json
+          if ($LASTEXITCODE -ne 0) { throw 'Tagged Windows manifest verification failed' }
+      - name: Upload tagged Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tagged-windows-artifact
+          path: |
+            windows/ReduceMemory.exe
+            windows/ReduceMemory_x64.exe
+            windows/ReduceMemoryWorker.exe
+            windows/ReduceMemoryWorker_x64.exe
+            windows/ReduceMemory.ini
+            windows/BUILD-MANIFEST.json
+          if-no-files-found: error
+
   publish:
+    needs: build-windows
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ github.ref_name }}
@@ -18,6 +61,12 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Download tagged Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: tagged-windows-artifact
+          path: fresh-windows
+
       - name: Build release packages from tag
         shell: bash
         run: |
@@ -25,18 +74,10 @@ jobs:
           version="${RELEASE_TAG#v}"
           mkdir -p dist audit
 
-          git archive \
-            --format=zip \
-            --prefix="ReduceMemory-Windows-v${version}/" \
-            --output="dist/ReduceMemory-Windows-v${version}.zip" \
-            "${RELEASE_TAG}" \
-            windows/ReduceMemory_x64.exe \
-            windows/ReduceMemory.exe \
-            windows/ReduceMemoryWorker_x64.exe \
-            windows/ReduceMemoryWorker.exe \
-            windows/ReduceMemory.ini \
-            README.md \
-            LICENSE
+          mkdir -p "audit/windows/ReduceMemory-Windows-v${version}/windows"
+          cp fresh-windows/*.exe fresh-windows/*.ini fresh-windows/BUILD-MANIFEST.json "audit/windows/ReduceMemory-Windows-v${version}/windows/"
+          git archive --format=tar --prefix="ReduceMemory-Windows-v${version}/" "${RELEASE_TAG}" README.md LICENSE | tar -x -C audit/windows
+          (cd audit/windows && zip -qr "../../dist/ReduceMemory-Windows-v${version}.zip" "ReduceMemory-Windows-v${version}")
 
           git -c tar.umask=0022 archive \
             --format=tar.gz \
