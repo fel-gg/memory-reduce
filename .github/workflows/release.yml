@@ -35,8 +35,23 @@ jobs:
           if ((Get-FileHash -LiteralPath $autoItArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $autoItExpected) { throw 'AutoIt checksum mismatch' }
           Expand-Archive -LiteralPath $autoItArchive -DestinationPath $autoItRoot -Force
           $autoIt = Join-Path $autoItRoot 'install'
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\windows\Build.Tests.ps1 -AutoItRoot $autoIt -ZigPath $zig -OutputDirectory .\windows
-          if ($LASTEXITCODE -ne 0) { throw "Tagged Windows source build failed: $LASTEXITCODE" }
+          $buildLog = Join-Path $env:RUNNER_TEMP 'reduce-memory-release-build.log'
+          $buildErr = Join-Path $env:RUNNER_TEMP 'reduce-memory-release-build.err'
+          $buildArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File',
+            (Join-Path (Get-Location) 'tests\windows\Build.Tests.ps1'),
+            '-AutoItRoot',$autoIt,'-ZigPath',$zig,'-OutputDirectory',(Join-Path (Get-Location) 'windows'))
+          $buildProcess = Start-Process -FilePath 'powershell.exe' -ArgumentList $buildArgs -PassThru `
+            -RedirectStandardOutput $buildLog -RedirectStandardError $buildErr
+          try {
+            if (-not $buildProcess.WaitForExit(600000)) {
+              taskkill.exe /PID $buildProcess.Id /T /F | Out-Null
+              throw 'Tagged Windows source build timed out after 600 seconds'
+            }
+            Get-Content -LiteralPath $buildLog -ErrorAction SilentlyContinue
+            Get-Content -LiteralPath $buildErr -ErrorAction SilentlyContinue
+            if ($buildProcess.ExitCode -ne 0) { throw "Tagged Windows source build failed: $($buildProcess.ExitCode)" }
+          }
+          finally { $buildProcess.Dispose() }
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\Verify-BuildManifest.ps1 -ManifestPath .\windows\BUILD-MANIFEST.json
           if ($LASTEXITCODE -ne 0) { throw 'Tagged Windows manifest verification failed' }
       - name: Upload tagged Windows artifacts

@@ -40,9 +40,23 @@ jobs:
           Expand-Archive -LiteralPath $autoItArchive -DestinationPath $autoItRoot -Force
           $autoIt = Join-Path $autoItRoot 'install'
 
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\windows\Build.Tests.ps1 `
-            -AutoItRoot $autoIt -ZigPath $zig -OutputDirectory .\windows
-          if ($LASTEXITCODE -ne 0) { throw "Windows source build contract failed: $LASTEXITCODE" }
+          $buildLog = Join-Path $env:RUNNER_TEMP 'reduce-memory-build.log'
+          $buildErr = Join-Path $env:RUNNER_TEMP 'reduce-memory-build.err'
+          $buildArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File',
+            (Join-Path (Get-Location) 'tests\windows\Build.Tests.ps1'),
+            '-AutoItRoot',$autoIt,'-ZigPath',$zig,'-OutputDirectory',(Join-Path (Get-Location) 'windows'))
+          $buildProcess = Start-Process -FilePath 'powershell.exe' -ArgumentList $buildArgs -PassThru `
+            -RedirectStandardOutput $buildLog -RedirectStandardError $buildErr
+          try {
+            if (-not $buildProcess.WaitForExit(600000)) {
+              taskkill.exe /PID $buildProcess.Id /T /F | Out-Null
+              throw 'Windows source build contract timed out after 600 seconds'
+            }
+            Get-Content -LiteralPath $buildLog -ErrorAction SilentlyContinue
+            Get-Content -LiteralPath $buildErr -ErrorAction SilentlyContinue
+            if ($buildProcess.ExitCode -ne 0) { throw "Windows source build contract failed: $($buildProcess.ExitCode)" }
+          }
+          finally { $buildProcess.Dispose() }
 
           foreach ($worker in @('.\windows\ReduceMemoryWorker_x64.exe', '.\windows\ReduceMemoryWorker.exe')) {
             $probe = Start-Process -FilePath $worker -ArgumentList '/selftest' -Wait -PassThru
