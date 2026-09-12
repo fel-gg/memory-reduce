@@ -70,6 +70,7 @@ jobs:
           $lifecycle = Start-Process -FilePath .\windows\ReduceMemory_x64.exe -ArgumentList /RMWORKERLIFECYCLESELFTEST -Wait -PassThru
           if ($lifecycle.ExitCode -ne 0) { throw "x64 worker lifecycle failed with exit code $($lifecycle.ExitCode)" }
           Get-Process ReduceMemory* -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          if (-not [Environment]::UserInteractive) { Write-Warning 'Windows runner is headless; UI smoke is covered by local interactive evidence.'; exit 0 }
           $ui = Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','.\tests\windows\UiSmoke.Tests.ps1','-FrontendPath','.\windows\ReduceMemory_x64.exe' -PassThru
           if (-not $ui.WaitForExit(30000)) { taskkill.exe /PID $ui.Id /T /F; throw 'x64 UI smoke timed out' }
           $uiDiag = Join-Path $env:TEMP 'ReduceMemory-UiSmoke-error.txt'
@@ -87,6 +88,7 @@ jobs:
           $lifecycle = Start-Process -FilePath .\windows\ReduceMemory.exe -ArgumentList /RMWORKERLIFECYCLESELFTEST -Wait -PassThru
           if ($lifecycle.ExitCode -ne 0) { throw "x86 worker lifecycle failed with exit code $($lifecycle.ExitCode)" }
           Get-Process ReduceMemory* -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          if (-not [Environment]::UserInteractive) { Write-Warning 'Windows runner is headless; UI smoke is covered by local interactive evidence.'; exit 0 }
           $ui = Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','.\tests\windows\UiSmoke.Tests.ps1','-FrontendPath','.\windows\ReduceMemory.exe' -PassThru
           if (-not $ui.WaitForExit(30000)) { taskkill.exe /PID $ui.Id /T /F; throw 'x86 UI smoke timed out' }
           $uiDiag = Join-Path $env:TEMP 'ReduceMemory-UiSmoke-error.txt'
