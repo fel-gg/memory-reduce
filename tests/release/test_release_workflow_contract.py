@@ -31,6 +31,8 @@ class ReleaseWorkflowContractTests(unittest.TestCase):
         self.assertIn('tags:', text)
         self.assertIn('"v*"', text)
         self.assertIn('unzip -oq', text)
+        self.assertIn('OptimizeMode=0', text)
+        self.assertIn('developer\'s active profile', text)
 
     def test_windows_workflows_use_portable_hashing(self):
         for workflow in (WORKFLOW, VERIFY_WORKFLOW, ROOT / "release" / "New-ReleasePackage.ps1", ROOT / "release" / "Verify-ReleasePackage.ps1"):

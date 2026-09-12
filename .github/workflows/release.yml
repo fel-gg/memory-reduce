@@ -62,6 +62,13 @@ jobs:
           finally { $buildProcess.Dispose() }
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\Verify-BuildManifest.ps1 -ManifestPath .\windows\BUILD-MANIFEST.json
           if ($LASTEXITCODE -ne 0) { throw 'Tagged Windows manifest verification failed' }
+          # A release must never inherit a developer's active profile. Keep
+          # the user's local configuration untouched; only the packaged copy
+          # receives the safe Normal default.
+          $releaseConfig = Join-Path (Get-Location) 'windows\ReduceMemory.ini'
+          $releaseText = [System.Text.Encoding]::Unicode.GetString([System.IO.File]::ReadAllBytes($releaseConfig))
+          $releaseText = [regex]::Replace($releaseText, '(?m)^OptimizeMode=[0-9]+$', 'OptimizeMode=0')
+          [System.IO.File]::WriteAllText($releaseConfig, $releaseText, [System.Text.Encoding]::Unicode)
       - name: Upload tagged Windows artifacts
         uses: actions/upload-artifact@v4
         with:
