@@ -88,6 +88,18 @@ Checkpoint dibuat saat L00 mulai. Ini bukan tanda Phase 1 atau M0 selesai.
 - Cache histori efektivitas diperbaiki agar cache-hit mengembalikan nilai terurai yang benar; worker native x86/x64 hasil build terbaru dipasang ke `windows/` setelah protocol test keduanya lulus.
 - Measurement self-test kini memiliki regresi eksplisit untuk pembacaan histori dua kali (cache-hit harus mempertahankan seluruh counter/timestamp); Au3Check versi lokal exit 0.
 - Native Linux reclaim validation kini konsisten dengan launcher: `bytes` dibatasi INT64 dan swappiness numerik dibatasi 0–200; tiga nilai invalid diuji berhenti sebelum `open()`.
+
+### Verification update 2026-09-12
+
+- Linux CI run `34684737773` berhasil pada job Linux setelah penambahan
+  `REDUCE_MEMORY_TARGET_PID`. Runner membuat workload private disposable,
+  menjalankan launcher Aggressive melalui `sudo`, lalu membuktikan mode
+  Aggressive menghasilkan native page-out pass, memindai target, dan memberi
+  advice mapping. Ini adalah bukti launcher-to-native targeted path pada kernel
+  Linux runner, bukan klaim benchmark improvement.
+- Workflow verification kini dapat dijalankan ulang dengan `workflow_dispatch`,
+  selain trigger push/pull request. Job Windows memiliki timeout 20 menit dan
+  download toolchain memiliki timeout 120 detik.
 - Full Windows staged build rerun terbaru lulus tanpa `-SkipFrontendExecution`; frontend runtime, worker x86/x64, manifest, dan baseline selesai dalam satu staging directory.
 - Jalur `RM_RunAggressiveWorker` elevated diperbaiki agar parent Administrator tetap membuat child worker terukur dengan session envelope dan Job Object; validasi sintaks/build lulus, sedangkan close/timeout live masih menunggu harness GUI.
 - `RM_ReadEffectiveness` kini memakai dictionary cache satu-sesi untuk seluruh section `Process`; write menginvalidasi snapshot sebelum replace, sehingga hot path tidak melakukan I/O INI per-target.
