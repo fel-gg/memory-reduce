@@ -16,6 +16,11 @@ x86 visual interaktif, dan benchmark final apples-to-apples masih merupakan
 gap bukti yang terpisah. Item-item itu tetap dicatat sebagai pending sampai
 ada artefak runtime yang bisa diverifikasi; Phase 2 tidak dimulai.
 
+Run `34691807818` untuk checkpoint commit `623dcd5` kini terminal `success`:
+Windows build/self-test/working-set/refault/Aggressive dan Linux 22.04/24.04
+seluruhnya lulus. Ini mengonfirmasi tidak ada regresi build dari guard source
+baru, tetapi tidak mengubah gap runtime yang memang belum diuji oleh workflow.
+
 ## Sol verification update — 2026-09-12
 
 Commit `25eaee2` is the current Phase 1 source tip. It includes the complete
