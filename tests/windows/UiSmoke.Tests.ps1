@@ -35,6 +35,7 @@ public static class ReduceMemoryUiNative {
   public const uint WM_CLOSE = 0x0010;
   public const uint CB_GETCOUNT = 0x0146;
   public const uint CB_GETLBTEXT = 0x0148;
+  public const uint CB_SETCURSEL = 0x0147;
   public static List<IntPtr> WindowsForProcess(int processId) {
     var result = new List<IntPtr>();
     EnumWindows((hwnd, unused) => {
@@ -93,7 +94,22 @@ try {
     for ($i = 0; $i -lt $expected.Count; $i++) {
         if ($labels[$i] -ne $expected[$i]) { throw "Mode $i is '$($labels[$i])', expected '$($expected[$i])'" }
     }
-    Write-Output "UI smoke passed: $([IO.Path]::GetFileName($resolved)); modes=$count"
+    # Exercise the actual selection callback, not just the visible labels.
+    # The callback persists Main/OptimizeMode next to the portable frontend;
+    # verify every ComboBox index maps to the documented engine mode.
+    $iniPath = Join-Path (Split-Path -Parent $resolved) 'ReduceMemory.ini'
+    $expectedModes = @(0, 4, 2, 1, 5, 3)
+    for ($i = 0; $i -lt $expectedModes.Count; $i++) {
+        $selected = [ReduceMemoryUiNative]::SendMessage($combo, [ReduceMemoryUiNative]::CB_SETCURSEL, [IntPtr]$i, [IntPtr]::Zero)
+        if ($selected.ToInt64() -ne $i) { throw "ComboBox selection $i was not accepted" }
+        Start-Sleep -Milliseconds 100
+        if (-not (Test-Path -LiteralPath $iniPath -PathType Leaf)) { throw 'Mode callback did not preserve the portable INI' }
+        $iniText = Get-Content -LiteralPath $iniPath -Raw -Encoding Unicode
+        if ($iniText -notmatch "(?m)^OptimizeMode=$($expectedModes[$i])$") {
+            throw "Mode index $i did not persist OptimizeMode=$($expectedModes[$i])"
+        }
+    }
+    Write-Output "UI smoke passed: $([IO.Path]::GetFileName($resolved)); modes=$count; selection-binding=passed"
 }
 finally {
     if (-not $process.HasExited) {
