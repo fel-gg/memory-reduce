@@ -2015,7 +2015,9 @@ Func RM_HandleCommandLine ( )
 		; A cold x86 runner may spend several seconds creating the child and
 		; loading the native image. Keep the production worker deadline strict,
 		; but give this deterministic lifecycle probe enough startup budget.
-		Local $RM_LifecycleExit = RM_RunOwnedNativeWorker ( '"' & $RM_LifecycleWorker & '" /measurement-selftest' , 30000 , $RM_LifecycleTimedOut )
+		; Keep the child alive long enough for the parent-death harness to observe
+		; the Job Object kill-on-close contract instead of racing a fast exit.
+		Local $RM_LifecycleExit = RM_RunOwnedNativeWorker ( '"' & $RM_LifecycleWorker & '" /measurement-selftest /sleep-ms=5000' , 30000 , $RM_LifecycleTimedOut )
 		If $RM_LifecycleTimedOut <> 0 Or $RM_LifecycleExit <> 0 Then Exit 62
 		Exit 0
 	EndIf

@@ -97,6 +97,8 @@ jobs:
           if ($measurement.ExitCode -ne 0) { throw "x64 measurement logic failed with exit code $($measurement.ExitCode)" }
           $lifecycle = Start-Process -FilePath .\windows\ReduceMemory_x64.exe -ArgumentList /RMWORKERLIFECYCLESELFTEST -Wait -PassThru
           if ($lifecycle.ExitCode -ne 0) { throw "x64 worker lifecycle failed with exit code $($lifecycle.ExitCode)" }
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\windows\WorkerParentDeath.Tests.ps1 -FrontendPath .\windows\ReduceMemory_x64.exe
+          if ($LASTEXITCODE -ne 0) { throw "x64 parent-death cleanup failed: $LASTEXITCODE" }
           Get-Process ReduceMemory* -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
           if (-not [Environment]::UserInteractive) { Write-Warning 'Windows runner is headless; UI smoke is covered by local interactive evidence.'; exit 0 }
           $ui = Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','.\tests\windows\UiSmoke.Tests.ps1','-FrontendPath','.\windows\ReduceMemory_x64.exe' -PassThru
@@ -115,6 +117,8 @@ jobs:
           if ($measurement.ExitCode -ne 0) { throw "x86 measurement logic failed with exit code $($measurement.ExitCode)" }
           $lifecycle = Start-Process -FilePath .\windows\ReduceMemory.exe -ArgumentList /RMWORKERLIFECYCLESELFTEST -Wait -PassThru
           if ($lifecycle.ExitCode -ne 0) { throw "x86 worker lifecycle failed with exit code $($lifecycle.ExitCode)" }
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\windows\WorkerParentDeath.Tests.ps1 -FrontendPath .\windows\ReduceMemory.exe
+          if ($LASTEXITCODE -ne 0) { throw "x86 parent-death cleanup failed: $LASTEXITCODE" }
           Get-Process ReduceMemory* -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
           if (-not [Environment]::UserInteractive) { Write-Warning 'Windows runner is headless; UI smoke is covered by local interactive evidence.'; exit 0 }
           $ui = Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','.\tests\windows\UiSmoke.Tests.ps1','-FrontendPath','.\windows\ReduceMemory.exe' -PassThru

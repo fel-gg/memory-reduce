@@ -413,8 +413,16 @@ int wmain(int argc, WCHAR **argv) {
         CloseHandle(current);
         return 0;
     }
-    if (argc == 2 && equals_ignore_case(argv[1], L"/measurement-selftest")) {
-        return measurement_contract_selftest();
+    if (argc >= 2 && equals_ignore_case(argv[1], L"/measurement-selftest")) {
+        DWORD sleep_ms = 0;
+        if (argc > 3) return 2;
+        if (argc == 3) {
+            if (parse_unsigned_arg(argv[2], L"/sleep-ms=", &sleep_ms) <= 0) return 2;
+        }
+        int result = measurement_contract_selftest();
+        if (result != 0) return result;
+        if (sleep_ms > 0) Sleep(sleep_ms);
+        return 0;
     }
     for (index = 1; index < argc; ++index) {
         DWORD value;
