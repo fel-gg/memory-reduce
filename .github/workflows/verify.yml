@@ -415,6 +415,7 @@ jobs:
           printf 'protocol=2\nsession=%s\n' "${session}"
           if [[ -n "${REDUCE_MEMORY_TEST_ARGS_FILE:-}" ]]; then
             printf '%s\n' "$@" > "${REDUCE_MEMORY_TEST_ARGS_FILE}"
+            chmod 0644 "${REDUCE_MEMORY_TEST_ARGS_FILE}"
           fi
           cat <<'RESULT'
           native_status=done
