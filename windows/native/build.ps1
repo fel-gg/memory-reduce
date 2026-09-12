@@ -12,10 +12,33 @@ if (-not (Test-Path -LiteralPath $ZigPath -PathType Leaf)) {
 }
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 
-& $ZigPath cc -target x86_64-windows-gnu -Os -municode `
-    -o (Join-Path $OutputDirectory 'ReduceMemoryWorker_x64.exe') $source -lpsapi -lshell32 -luser32
-if ($LASTEXITCODE -ne 0) { throw "x64 native worker build failed: $LASTEXITCODE" }
+function Invoke-ZigCompile {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [Parameter(Mandatory = $true)][string]$Architecture
+    )
+    $process = Start-Process -FilePath $ZigPath -ArgumentList $Arguments -PassThru
+    try {
+        if (-not $process.WaitForExit(120000)) {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            throw "$Architecture native worker build timed out after 120 seconds"
+        }
+        if ($process.ExitCode -ne 0) {
+            throw "$Architecture native worker build failed: $($process.ExitCode)"
+        }
+    }
+    finally {
+        $process.Dispose()
+    }
+}
 
-& $ZigPath cc -target x86-windows-gnu -Os -municode `
-    -o (Join-Path $OutputDirectory 'ReduceMemoryWorker.exe') $source -lpsapi -lshell32 -luser32
-if ($LASTEXITCODE -ne 0) { throw "x86 native worker build failed: $LASTEXITCODE" }
+Invoke-ZigCompile -Architecture 'x64' -Arguments @(
+    'cc', '-target', 'x86_64-windows-gnu', '-Os', '-municode',
+    '-o', (Join-Path $OutputDirectory 'ReduceMemoryWorker_x64.exe'), $source,
+    '-lpsapi', '-lshell32', '-luser32'
+)
+Invoke-ZigCompile -Architecture 'x86' -Arguments @(
+    'cc', '-target', 'x86-windows-gnu', '-Os', '-municode',
+    '-o', (Join-Path $OutputDirectory 'ReduceMemoryWorker.exe'), $source,
+    '-lpsapi', '-lshell32', '-luser32'
+)
