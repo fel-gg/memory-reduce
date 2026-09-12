@@ -35,3 +35,12 @@ serta p50/p95/p99 latency workload aktif. Hasil unknown tetap unknown.
 
 Belum ada angka improvement yang ditulis; purge tidak boleh dijalankan di
 workstation atau VPS produksi hanya untuk mengisi laporan.
+
+Delayed-sampler smoke valid (host Windows, non-mutating equivalent commands):
+one repetition per baseline/candidate/no-op completed with exit code 0 and
+samples at +15 and +60 seconds. Raw SHA-256:
+16413B72E35F50CC013560A458E98AB347128DC5CD03C5196FBBCC43ED4890AE.
+Summary SHA-256:
+499E5A923B87BCF049BB0CD7FC7048535F53FFB448EFFE3C73D73EC6D46A37BE.
+This validates delayed collection only; baseline and candidate were identical
+disposable commands, so it is not an optimization claim.
