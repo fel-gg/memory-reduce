@@ -300,6 +300,8 @@ jobs:
           bash -n tests/linux/test_session_accounting.sh
           bash -n tests/linux/test_installers.sh
           python3 -m py_compile linux/native/reduce-memory-native
+          python3 -m py_compile tests/benchmark/run_benchmark.py tests/benchmark/summarize_benchmark.py tests/benchmark/workload_memory.py
+          python3 -c 'import os, sys; sys.path.insert(0, "tests/benchmark"); import run_benchmark; assert run_benchmark.cpu_seconds(os.getpid()) is not None'
           python3 tests/linux/test_native_unit.py
           bash tests/linux/test_fixture_isolation.sh
           bash tests/linux/test_failure_adapter.sh
