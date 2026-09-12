@@ -2896,12 +2896,20 @@ Func RM_RunConfiguredTrim ( $RM_Profile = - 1 )
 		$RM_ProcessFilter = $A1DF0B03725
 	EndIf
 	If $RM_Profile = $RM_PROFILE_AGGRESSIVE Or $RM_Profile = $RM_PROFILE_EMERGENCY Then
-		Local $RM_NativeTrimmed = RM_RunNativeProcessPass ( $RM_Profile , $RM_IncludeOnly , $RM_ProcessFilter )
-		If $RM_NativeTrimmed >= 0 Then Return $RM_NativeTrimmed
-		; -2 means the worker reached its pre-mutation handshake. The result is
-		; unknown/partial, so replaying every target through the fallback could
-		; double-trim processes that the worker already changed.
-		If $RM_NativeTrimmed = - 2 Then Return 0
+		; Native filtering currently accepts executable names, while the history
+		; ledger stores versioned identity keys. If churn exclusions exist, use
+		; the identity-aware AutoIt path for this pass so a refaulting instance is
+		; never trimmed again merely because the native worker cannot match its
+		; v2 key. Native remains the fast path when no cooldown is active.
+		Local $RM_ChurnExclusions = RM_GetChurnExclusions ( )
+		If $RM_Profile = $RM_PROFILE_EMERGENCY Or StringLen ( $RM_ChurnExclusions ) <= 1 Then
+			Local $RM_NativeTrimmed = RM_RunNativeProcessPass ( $RM_Profile , $RM_IncludeOnly , $RM_ProcessFilter )
+			If $RM_NativeTrimmed >= 0 Then Return $RM_NativeTrimmed
+			; -2 means the worker reached its pre-mutation handshake. The result is
+			; unknown/partial, so replaying every target through the fallback could
+			; double-trim processes that the worker already changed.
+			If $RM_NativeTrimmed = - 2 Then Return 0
+		EndIf
 	EndIf
 	Return A2A20200810 ( $RM_IncludeOnly , $RM_ProcessFilter , $RM_Profile )
 EndFunc
