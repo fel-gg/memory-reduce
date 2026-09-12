@@ -161,3 +161,18 @@ Checkpoint dibuat saat L00 mulai. Ini bukan tanda Phase 1 atau M0 selesai.
 9. **Checkpoint** — bagian ini menjadi indeks bukti; status pending yang tidak
    dapat dibuktikan oleh lingkungan tetap dipisahkan dari hasil lulus dan tidak
    dipakai untuk memulai Phase 2.
+
+### Penutupan verifikasi final
+
+- Run `34688217261` (`workflow_dispatch`, source commit `0f7fa86`) terminal
+  `success`. Job Windows lulus build native/frontend, x64 dan x86 self-test,
+  real trim, refault recovery, dan Aggressive engine. Dua job Linux nyata
+  (`ubuntu-22.04` dan `ubuntu-24.04`) seluruhnya lulus, termasuk native,
+  targeted reclaim, installer desktop, dan server.
+- Clean-tag release `v3.0.3` terminal `success` pada run `34687744519`.
+  Artifact Windows/Linux dibangun dari tag, checksum diverifikasi, dan paket
+  Windows memakai konfigurasi Normal default tanpa mengubah konfigurasi lokal.
+- Run `v3.0.4` gagal hanya karena runner mengalami timeout kompilasi native;
+  perubahan timeout bounded dan rerun `34688217261` menutup gate yang sama
+  dengan hasil success. Kegagalan transient tersebut tetap dicatat, bukan
+  dihapus dari riwayat.
