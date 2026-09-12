@@ -302,6 +302,9 @@ jobs:
           python3 -m py_compile linux/native/reduce-memory-native
           python3 -m py_compile tests/benchmark/run_benchmark.py tests/benchmark/summarize_benchmark.py tests/benchmark/workload_memory.py
           python3 -c 'import os, sys; sys.path.insert(0, "tests/benchmark"); import run_benchmark; assert run_benchmark.cpu_seconds(os.getpid()) is not None'
+          for pattern in private file-cache retouch hot new-allocation short-lived; do
+            python3 tests/benchmark/workload_memory.py --megabytes 1 --seconds 0.05 --pattern "${pattern}"
+          done
           python3 tests/linux/test_native_unit.py
           bash tests/linux/test_fixture_isolation.sh
           bash tests/linux/test_failure_adapter.sh

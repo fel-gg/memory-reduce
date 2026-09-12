@@ -29,6 +29,11 @@ repetition diperlukan untuk hasil Phase 1.
 dan menampilkan variasi no-op sebagai baseline variasi, tanpa mengubahnya menjadi
 klaim penghematan.
 
+Fixture `tests/benchmark/workload_memory.py` sekarang mendukung pola terkontrol
+`private`, `file-cache`, `retouch`, `hot`, `new-allocation`, dan `short-lived`.
+Semua pola tetap bounded, disposable, dan tidak menyentuh file pengguna; smoke
+singkat untuk keenam pola dijalankan sebagai gate Linux CI.
+
 Benchmark final wajib mengukur resident/available memory pada +3/+15/+60 detik,
 stage/errno, durasi, CPU/peak RSS engine, page faults, disk I/O, swap-in/out,
 serta p50/p95/p99 latency workload aktif. Hasil unknown tetap unknown.
