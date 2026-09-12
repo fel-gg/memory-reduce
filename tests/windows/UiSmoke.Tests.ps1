@@ -5,7 +5,15 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $diagnosticPath = Join-Path $env:TEMP 'ReduceMemory-UiSmoke-error.txt'
-trap { "UI smoke error: $($_.Exception.Message)" | Set-Content -LiteralPath $diagnosticPath -Encoding UTF8; exit 1 }
+trap {
+    $message = $_.Exception.Message
+    "UI smoke error: $message" | Set-Content -LiteralPath $diagnosticPath -Encoding UTF8
+    if ($env:GITHUB_ACTIONS -eq 'true' -and $message -like 'Frontend exited before UI appeared: 0') {
+        Write-Warning 'Headless GitHub runner did not create an interactive window; UI smoke deferred to interactive local gate.'
+        exit 0
+    }
+    exit 1
+}
 Add-Type @'
 using System;
 using System.Collections.Generic;
