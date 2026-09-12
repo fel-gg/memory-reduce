@@ -11,6 +11,8 @@ Catatan penting: workflow Windows mendeteksi runner GitHub yang headless dan men
 
 Run pengulangan pada commit 2e4fa94 (34681780458) juga selesai success untuk job Windows dan Linux. Run ini memverifikasi ulang workflow setelah checkpoint diperbarui dan menjadi bukti remote terakhir untuk Phase 1.
 
+Release provenance update: commit 6cbdd13 mengubah release workflow agar job tag membangun empat EXE Windows dari source tag menggunakan toolchain yang checksum-nya dipin, mengunggah hasil build sebagai artifact immutable, lalu job publish memakai artifact tersebut. Workflow tidak lagi mengambil EXE lama dari tree repository untuk paket Windows.
+
 Checkpoint dibuat saat L00 mulai. Ini bukan tanda Phase 1 atau M0 selesai.
 
 | Task | Status | Source/hash | Tes dan exit code | Belum terbukti | Langkah berikutnya |
