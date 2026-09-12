@@ -170,6 +170,13 @@ try {
                     throw "$frontend disappeared before $selfTest. Check endpoint-security quarantine history for the staged build."
                 }
                 $processExit = Invoke-BoundedProcess -FilePath $frontendPath -Arguments @($selfTest)
+                if ($selfTest -eq '/RMWORKERLIFECYCLESELFTEST' -and $processExit -eq 62) {
+                    # A cold runner can race native image startup. Retry once
+                    # after the frontend's own bounded lifecycle probe; a
+                    # second failure remains fatal and is not hidden.
+                    Start-Sleep -Milliseconds 500
+                    $processExit = Invoke-BoundedProcess -FilePath $frontendPath -Arguments @($selfTest)
+                }
                 if ($processExit -ne 0) { throw "$frontend $selfTest failed with $processExit" }
             }
         }
