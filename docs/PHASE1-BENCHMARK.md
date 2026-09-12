@@ -34,6 +34,12 @@ Fixture `tests/benchmark/workload_memory.py` sekarang mendukung pola terkontrol
 Semua pola tetap bounded, disposable, dan tidak menyentuh file pengguna; smoke
 singkat untuk keenam pola dijalankan sebagai gate Linux CI.
 
+`tests/benchmark/latency_probe.py` menyediakan pengukuran latency workload
+terpisah: command dijalankan berulang dengan timeout, raw sample disimpan, lalu
+median/p50, p95, dan p99 dihitung secara deterministik. Probe ini mengembalikan
+exit non-zero bila ada iteration gagal atau timeout; angka smoke tidak dianggap
+sebagai bukti improvement ReduceMemory sampai candidate reclaim nyata dipakai.
+
 Benchmark final wajib mengukur resident/available memory pada +3/+15/+60 detik,
 stage/errno, durasi, CPU/peak RSS engine, page faults, disk I/O, swap-in/out,
 serta p50/p95/p99 latency workload aktif. Hasil unknown tetap unknown.
