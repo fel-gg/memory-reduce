@@ -920,6 +920,12 @@ def build_parser() -> argparse.ArgumentParser:
             raise argparse.ArgumentTypeError("must be a positive integer")
         return parsed
 
+    def nonnegative_int(value: str) -> int:
+        parsed = int(value, 10)
+        if parsed < 0:
+            raise argparse.ArgumentTypeError("must be a non-negative integer")
+        return parsed
+
     class RejectDuplicateAction(argparse.Action):
         def __call__(self, parser, namespace, values, option_string=None):
             marker = f"_{self.dest}_seen"
@@ -972,9 +978,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pageout.add_argument("--min-rss-mb", type=positive_int, default=64, action=RejectDuplicateAction)
     pageout.add_argument("--min-mapping-kb", type=positive_int, default=1024, action=RejectDuplicateAction)
-    pageout.add_argument("--activity-ms", type=positive_int, default=300, action=RejectDuplicateAction)
+    pageout.add_argument("--activity-ms", type=nonnegative_int, default=300, action=RejectDuplicateAction)
     pageout.add_argument("--active-ticks", type=int, default=0, action=RejectDuplicateAction)
-    pageout.add_argument("--settle-ms", type=positive_int, default=500, action=RejectDuplicateAction)
+    pageout.add_argument("--settle-ms", type=nonnegative_int, default=500, action=RejectDuplicateAction)
     return parser
 
 

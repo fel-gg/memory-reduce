@@ -37,6 +37,18 @@ class RemainingRangesTests(unittest.TestCase):
 
 
 class ProcessIdentityTests(unittest.TestCase):
+    def test_zero_activity_and_settle_are_valid_disable_values(self) -> None:
+        parser = MODULE.build_parser()
+        arguments = parser.parse_args(["pageout", "--pid", "1", "--activity-ms", "0", "--settle-ms", "0"])
+        self.assertEqual(arguments.activity_ms, 0)
+        self.assertEqual(arguments.settle_ms, 0)
+
+    def test_negative_activity_is_rejected(self) -> None:
+        parser = MODULE.build_parser()
+        with self.assertRaises(SystemExit) as error:
+            parser.parse_args(["pageout", "--pid", "1", "--activity-ms", "-1"])
+        self.assertEqual(error.exception.code, 2)
+
     def test_pageout_opens_pidfd_before_reading_mappings(self) -> None:
         order: list[str] = []
         mapping = MODULE.Mapping(4096, 8192, "r--p", "fixture", rss_kb=4)
