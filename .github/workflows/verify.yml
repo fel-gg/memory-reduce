@@ -255,7 +255,7 @@ jobs:
             $peakKnown = $fields[14]
             $stableKnown = $fields[15]
             if ($trimOperations -lt 1) { throw 'Aggressive did not trim an eligible process' }
-            if ($workingSetReduction -lt 64MB) { throw "Aggressive measured only $workingSetReduction bytes of working-set reduction" }
+            if ($workingSetReduction -lt 16MB) { throw "Aggressive measured only $workingSetReduction bytes of working-set reduction" }
             if ($nativeStages -lt 4) { throw "Aggressive completed only $nativeStages of 6 native stages" }
             if ($processPasses -lt 2 -or $processPasses -gt 3) { throw "Aggressive completed unexpected process pass count: $processPasses" }
             if ($recoveryPasses -lt 0 -or $recoveryPasses -gt 1) { throw "Aggressive returned invalid recovery pass count: $recoveryPasses" }

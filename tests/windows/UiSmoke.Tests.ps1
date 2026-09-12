@@ -42,10 +42,12 @@ public static class ReduceMemoryUiNative {
   }
   public static IntPtr FindCombo(IntPtr parent) {
     IntPtr after = IntPtr.Zero;
+    IntPtr fallback = IntPtr.Zero;
     while (true) {
       after = FindWindowEx(parent, after, "ComboBox", null);
-      if (after == IntPtr.Zero) return IntPtr.Zero;
-      return after;
+      if (after == IntPtr.Zero) return fallback;
+      if (fallback == IntPtr.Zero) fallback = after;
+      if (ComboCount(after) == 6) return after;
     }
   }
   public static int ComboCount(IntPtr combo) { return (int)SendMessage(combo, CB_GETCOUNT, IntPtr.Zero, IntPtr.Zero); }
