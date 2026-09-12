@@ -50,6 +50,23 @@ printf 'sync\n' >> "${REDUCE_MEMORY_TEST_SYNC_LOG:?}"
 EOF
 chmod +x "${temporary_root}/fake-sync"
 
+# Shadow the system interpreter with a deterministic failing shim. Ubuntu CI
+# has python3 installed, so PATH filtering alone cannot represent a missing
+# dependency without this isolated adapter.
+mkdir -p "${temporary_root}/bin"
+mkdir -p "${temporary_root}/bin-success"
+cat > "${temporary_root}/bin-success/python3" <<'EOF'
+#!/usr/bin/env bash
+printf 'Python 3 test shim\n'
+exit 0
+EOF
+chmod +x "${temporary_root}/bin-success/python3"
+cat > "${temporary_root}/bin/python3" <<'EOF'
+#!/usr/bin/env bash
+exit 127
+EOF
+chmod +x "${temporary_root}/bin/python3"
+
 output="$(
   env \
     REDUCE_MEMORY_TEST_MODE=1 \
@@ -64,6 +81,7 @@ output="$(
     REDUCE_MEMORY_TEST_SYNC_LOG="${temporary_root}/sync.log" \
     REDUCE_MEMORY_TARGET_UID=1000 \
     REDUCE_MEMORY_SETTLE_SECONDS=0 \
+    PATH="${temporary_root}/bin-success:/usr/bin:/bin" \
     "${repository_root}/linux/ReduceMemory_Linux.sh" normal
 )"
 
@@ -76,7 +94,7 @@ test ! -s "${temporary_root}/cgroup/memory.reclaim"
 # status and must not invoke the native helper or mutate any fixture file.
 dependency_output="$(
   env \
-    PATH="/usr/bin:/bin" \
+    PATH="${temporary_root}/bin:/usr/bin:/bin" \
     REDUCE_MEMORY_TEST_MODE=1 \
     REDUCE_MEMORY_TEST_ROOT="${temporary_root}" \
     REDUCE_MEMORY_MEMINFO_FILE="${temporary_root}/meminfo" \
@@ -113,6 +131,7 @@ sync_failure_output="$(
     REDUCE_MEMORY_KERNEL_NAME=Linux \
     REDUCE_MEMORY_TARGET_UID=1000 \
     REDUCE_MEMORY_SETTLE_SECONDS=0 \
+    PATH="${temporary_root}/bin-success:/usr/bin:/bin" \
     "${repository_root}/linux/ReduceMemory_Linux.sh" normal
 )"
 grep -F 'Kernel sync             : failed' <<< "${sync_failure_output}" >/dev/null

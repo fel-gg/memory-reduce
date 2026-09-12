@@ -646,7 +646,10 @@ run_native_pageout() {
   local pass_batch_calls
   local pass_fallback_calls
 
-  if ! command -v python3 >/dev/null 2>&1; then
+  # `command -v` alone is insufficient on minimal/managed systems: a stale
+  # shim may exist while the interpreter is unavailable. Probe execution
+  # without importing modules or touching reclaim state.
+  if ! command -v python3 >/dev/null 2>&1 || ! python3 --version >/dev/null 2>&1; then
     stage_native_pageout="unavailable; python3 not installed"
     return 0
   fi
