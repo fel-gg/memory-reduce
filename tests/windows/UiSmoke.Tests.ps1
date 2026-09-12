@@ -4,6 +4,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$diagnosticPath = Join-Path $env:TEMP 'ReduceMemory-UiSmoke-error.txt'
+trap { "UI smoke error: $($_.Exception.Message)" | Set-Content -LiteralPath $diagnosticPath -Encoding UTF8; exit 1 }
 Add-Type @'
 using System;
 using System.Collections.Generic;

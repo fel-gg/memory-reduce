@@ -71,7 +71,9 @@ jobs:
           if ($lifecycle.ExitCode -ne 0) { throw "x64 worker lifecycle failed with exit code $($lifecycle.ExitCode)" }
           $ui = Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','.\tests\windows\UiSmoke.Tests.ps1','-FrontendPath','.\windows\ReduceMemory_x64.exe' -PassThru
           if (-not $ui.WaitForExit(30000)) { taskkill.exe /PID $ui.Id /T /F; throw 'x64 UI smoke timed out' }
-          if ($ui.ExitCode -ne 0) { throw "x64 UI smoke failed with exit code $($ui.ExitCode)" }
+          $uiDiag = Join-Path $env:TEMP 'ReduceMemory-UiSmoke-error.txt'
+          if (Test-Path -LiteralPath $uiDiag) { Get-Content -LiteralPath $uiDiag }
+          if ($ui.ExitCode -ne 0) { throw "x64 UI smoke failed with exit code $($ui.ExitCode); inspect UiSmoke.Tests.ps1 locally on an interactive desktop" }
       - name: Verify x86 self-test
         shell: pwsh
         run: |
@@ -85,6 +87,8 @@ jobs:
           if ($lifecycle.ExitCode -ne 0) { throw "x86 worker lifecycle failed with exit code $($lifecycle.ExitCode)" }
           $ui = Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','.\tests\windows\UiSmoke.Tests.ps1','-FrontendPath','.\windows\ReduceMemory.exe' -PassThru
           if (-not $ui.WaitForExit(30000)) { taskkill.exe /PID $ui.Id /T /F; throw 'x86 UI smoke timed out' }
+          $uiDiag = Join-Path $env:TEMP 'ReduceMemory-UiSmoke-error.txt'
+          if (Test-Path -LiteralPath $uiDiag) { Get-Content -LiteralPath $uiDiag }
           if ($ui.ExitCode -ne 0) { throw "x86 UI smoke failed with exit code $($ui.ExitCode)" }
       - name: Verify real Windows working-set trim
         shell: pwsh
