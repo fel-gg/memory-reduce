@@ -19,9 +19,9 @@ function Invoke-ZigCompile {
     )
     $process = Start-Process -FilePath $ZigPath -ArgumentList $Arguments -PassThru
     try {
-        if (-not $process.WaitForExit(120000)) {
+        if (-not $process.WaitForExit(300000)) {
             Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-            throw "$Architecture native worker build timed out after 120 seconds"
+            throw "$Architecture native worker build timed out after 300 seconds"
         }
         if ($process.ExitCode -ne 0) {
             throw "$Architecture native worker build failed: $($process.ExitCode)"
