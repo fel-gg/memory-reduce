@@ -22,6 +22,14 @@ class ReleaseWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("windows/ReduceMemoryWorker_x64.exe \\", text)
         self.assertNotIn("windows/ReduceMemoryWorker.exe \\", text)
 
+    def test_release_has_bounded_jobs_and_toolchain_downloads(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("timeout-minutes: 30", text)
+        self.assertIn("timeout-minutes: 15", text)
+        self.assertGreaterEqual(text.count("-TimeoutSec 120"), 2)
+        self.assertIn('tags:', text)
+        self.assertIn('"v*"', text)
+
 
 if __name__ == "__main__":
     unittest.main()
