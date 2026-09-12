@@ -1,5 +1,14 @@
 # Phase 1 Luna checkpoint
 
+## Remote verification update — 2026-09-12
+
+GitHub Actions run 34681540951 (https://github.com/fel-gg/memory-reduce/actions/runs/34681540951) pada commit 3869011 selesai dengan success untuk kedua job:
+
+- **Linux**: Bash syntax, M0 provenance, native page-out, safe self-check, Smooth, Aggressive, failure adapter, user-local installer, dan server installer.
+- **Windows**: source build frontend/worker x86 dan x64, manifest/provenance, worker self-test, measurement/protocol/lifecycle self-test, real working-set trim, refault recovery, dan full Aggressive engine.
+
+Catatan penting: workflow Windows mendeteksi runner GitHub yang headless dan menunda UI smoke interaktif dengan warning. UI smoke tetap dijalankan dan lulus pada desktop interaktif lokal untuk binary x64; bukti UI x86 pada desktop interaktif lokal belum diarsipkan. Karena itu, remote green run menutup build/native gates, tetapi tidak mengubah batas bukti visual tersebut menjadi klaim universal.
+
 Checkpoint dibuat saat L00 mulai. Ini bukan tanda Phase 1 atau M0 selesai.
 
 | Task | Status | Source/hash | Tes dan exit code | Belum terbukti | Langkah berikutnya |
