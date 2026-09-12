@@ -67,7 +67,7 @@ jobs:
           # receives the safe Normal default.
           $releaseConfig = Join-Path (Get-Location) 'windows\ReduceMemory.ini'
           $releaseText = [System.Text.Encoding]::Unicode.GetString([System.IO.File]::ReadAllBytes($releaseConfig))
-          $releaseText = [regex]::Replace($releaseText, '(?m)^OptimizeMode=[0-9]+$', 'OptimizeMode=0')
+          $releaseText = [regex]::Replace($releaseText, '(?m)^OptimizeMode=[0-9]+(?=\r?$)', 'OptimizeMode=0')
           [System.IO.File]::WriteAllText($releaseConfig, $releaseText, [System.Text.Encoding]::Unicode)
       - name: Upload tagged Windows artifacts
         uses: actions/upload-artifact@v4
