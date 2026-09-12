@@ -3113,6 +3113,7 @@ Func RM_ParseNativeProcessResult ( $RM_ResultText , $RM_ExpectedSession = "" )
 	If $RM_TargetCount < 0 Or $RM_TargetCount > 16384 Or $RM_TargetCount > $RM_Lines [ 0 ] - 8 Then Return - 1
 	Local $RM_IdentitySet = ObjCreate ( "Scripting.Dictionary" )
 	Local $RM_ParsedMeasured = 0 , $RM_ParsedUnmeasured = 0
+	Local $RM_ParsedResidentDelta = 0
 	For $RM_TargetIndex = 1 To $RM_TargetCount
 		Local $RM_RecordLine = RM_ResultValue ( $RM_Lines [ $RM_TargetIndex + 8 ] , "record" )
 		If @error Then Return - 1
@@ -3123,6 +3124,10 @@ Func RM_ParseNativeProcessResult ( $RM_ResultText , $RM_ExpectedSession = "" )
 		If StringLen ( $RM_TargetFields [ 7 ] ) = 0 Then Return - 1
 		If $RM_TargetFields [ 6 ] = "measured" Then
 			$RM_ParsedMeasured += 1
+			; The native header is a summary of the same measured records. Keep
+			; the reconciliation in the validation phase so a truncated or mixed
+			; session cannot commit an apparently valid aggregate.
+			$RM_ParsedResidentDelta += Number ( $RM_TargetFields [ 3 ] ) - Number ( $RM_TargetFields [ 4 ] )
 		Else
 			$RM_ParsedUnmeasured += 1
 		EndIf
@@ -3150,6 +3155,7 @@ Func RM_ParseNativeProcessResult ( $RM_ResultText , $RM_ExpectedSession = "" )
 	Next
 	If $RM_MetricMeasured < 0 Or $RM_MetricUnmeasured < 0 Then Return - 1
 	If $RM_MetricMeasured <> $RM_ParsedMeasured Or $RM_MetricUnmeasured <> $RM_ParsedUnmeasured Then Return - 1
+	If $RM_ParsedResidentDelta <> $RM_ReleasedBytes Then Return - 1
 	RM_ResetLastPassTargets ( )
 	For $RM_TargetIndex = 1 To $RM_TargetCount
 		Local $RM_TargetFields = StringSplit ( RM_ResultValue ( $RM_Lines [ $RM_TargetIndex + 8 ] , "record" ) , "|" , 1 )
