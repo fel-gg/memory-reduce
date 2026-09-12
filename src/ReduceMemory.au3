@@ -1963,7 +1963,10 @@ Func RM_HandleCommandLine ( )
 		Local $RM_LifecycleWorker = RM_GetNativeWorkerPath ( )
 		If StringLen ( $RM_LifecycleWorker ) = 0 Then Exit 61
 		Local $RM_LifecycleTimedOut = 0
-		Local $RM_LifecycleExit = RM_RunOwnedNativeWorker ( '"' & $RM_LifecycleWorker & '" /measurement-selftest' , 15000 , $RM_LifecycleTimedOut )
+		; A cold x86 runner may spend several seconds creating the child and
+		; loading the native image. Keep the production worker deadline strict,
+		; but give this deterministic lifecycle probe enough startup budget.
+		Local $RM_LifecycleExit = RM_RunOwnedNativeWorker ( '"' & $RM_LifecycleWorker & '" /measurement-selftest' , 30000 , $RM_LifecycleTimedOut )
 		If $RM_LifecycleTimedOut <> 0 Or $RM_LifecycleExit <> 0 Then Exit 62
 		Exit 0
 	EndIf
