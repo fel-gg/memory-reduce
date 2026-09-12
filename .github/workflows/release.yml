@@ -11,6 +11,7 @@ permissions:
 jobs:
   build-windows:
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -22,7 +23,7 @@ jobs:
           $zigExpected = '68659eb5f1e4eb1437a722f1dd889c5a322c9954607f5edcf337bc3684a75a7e'
           $zigArchive = Join-Path $env:RUNNER_TEMP "zig-$zigVersion.zip"
           $zigRoot = Join-Path $env:RUNNER_TEMP 'zig-toolchain'
-          Invoke-WebRequest -Uri "https://ziglang.org/download/$zigVersion/zig-x86_64-windows-$zigVersion.zip" -OutFile $zigArchive
+          Invoke-WebRequest -Uri "https://ziglang.org/download/$zigVersion/zig-x86_64-windows-$zigVersion.zip" -OutFile $zigArchive -TimeoutSec 120
           if ((Get-FileHash -LiteralPath $zigArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $zigExpected) { throw 'Zig checksum mismatch' }
           Expand-Archive -LiteralPath $zigArchive -DestinationPath $zigRoot -Force
           $zig = Join-Path $zigRoot "zig-x86_64-windows-$zigVersion\zig.exe"
@@ -30,7 +31,7 @@ jobs:
           $autoItExpected = 'ceb666a993a9f62621c3a0d4ee602774b2e7f543de1f08ec0380632ee3f89beb'
           $autoItArchive = Join-Path $env:RUNNER_TEMP "autoit-v$autoItVersion.zip"
           $autoItRoot = Join-Path $env:RUNNER_TEMP 'autoit-toolchain'
-          Invoke-WebRequest -Uri "https://www.autoitscript.com/autoit3/files/archive/autoit/autoit-v$autoItVersion.zip" -OutFile $autoItArchive
+          Invoke-WebRequest -Uri "https://www.autoitscript.com/autoit3/files/archive/autoit/autoit-v$autoItVersion.zip" -OutFile $autoItArchive -TimeoutSec 120
           if ((Get-FileHash -LiteralPath $autoItArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $autoItExpected) { throw 'AutoIt checksum mismatch' }
           Expand-Archive -LiteralPath $autoItArchive -DestinationPath $autoItRoot -Force
           $autoIt = Join-Path $autoItRoot 'install'
@@ -54,6 +55,7 @@ jobs:
   publish:
     needs: build-windows
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       RELEASE_TAG: ${{ github.ref_name }}
     steps:
