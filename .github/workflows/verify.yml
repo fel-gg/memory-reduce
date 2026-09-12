@@ -308,6 +308,7 @@ jobs:
           python3 -m py_compile linux/native/reduce-memory-native
           python3 -m py_compile tests/benchmark/run_benchmark.py tests/benchmark/summarize_benchmark.py tests/benchmark/workload_memory.py tests/benchmark/latency_probe.py
           python3 -c 'import os, sys; sys.path.insert(0, "tests/benchmark"); import run_benchmark; assert run_benchmark.cpu_seconds(os.getpid()) is not None'
+          python3 -m unittest tests/benchmark/test_latency_probe.py
           python3 tests/benchmark/latency_probe.py --command 'python3 tests/benchmark/workload_memory.py --megabytes 1 --seconds 0' --iterations 3 --timeout 5 --output "${RUNNER_TEMP}/latency-smoke.json"
           for pattern in private file-cache retouch hot new-allocation short-lived; do
             python3 tests/benchmark/workload_memory.py --megabytes 1 --seconds 0.05 --pattern "${pattern}"
