@@ -9,6 +9,8 @@ GitHub Actions run 34681540951 (https://github.com/fel-gg/memory-reduce/actions/
 
 Catatan penting: workflow Windows mendeteksi runner GitHub yang headless dan menunda UI smoke interaktif dengan warning. UI smoke tetap dijalankan dan lulus pada desktop interaktif lokal untuk binary x64; bukti UI x86 pada desktop interaktif lokal belum diarsipkan. Karena itu, remote green run menutup build/native gates, tetapi tidak mengubah batas bukti visual tersebut menjadi klaim universal.
 
+Run pengulangan pada commit 2e4fa94 (34681780458) juga selesai success untuk job Windows dan Linux. Run ini memverifikasi ulang workflow setelah checkpoint diperbarui dan menjadi bukti remote terakhir untuk Phase 1.
+
 Checkpoint dibuat saat L00 mulai. Ini bukan tanda Phase 1 atau M0 selesai.
 
 | Task | Status | Source/hash | Tes dan exit code | Belum terbukti | Langkah berikutnya |
