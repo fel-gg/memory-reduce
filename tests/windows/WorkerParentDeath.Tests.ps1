@@ -16,9 +16,9 @@ try {
     if ($children.Count -eq 0) { throw 'No lifecycle worker was observed before parent termination' }
     Stop-Process -Id $parent.Id -Force
     Start-Sleep -Milliseconds 750
-    foreach ($pid in $children) {
-        if (Get-Process -Id $pid -ErrorAction SilentlyContinue) {
-            throw "Worker $pid survived parent termination"
+    foreach ($workerPid in $children) {
+        if (Get-Process -Id $workerPid -ErrorAction SilentlyContinue) {
+            throw "Worker $workerPid survived parent termination"
         }
     }
     Write-Output "Parent-death Job Object cleanup passed: workers=$($children.Count)"
