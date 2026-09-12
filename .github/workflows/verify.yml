@@ -250,7 +250,7 @@ jobs:
                     byte[] buffer = new byte[256 * 1024 * 1024];
                     for (int offset = 0; offset < buffer.Length; offset += 4096)
                         buffer[offset] = 1;
-                    Thread.Sleep(TimeSpan.FromSeconds(60));
+          Thread.Sleep(TimeSpan.FromSeconds(180));
                     GC.KeepAlive(buffer);
                 }
             }
