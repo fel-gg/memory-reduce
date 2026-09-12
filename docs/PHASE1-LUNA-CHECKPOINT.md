@@ -127,3 +127,7 @@ Checkpoint dibuat saat L00 mulai. Ini bukan tanda Phase 1 atau M0 selesai.
 - Fresh real targeted x86 trim fixture measured 371.5 MB reduction with its disposable target remaining alive; x64 evidence remains 371.2 MB from the earlier run.
 - Tidak ada global trim, purge, penghapusan file pengguna, atau perubahan konfigurasi pengguna yang dijalankan.
 - File untracked `x` belum dihapus karena kepemilikannya belum terbukti sebagai artefak fixture L00.
+- Commit `93faa4a` menghapus ketergantungan workflow Windows pada cmdlet
+  `Get-FileHash` yang tidak tersedia pada salah satu host runner. Workflow
+  `verify.yml` dan `release.yml` sekarang memakai helper SHA-256 berbasis .NET;
+  kontraknya diuji oleh `tests/release/test_release_workflow_contract.py`.
