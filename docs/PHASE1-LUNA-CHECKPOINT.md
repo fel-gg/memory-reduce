@@ -16,6 +16,14 @@ integration, concurrent Temp path-swap stress, explicit SID/ACL and
 multi-instance lock tests, delegated cgroup/swap/errno matrix, UI selection
 trace, apples-to-apples final benchmark, or clean-tag artifact provenance.
 
+Release verification update: tag `v3.0.5` was built from commit `3edbe74` and
+published by workflow `34690723548`. The published release contains Windows
+ZIP, Linux Desktop tarball, Linux Server tarball, and `SHA256SUMS.txt`; the
+release is non-draft/non-prerelease. Local download verification matched the
+published Windows ZIP digest and confirmed the server tarball contains only
+the server installer path. This closes the clean-tag release gate, while the
+runtime/evidence gates listed above remain independent.
+
 ## Remote verification update — 2026-09-12
 
 GitHub Actions run 34681540951 (https://github.com/fel-gg/memory-reduce/actions/runs/34681540951) pada commit 3869011 selesai dengan success untuk kedua job:
