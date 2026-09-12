@@ -78,6 +78,17 @@ function Invoke-BoundedProcess {
     }
 }
 
+function Get-Sha256Hex {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [System.IO.File]::OpenRead($Path)
+        try { return ([BitConverter]::ToString($sha.ComputeHash($stream)) -replace '-', '') }
+        finally { $stream.Dispose() }
+    }
+    finally { $sha.Dispose() }
+}
+
 try {
     New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
     $baselinePath = Join-Path $outputRoot 'M0-BASELINE.json'
@@ -150,7 +161,7 @@ try {
 
     foreach ($artifact in $manifest.artifacts) {
         $artifactPath = Join-Path $outputRoot $artifact.file
-        $actualHash = (Get-FileHash -LiteralPath $artifactPath -Algorithm SHA256).Hash
+        $actualHash = Get-Sha256Hex $artifactPath
         if ($actualHash -ne $artifact.sha256) { throw "Hash mismatch for $($artifact.file)" }
         if ($artifact.bytes -ne (Get-Item -LiteralPath $artifactPath).Length) {
             throw "Size mismatch for $($artifact.file)"

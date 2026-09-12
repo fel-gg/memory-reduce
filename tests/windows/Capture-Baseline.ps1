@@ -28,6 +28,17 @@ if (-not (Test-Path -LiteralPath $autoItIncludeRoot -PathType Container)) {
     throw "AutoIt include directory is missing: $autoItIncludeRoot"
 }
 
+function Get-Sha256Hex {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [System.IO.File]::OpenRead($Path)
+        try { return ([BitConverter]::ToString($sha.ComputeHash($stream)) -replace '-', '') }
+        finally { $stream.Dispose() }
+    }
+    finally { $sha.Dispose() }
+}
+
 function Get-FileRecord {
     param([Parameter(Mandatory = $true)][string]$RelativePath)
 
@@ -39,7 +50,7 @@ function Get-FileRecord {
         path = $RelativePath
         present = $true
         bytes = (Get-Item -LiteralPath $fullPath).Length
-        sha256 = (Get-FileHash -LiteralPath $fullPath -Algorithm SHA256).Hash
+        sha256 = Get-Sha256Hex $fullPath
     }
 }
 
@@ -107,11 +118,11 @@ $baseline = [ordered]@{
     }
     toolchain = [ordered]@{
         autoItVersion = (Get-Item -LiteralPath (Join-Path $AutoItRoot 'AutoIt3.exe')).VersionInfo.FileVersion
-        compilerX86Sha256 = (Get-FileHash -LiteralPath $autoItCompiler32 -Algorithm SHA256).Hash
-        compilerX64Sha256 = (Get-FileHash -LiteralPath $autoItCompiler64 -Algorithm SHA256).Hash
+        compilerX86Sha256 = Get-Sha256Hex $autoItCompiler32
+        compilerX64Sha256 = Get-Sha256Hex $autoItCompiler64
         includeFileCount = $includeFiles.Count
         zigVersion = $zigVersion
-        zigSha256 = (Get-FileHash -LiteralPath $ZigPath -Algorithm SHA256).Hash
+        zigSha256 = Get-Sha256Hex $ZigPath
     }
     environment = [ordered]@{
         os = [Environment]::OSVersion.VersionString

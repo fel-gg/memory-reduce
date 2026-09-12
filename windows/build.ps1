@@ -68,6 +68,17 @@ function Invoke-CheckedProcess {
     }
 }
 
+function Get-Sha256Hex {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [System.IO.File]::OpenRead($Path)
+        try { return ([BitConverter]::ToString($sha.ComputeHash($stream)) -replace '-', '') }
+        finally { $stream.Dispose() }
+    }
+    finally { $sha.Dispose() }
+}
+
 try {
     New-Item -ItemType Directory -Path $scratchRoot -Force | Out-Null
     Copy-Item -LiteralPath $sourcePath -Destination $scratchSource -Force
@@ -109,7 +120,7 @@ try {
         $artifacts += [ordered]@{
             file = $fileName
             bytes = (Get-Item -LiteralPath $artifactPath).Length
-            sha256 = (Get-FileHash -LiteralPath $artifactPath -Algorithm SHA256).Hash
+            sha256 = Get-Sha256Hex $artifactPath
             architecture = if ($fileName -like '*_x64.exe') { 'x86_64' } else { 'x86' }
         }
     }
@@ -134,7 +145,7 @@ try {
         [ordered]@{
             path = $resolvedInput
             bytes = (Get-Item -LiteralPath $resolvedInput).Length
-            sha256 = (Get-FileHash -LiteralPath $resolvedInput -Algorithm SHA256).Hash
+            sha256 = Get-Sha256Hex $resolvedInput
         }
     })
 
@@ -143,7 +154,7 @@ try {
         projectVersion = $projectVersion
         sourceCommit = $sourceCommit.ToLowerInvariant()
         sourceDirty = $trackedChanges.Count -gt 0
-        sourceSha256 = (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash
+        sourceSha256 = Get-Sha256Hex $sourcePath
         buildInputs = $buildInputs
         toolchain = [ordered]@{
             autoIt = $autoItVersion

@@ -7,6 +7,17 @@ $ErrorActionPreference = 'Stop'
 $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
 $manifestRoot = Split-Path -Parent ([System.IO.Path]::GetFullPath($ManifestPath))
 
+function Get-Sha256Hex {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [System.IO.File]::OpenRead($Path)
+        try { return ([BitConverter]::ToString($sha.ComputeHash($stream)) -replace '-', '').ToLowerInvariant() }
+        finally { $stream.Dispose() }
+    }
+    finally { $sha.Dispose() }
+}
+
 function Test-ManifestFile {
     param($Entry, [string]$BasePath)
     $entryPath = if ($null -ne $Entry.path) { [string]$Entry.path } else { [string]$Entry.file }
@@ -19,7 +30,7 @@ function Test-ManifestFile {
         throw "Manifest file is missing: $path"
     }
     $item = Get-Item -LiteralPath $path
-    $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+    $hash = Get-Sha256Hex $path
     if ([int64]$item.Length -ne [int64]$Entry.bytes) { throw "Manifest size mismatch: $path" }
     if ($hash -ne ([string]$Entry.sha256).ToLowerInvariant()) { throw "Manifest SHA-256 mismatch: $path" }
 }
