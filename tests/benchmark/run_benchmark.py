@@ -191,8 +191,14 @@ def run_trial(label: str, command: str, timeout: float, after_seconds: list[floa
         status, exit_code = "timeout", None
         stdout, stderr = "", ""
     delayed_available = {}
+    delayed_started = time.perf_counter()
     for delay in after_seconds:
-        time.sleep(delay)
+        # Delays are offsets from the end of the trial, not cumulative sleeps.
+        # With [3, 15, 60] this records the requested +3/+15/+60 samples
+        # instead of accidentally sampling at +3/+18/+78 seconds.
+        remaining = delay - (time.perf_counter() - delayed_started)
+        if remaining > 0:
+            time.sleep(remaining)
         sample = available_bytes()
         delayed_available[str(delay)] = sample
     return {"label": label, "command": command, "status": status,
@@ -232,7 +238,7 @@ def main() -> int:
     if not 0 < args.timeout <= 3600: parser.error("--timeout must be in (0, 3600]")
     if not args.source.is_file(): parser.error(f"source file not found: {args.source}")
     try:
-        after_seconds = [float(value) for value in args.after_seconds.split(",") if value.strip()]
+        after_seconds = sorted({float(value) for value in args.after_seconds.split(",") if value.strip()})
     except ValueError: parser.error("--after-seconds must be comma-separated numbers")
     if any(value < 0 or value > 3600 for value in after_seconds): parser.error("post-trial delays must be 0..3600 seconds")
     commands = {"baseline": args.baseline, "candidate": args.candidate, "noop": args.noop}
