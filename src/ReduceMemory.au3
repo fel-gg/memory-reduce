@@ -1668,6 +1668,28 @@ Func RM_IsReparsePoint ( $RM_Path )
 	Return Number ( BitAND ( $RM_Attributes [ 0 ] , 0x400 ) <> 0 )
 EndFunc
 
+; Delete the object represented by an already-open handle. This closes the
+; path-swap window between enumeration and deletion: a renamed/replaced path
+; cannot redirect the handle to a different file or directory. Reparse points
+; are opened with OPEN_REPARSE_POINT and are rejected before marking delete.
+Func RM_DeleteTempObjectByHandle ( $RM_Path )
+	Local $RM_HandleResult = DllCall ( "kernel32.dll" , "handle" , "CreateFileW" , "wstr" , $RM_Path , "dword" , 0x00010000 , "dword" , 0x00000007 , "ptr" , 0 , "dword" , 3 , "dword" , 0x02200000 , "ptr" , 0 )
+	If @error Or Not IsArray ( $RM_HandleResult ) Or $RM_HandleResult [ 0 ] = 0 Or $RM_HandleResult [ 0 ] = - 1 Then Return 0
+	Local $RM_Handle = $RM_HandleResult [ 0 ]
+	; The handle was opened with OPEN_REPARSE_POINT. Check the path one more
+	; time before marking it; a reparse object is never deleted by this helper.
+	If RM_IsReparsePoint ( $RM_Path ) Then
+		DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_Handle )
+		Return 0
+	EndIf
+	Local $RM_Disposition = DllStructCreate ( "byte DeleteFile" )
+	DllStructSetData ( $RM_Disposition , "DeleteFile" , 1 )
+	Local $RM_Deleted = DllCall ( "kernel32.dll" , "bool" , "SetFileInformationByHandle" , "handle" , $RM_Handle , "int" , 4 , "ptr" , DllStructGetPtr ( $RM_Disposition ) , "dword" , DllStructGetSize ( $RM_Disposition ) )
+	Local $RM_Ok = ( IsArray ( $RM_Deleted ) And $RM_Deleted [ 0 ] <> 0 )
+	DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_Handle )
+	Return $RM_Ok
+EndFunc
+
 Func RM_IsAllowedTempRoot ( $RM_Root )
 	Local $RM_Normal = RM_NormalizePath ( $RM_Root )
 	Local $RM_UserTemp = RM_NormalizePath ( @TempDir )
@@ -1709,12 +1731,12 @@ Func RM_DeleteTempTree ( $RM_Root , ByRef $RM_Deleted , ByRef $RM_Skipped , $RM_
 			; can be introduced after enumeration; never follow/remove it.
 			If RM_IsReparsePoint ( $RM_Path ) Then
 				$RM_Skipped += 1
-			ElseIf DirRemove ( $RM_Path ) = 0 Then
+			ElseIf RM_DeleteTempObjectByHandle ( $RM_Path ) = 0 Then
 				$RM_Skipped += 1
 			EndIf
 		ElseIf RM_IsReparsePoint ( $RM_Path ) Then
 			$RM_Skipped += 1
-		ElseIf FileDelete ( $RM_Path ) Then
+		ElseIf RM_DeleteTempObjectByHandle ( $RM_Path ) Then
 			$RM_Deleted += 1
 		Else
 			$RM_Skipped += 1
@@ -2116,11 +2138,11 @@ Func RM_HandleCommandLine ( )
 	EndIf
 	If $CMDLINE [ 1 ] = "/RMAGGRESSIVE" Then
 		If Not IsAdmin ( ) Then RM_FinishWorker ( 5 )
-		Local $RM_CLIOptimizationLock = 0
-		If StringLen ( RM_GetWorkerSessionID ( ) ) = 0 Then
-			$RM_CLIOptimizationLock = RM_AcquireOptimizationLock ( )
-			If $RM_CLIOptimizationLock = 0 Then RM_FinishWorker ( 7 )
-		EndIf
+		; A session id is correlation data, not an ownership credential. Every
+		; CLI entrypoint must take the mutex; otherwise any caller can bypass the
+		; single-writer guard by supplying /RMSESSION=arbitrary-text.
+		Local $RM_CLIOptimizationLock = RM_AcquireOptimizationLock ( )
+		If $RM_CLIOptimizationLock = 0 Then RM_FinishWorker ( 7 )
 		RM_ResetWorkerTotals ( )
 		Local $RM_CLIResult = RM_AggressiveRelease ( 0 )
 		RM_ReleaseOptimizationLock ( $RM_CLIOptimizationLock )
@@ -2129,11 +2151,8 @@ Func RM_HandleCommandLine ( )
 	EndIf
 	If $CMDLINE [ 1 ] = "/RMSMOOTH" Then
 		If Not IsAdmin ( ) Then RM_FinishWorker ( 5 )
-		Local $RM_CLIOptimizationLock = 0
-		If StringLen ( RM_GetWorkerSessionID ( ) ) = 0 Then
-			$RM_CLIOptimizationLock = RM_AcquireOptimizationLock ( )
-			If $RM_CLIOptimizationLock = 0 Then RM_FinishWorker ( 7 )
-		EndIf
+		Local $RM_CLIOptimizationLock = RM_AcquireOptimizationLock ( )
+		If $RM_CLIOptimizationLock = 0 Then RM_FinishWorker ( 7 )
 		RM_ResetWorkerTotals ( )
 		Local $RM_CLIResult = RM_AggressiveRelease ( 1 )
 		RM_ReleaseOptimizationLock ( $RM_CLIOptimizationLock )
@@ -2142,11 +2161,8 @@ Func RM_HandleCommandLine ( )
 	EndIf
 	If $CMDLINE [ 1 ] = "/RMEMERGENCY" Then
 		If Not IsAdmin ( ) Then RM_FinishWorker ( 5 )
-		Local $RM_CLIOptimizationLock = 0
-		If StringLen ( RM_GetWorkerSessionID ( ) ) = 0 Then
-			$RM_CLIOptimizationLock = RM_AcquireOptimizationLock ( )
-			If $RM_CLIOptimizationLock = 0 Then RM_FinishWorker ( 7 )
-		EndIf
+		Local $RM_CLIOptimizationLock = RM_AcquireOptimizationLock ( )
+		If $RM_CLIOptimizationLock = 0 Then RM_FinishWorker ( 7 )
 		RM_ResetWorkerTotals ( )
 		Local $RM_CLIResult = RM_EmergencyRelease ( )
 		RM_ReleaseOptimizationLock ( $RM_CLIOptimizationLock )
@@ -2995,11 +3011,13 @@ Func RM_RunOwnedNativeWorker ( $RM_Command , $RM_TimeoutMs , ByRef $RM_TimedOut 
 	Local $RM_ProcessInfo = DllStructCreate ( "ptr process;ptr thread;dword pid;dword tid" )
 	DllStructSetData ( $RM_Startup , "cb" , DllStructGetSize ( $RM_Startup ) )
 	Local $RM_CommandLine = $RM_Command
-	Local $RM_Created = DllCall ( "kernel32.dll" , "bool" , "CreateProcessW" , "ptr" , 0 , "wstr" , $RM_CommandLine , "ptr" , 0 , "ptr" , 0 , "bool" , False , "dword" , 0x08000000 , "ptr" , 0 , "wstr" , @ScriptDir , "ptr" , DllStructGetPtr ( $RM_Startup ) , "ptr" , DllStructGetPtr ( $RM_ProcessInfo ) )
+	; CREATE_SUSPENDED closes the race between process creation and job
+	; assignment. The child cannot execute any cleanup code before ownership
+	; has been established; it is resumed only after AssignProcessToJobObject.
+	Local $RM_Created = DllCall ( "kernel32.dll" , "bool" , "CreateProcessW" , "ptr" , 0 , "wstr" , $RM_CommandLine , "ptr" , 0 , "ptr" , 0 , "bool" , False , "dword" , 0x08000004 , "ptr" , 0 , "wstr" , @ScriptDir , "ptr" , DllStructGetPtr ( $RM_Startup ) , "ptr" , DllStructGetPtr ( $RM_ProcessInfo ) )
 	If @error Or Not IsArray ( $RM_Created ) Or $RM_Created [ 0 ] = 0 Then Return - 1
 	Local $RM_Handle = DllStructGetData ( $RM_ProcessInfo , "process" )
 	Local $RM_ThreadHandle = DllStructGetData ( $RM_ProcessInfo , "thread" )
-	If $RM_ThreadHandle <> 0 Then DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_ThreadHandle )
 	If $RM_Handle = 0 Then Return - 1
 	; Put the child in a private kill-on-close job. If the frontend exits or the
 	; operation is cancelled, the optimizer child cannot remain orphaned.
@@ -3010,20 +3028,38 @@ Func RM_RunOwnedNativeWorker ( $RM_Command , $RM_TimeoutMs , ByRef $RM_TimedOut 
 		Return - 1
 	EndIf
 	Local $RM_JobHandle = $RM_Job [ 0 ]
-	Local $RM_JobLimits = DllStructCreate ( "uint64 read_ops;uint64 write_ops;uint64 other_ops;uint64 read_bytes;uint64 write_bytes;uint64 other_bytes;uint64 per_process;uint64 per_job;dword limit_flags;ulong_ptr min_working_set;ulong_ptr max_working_set;dword active_process;ulong_ptr affinity;dword priority;dword scheduling_class" )
+	; JOBOBJECT_EXTENDED_LIMIT_INFORMATION is BASIC_LIMIT_INFORMATION,
+	; followed by IO_COUNTERS, followed by four SIZE_T values. Keep the
+	; documented order so the kill-on-close flag is read at the correct offset
+	; on both x86 and x64.
+	Local $RM_JobLimits = DllStructCreate ( "dword limit_flags;ptr min_working_set;ptr max_working_set;dword active_process;ptr affinity;dword priority;dword scheduling_class;uint64 read_ops;uint64 write_ops;uint64 other_ops;uint64 read_bytes;uint64 write_bytes;uint64 other_bytes;ptr process_memory_limit;ptr job_memory_limit;ptr peak_process_memory_used;ptr peak_job_memory_used" )
 	DllStructSetData ( $RM_JobLimits , "limit_flags" , 0x2000 ) ; JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
 	Local $RM_JobSet = DllCall ( "kernel32.dll" , "bool" , "SetInformationJobObject" , "handle" , $RM_JobHandle , "int" , 9 , "ptr" , DllStructGetPtr ( $RM_JobLimits ) , "dword" , DllStructGetSize ( $RM_JobLimits ) )
+	If @error Or Not IsArray ( $RM_JobSet ) Or $RM_JobSet [ 0 ] = 0 Then
+		DllCall ( "kernel32.dll" , "bool" , "TerminateProcess" , "handle" , $RM_Handle , "uint" , 125 )
+		DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_Handle )
+		DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_JobHandle )
+		Return - 1
+	EndIf
 	Local $RM_JobAssign = DllCall ( "kernel32.dll" , "bool" , "AssignProcessToJobObject" , "handle" , $RM_JobHandle , "handle" , $RM_Handle )
-	; Some hosts reject the extended-limit layout (for example nested jobs).
-	; Assignment is still useful ownership; only fail when the process cannot be
-	; assigned at all. The kill-on-close flag is reported as best-effort until a
-	; host integration test proves it on every supported Windows build.
 	If @error Or Not IsArray ( $RM_JobAssign ) Or $RM_JobAssign [ 0 ] = 0 Then
 		DllCall ( "kernel32.dll" , "bool" , "TerminateProcess" , "handle" , $RM_Handle , "uint" , 125 )
 		DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_Handle )
 		DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_JobHandle )
 		Return - 1
 	EndIf
+	; Ownership is now established. ResumeThread returns the previous suspend
+	; count; a failed call means the child must be terminated while we still
+	; own its exact handle.
+	Local $RM_Resume = DllCall ( "kernel32.dll" , "dword" , "ResumeThread" , "handle" , $RM_ThreadHandle )
+	If @error Or Not IsArray ( $RM_Resume ) Or $RM_Resume [ 0 ] = 0xFFFFFFFF Then
+		DllCall ( "kernel32.dll" , "bool" , "TerminateProcess" , "handle" , $RM_Handle , "uint" , 125 )
+		DllCall ( "kernel32.dll" , "dword" , "WaitForSingleObject" , "handle" , $RM_Handle , "dword" , 5000 )
+		DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_Handle )
+		DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_JobHandle )
+		Return - 1
+	EndIf
+	If $RM_ThreadHandle <> 0 Then DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_ThreadHandle )
 	; Poll in short slices instead of blocking the GUI thread for the whole
 	; native pass. Sleep lets AutoIt dispatch paint/close messages while the
 	; owned child continues under the same timeout budget.
@@ -3033,7 +3069,7 @@ Func RM_RunOwnedNativeWorker ( $RM_Command , $RM_TimeoutMs , ByRef $RM_TimedOut 
 		Sleep ( 25 )
 		$RM_Wait = DllCall ( "kernel32.dll" , "dword" , "WaitForSingleObject" , "handle" , $RM_Handle , "dword" , 100 )
 	WEnd
-	If @error Or Not IsArray ( $RM_Wait ) Then
+	If @error Or Not IsArray ( $RM_Wait ) Or $RM_Wait [ 0 ] = 0xFFFFFFFF Then
 		DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_Handle )
 		DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_JobHandle )
 		Return - 1
@@ -3104,6 +3140,7 @@ Func RM_ParseNativeProcessResult ( $RM_ResultText , $RM_ExpectedSession = "" )
 	For $RM_MetricIndex = $RM_TargetCount + 9 To $RM_Lines [ 0 ]
 		Local $RM_MetricParts = StringSplit ( $RM_Lines [ $RM_MetricIndex ] , "=" , 1 )
 		If Not IsArray ( $RM_MetricParts ) Or $RM_MetricParts [ 0 ] <> 2 Or StringLen ( $RM_MetricParts [ 1 ] ) = 0 Or Not RM_IsUInt64Text ( $RM_MetricParts [ 2 ] ) Then Return - 1
+		If StringInStr ( "|seen|protected|filtered|foreground|open_failed|path_failed|windows_process|query_failed|below_minimum|trim_failed|no_reduction|measured|unmeasured|" , "|" & $RM_MetricParts [ 1 ] & "|" ) = 0 Then Return - 1
 		If IsObj ( $RM_MetricSet ) Then
 			If $RM_MetricSet.Exists ( $RM_MetricParts [ 1 ] ) Then Return - 1
 			$RM_MetricSet.Add ( $RM_MetricParts [ 1 ] , 1 )
@@ -3126,7 +3163,7 @@ Func RM_ParseNativeProcessResult ( $RM_ResultText , $RM_ExpectedSession = "" )
 	Next
 	RM_ResetNativeMetrics ( )
 	For $RM_MetricIndex = $RM_TargetCount + 9 To $RM_Lines [ 0 ]
-		RM_ParseNativeMetric ( $RM_Lines [ $RM_MetricIndex ] )
+		If RM_ParseNativeMetric ( $RM_Lines [ $RM_MetricIndex ] ) <> 1 Then Return - 1
 	Next
 	$RM_LastTrimReleasedBytes = $RM_ReleasedBytes
 	$RM_LastTrimMeasuredTargets = $RM_NativeMeasured
