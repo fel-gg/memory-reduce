@@ -30,6 +30,7 @@ class ReleaseWorkflowContractTests(unittest.TestCase):
         self.assertGreaterEqual(text.count("-TimeoutSec 120"), 2)
         self.assertIn('tags:', text)
         self.assertIn('"v*"', text)
+        self.assertIn('unzip -oq', text)
 
     def test_windows_workflows_use_portable_hashing(self):
         for workflow in (WORKFLOW, VERIFY_WORKFLOW, ROOT / "release" / "New-ReleasePackage.ps1", ROOT / "release" / "Verify-ReleasePackage.ps1"):

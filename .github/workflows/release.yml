@@ -139,7 +139,7 @@ jobs:
           set -euo pipefail
           version="${RELEASE_TAG#v}"
 
-          unzip -q "dist/ReduceMemory-Windows-v${version}.zip" -d audit/windows
+          unzip -oq "dist/ReduceMemory-Windows-v${version}.zip" -d audit/windows
           windows_root="audit/windows/ReduceMemory-Windows-v${version}"
           test -s "${windows_root}/windows/ReduceMemory_x64.exe"
           test -s "${windows_root}/windows/ReduceMemory.exe"
