@@ -131,3 +131,33 @@ Checkpoint dibuat saat L00 mulai. Ini bukan tanda Phase 1 atau M0 selesai.
   `Get-FileHash` yang tidak tersedia pada salah satu host runner. Workflow
   `verify.yml` dan `release.yml` sekarang memakai helper SHA-256 berbasis .NET;
   kontraknya diuji oleh `tests/release/test_release_workflow_contract.py`.
+
+### Sembilan item penutupan yang diminta pengguna (2026-09-12)
+
+1. **Exit 62 x86** — ditutup oleh retry lifecycle bounded pada build harness;
+   run `34686424422` menjalankan staged x86 lifecycle dengan exit 0.
+2. **Windows CI penuh** — run `34686424422` sukses pada build x86/x64,
+   self-test, real trim, refault recovery, dan Aggressive engine.
+3. **UI x86 interaktif** — `UiSmoke.Tests.ps1` terhadap staged
+   `build/phase1-luna-current/ReduceMemory.exe` sukses: `modes=6`.
+4. **Lifecycle Windows** — staged x86 lifecycle lokal exit 0; x64 dan x86
+   lifecycle juga sukses di run `34686424422`.
+5. **Matrix Linux nyata** — workflow sekarang menjalankan job terpisah pada
+   `ubuntu-22.04` dan `ubuntu-24.04`; hasil commit matrix dicatat setelah run
+   terminal. Linux targeted reclaim, native, installer, dan server gates sudah
+   tersedia pada kedua image.
+6. **Temp race** — `TempContainment.Tests.ps1` menambah 8 iterasi bounded
+   reparse/junction stress dengan sentinel outside-tree; PowerShell parse lulus.
+   Runtime Windows dicatat oleh CI matrix terbaru.
+7. **Benchmark final** — `build/benchmark-final-x86.json` berisi 15 trial
+   (5 baseline, 5 candidate real-trim, 5 noop), seluruh exit 0; summary dibuat
+   di `build/benchmark-final-x86-summary.json`. SHA-256 raw:
+   `9D841DABB11FE88669BFDF54DB533371D3C68A72B9C9D054C8BFAFD686770A54`;
+   summary: `D440FD31B752EF301FBE1439ECEF1750A46E14E4398E79942FC1CA62DB8F5F09`.
+8. **Clean-tag release** — release workflow sudah dibatasi ke tag `v*`,
+   build dari checkout tag bersih, memverifikasi manifest/checksum, dan tidak
+   mengarsipkan executable lama dari repo. Publish tag masih menunggu commit
+   penutupan final agar artifact tidak berasal dari source yang berbeda.
+9. **Checkpoint** — bagian ini menjadi indeks bukti; status pending yang tidak
+   dapat dibuktikan oleh lingkungan tetap dipisahkan dari hasil lulus dan tidak
+   dipakai untuk memulai Phase 2.
