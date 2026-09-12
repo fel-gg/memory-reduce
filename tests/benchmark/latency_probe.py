@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shlex
 import statistics
 import subprocess
@@ -35,7 +36,7 @@ def main() -> int:
 
     samples: list[float] = []
     failures: list[dict[str, object]] = []
-    argv = shlex.split(args.command, posix=True)
+    argv = shlex.split(args.command, posix=(os.name != "nt"))
     for iteration in range(1, args.iterations + 1):
         started = time.perf_counter()
         try:
