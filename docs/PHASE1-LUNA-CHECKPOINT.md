@@ -1,5 +1,21 @@
 # Phase 1 Luna checkpoint
 
+## Current Phase 1 review — 2026-09-12
+
+Review terhadap source tip `9680908` menemukan bahwa jalur Windows build,
+worker lifecycle, native result reconciliation, history single-writer, Temp
+handle deletion, Linux matrix, dan release provenance sudah memiliki bukti
+green yang tercatat di bawah. Ditambahkan juga
+`tests/release/test_phase1_source_contract.py` sebagai guard regresi lokal;
+9 kontrak Python (source safety, workflow, dan benchmark) lulus.
+
+Phase 1 belum boleh disebut selesai penuh hanya dari green CI: parent-death/
+forced-timeout live proof, explicit Windows SID/ACL plus two-instance lock,
+concurrent Temp path-swap, delegated Linux cgroup/swap/errno matrix, bukti UI
+x86 visual interaktif, dan benchmark final apples-to-apples masih merupakan
+gap bukti yang terpisah. Item-item itu tetap dicatat sebagai pending sampai
+ada artefak runtime yang bisa diverifikasi; Phase 2 tidak dimulai.
+
 ## Sol verification update — 2026-09-12
 
 Commit `25eaee2` is the current Phase 1 source tip. It includes the complete
