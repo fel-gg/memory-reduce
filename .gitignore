@@ -9,6 +9,10 @@ Finalize-Upgrade.ps1
 *.log
 build/
 
+# Local release outputs; CI builds packages from tagged source.
+release/final-luna/
+release/latest-luna/
+
 # Python bytecode produced while checking the native Linux helper
 __pycache__/
 *.py[cod]
