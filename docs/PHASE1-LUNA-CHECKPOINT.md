@@ -1,5 +1,21 @@
 # Phase 1 Luna checkpoint
 
+## Sol verification update — 2026-09-12
+
+Commit `25eaee2` is the current Phase 1 source tip. It includes the complete
+Job Object layout/creation fix, authenticated single-writer behavior for all
+CLI worker entrypoints, handle-based Temp object deletion, and native result
+resident-delta reconciliation. GitHub Actions run `34690419977` completed
+successfully for Windows and both Ubuntu 22.04/24.04 jobs, including Windows
+x86/x64 build, lifecycle, working-set, refault, and Aggressive checks plus the
+Linux native and installer checks.
+
+This remote green run closes the earlier x86 lifecycle exit-62 failure. It does
+not by itself close the remaining live-evidence gates below: parent-death/UAC
+integration, concurrent Temp path-swap stress, explicit SID/ACL and
+multi-instance lock tests, delegated cgroup/swap/errno matrix, UI selection
+trace, apples-to-apples final benchmark, or clean-tag artifact provenance.
+
 ## Remote verification update — 2026-09-12
 
 GitHub Actions run 34681540951 (https://github.com/fel-gg/memory-reduce/actions/runs/34681540951) pada commit 3869011 selesai dengan success untuk kedua job:
