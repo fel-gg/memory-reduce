@@ -1,5 +1,234 @@
 # Upgrade progress
 
+## 2026-09-12 - Benchmark Windows peak RSS fix (3.0 development)
+
+- M7.5 summarizer diperluas untuk merangkum CPU delta, swap delta, serta
+  minor/major fault delta dengan median/min/max dan CI 95%; sample missing tetap
+  `null`/tidak dihitung. Smoke metrics summary schema v2 berhasil dibuat.
+
+- M7.4 raw trial diperluas lagi dengan CPU time, kernel read/write bytes, dan
+  `VmSwap` before/after/delta pada Linux. Semua helper best-effort dan
+  menghasilkan `null` bila `/proc` tidak tersedia; Windows schema tetap valid.
+- CPU collector sekarang juga memakai `GetProcessTimes` pada Windows dengan
+  handle pointer-safe. Smoke trial Windows menghasilkan CPU delta 0.015625 s
+  untuk workload, bukan `null`; Python compile dan diff check lulus.
+
+- M7.4 raw trial ditambah `cpu_seconds_before/after/delta` berbasis
+  `/proc/<pid>/stat` pada Linux, dengan fallback `null` saat platform/proses
+  tidak menyediakan data. Python compile dan diff check lulus setelah fix
+  indentation regression.
+
+- Raw benchmark trial sekarang memiliki field `faults_before`, `faults_after`,
+  dan `faults_delta` untuk minor/major page fault Linux; proses yang sudah exit
+  dilaporkan `null`. Smoke Windows memvalidasi schema tetap serializable.
+
+- Summary benchmark kini juga menghitung deterministic median CI 95% untuk
+  peak RSS dan Available-RAM delta, bukan hanya durasi. Raw RSS-check berhasil
+  diringkas ulang dengan schema v2.
+
+- `tests/benchmark/run_benchmark.py` kini memakai pointer-sized WinAPI handle,
+  deklarasi argtypes/restype eksplisit, dan struktur penuh
+  `PROCESS_MEMORY_COUNTERS_EX`. Sebelumnya struktur terlalu pendek sehingga
+  `GetProcessMemoryInfo` mengembalikan null.
+- Smoke workload 16 MiB sekarang menghasilkan peak RSS nyata (sekitar 29–30
+  MB untuk workload), sementara no-op tetap terukur terpisah. Python compile
+  dan diff check lulus.
+
+## 2026-09-12 - M0-M8 requirement matrix audit (3.0 development)
+
+- `docs/PHASE1-LUNA-CHECKPOINT.md` sekarang memetakan seluruh sub-milestone
+  M2.8, M3, M4.2-M4.4, M5.1/M5.4/M5.7/M5.8, M6.1-M6.3, M7.2-M7.6,
+  dan M8.2/M8.4/M8.6.
+- Baris baru sengaja membedakan bukti lokal yang sudah lulus dari integrasi
+  live yang belum tersedia. Tidak ada milestone yang ditandai selesai hanya
+  karena build atau parser berhasil.
+- Regresi dokumentasi: `git diff --check`, Bash syntax, dan Linux unit suite
+  18/18 lulus setelah matriks diperbarui.
+- Audit lanjutan menemukan harness installer masih memakai continuation `\\`
+  (exit 126 pada Bash); sudah diperbaiki menjadi `\\`. Runtime installer
+  menolak Git Bash dengan exit 3 sesuai guard platform, sehingga bukti install
+  Linux tetap harus diambil pada Linux/WSL/CI, bukan dipalsukan di Windows.
+- Benchmark collector dan summarizer juga dijalankan ulang dengan lima
+  repetition smoke yang aman (`build/benchmark-smoke-5x.json` dan
+  `build/benchmark-summary-5x.json`). Ini memverifikasi harness/statistik,
+  bukan hasil penghematan RAM produksi.
+- Failure-adapter Linux kini memiliki regression dependency-missing: saat
+  `python3` disembunyikan, stage melaporkan `unavailable; python3 not
+  installed`, helper native tidak dipanggil, dan fixture `drop_caches` serta
+  `memory.reclaim` tetap utuh. Test runtime lulus exit 0.
+- M5.8 mendapat pengukuran biaya stage: `sync` dan `drop_caches` kini mencatat
+  durasi milidetik per sesi dan melaporkannya terpisah; clock yang tidak valid
+  menghasilkan 0 tanpa mengarang nilai. Bash syntax, failure-adapter, unit
+  suite 18/18, dan diff check tetap lulus.
+- M7.5 summarizer sekarang menghasilkan deterministic bootstrap 95% CI untuk
+  median durasi tiap kondisi (schema report v2). Smoke report lima repetition
+  berhasil diringkas ulang; CI dipakai sebagai rentang ketidakpastian, bukan
+  klaim otomatis bahwa candidate lebih baik.
+- M8.4 README diperjelas: credit eksplisit ke Sordum/BlueLife, provenance
+  binary/source dipisahkan dari upstream resmi, serta batas redistribusi tidak
+  diasumsikan otomatis. Mode, scope, angka, dan batas reclaim tetap dijelaskan
+  secara natural.
+- M2.3/M2.8 parser self-test ditambah fixture truncated-record dan uint64
+  overflow; parser produksi wajib menolak keduanya sebelum commit metrics.
+  Au3Check serta regresi Linux tetap lulus.
+- Setelah validasi overflow, staging Windows `phase1-luna-final-*` dan paket
+  release `release/final-luna/ReduceMemory-3.0.zip` dibuat ulang dari source
+  terbaru. Manifest dan checksum verifier lulus; frontend execution sengaja
+  memakai `-SkipFrontendExecution`, jadi runtime GUI pada artefak ini tetap
+  belum diklaim.
+- Overflow fixture sempat mengungkap bug nyata: `Number()` AutoIt menerima
+  angka 20 digit dengan pembulatan. Parser sekarang memvalidasi teks uint64 dan
+  int64 secara leksikal sebelum konversi; Au3Check dan staged Windows build
+  terbaru lulus setelah perbaikan ini.
+- Percobaan memakai `Scripting.Dictionary.Keys()` langsung di churn path
+  menyebabkan `RMMEASUREMENTSELFTEST` exit 60 pada runtime AutoIt lama; perubahan
+  itu dibatalkan. Jalur churn kembali ke `IniReadSection` yang kompatibel,
+  sementara cache per-target tetap dipakai dan bug runtime tidak disembunyikan.
+- Staging `phase1-luna-runtime-final-*` terbaru diuji ulang dengan WorkerProtocol
+  x86/x64 (keduanya exit 0) dan WorkerMeasurement contract (exit 0), sehingga
+  handshake/result/metric reconciliation binary terbaru tetap terbukti.
+- Paket `release/current-luna/ReduceMemory-3.0.zip` dibuat ulang dari staging
+  runtime tersebut setelah rollback cache churn; manifest, checksum, dan
+  ekstraksi verifier lulus (exit 0). Paket tetap berstatus lokal karena source
+  tree dirty dan belum dipublikasikan.
+- Environment gate terakhir: PowerShell berjalan non-Administrator dan WSL
+  belum terpasang. Workflow CI tetap mempertahankan gate elevated Aggressive
+  dan Linux kernel runtime; kondisi lokal ini dicatat sebagai batas bukti,
+  bukan diubah menjadi pass.
+- Release packaging menemukan dan memperbaiki reuse-output bug: metadata lama
+  dapat masuk ke manifest dan membuat self-hash gagal. `New-ReleasePackage.ps1`
+  kini mengecualikan `SHA256SUMS` dan `RELEASE-MANIFEST.json` lama sebelum
+  menghasilkan metadata baru; paket `release/current-luna` kemudian dibuat dan
+  diverifikasi ulang dengan exit 0.
+- Packaging kini juga membersihkan hanya directory `ReduceMemory-$Version`
+  yang berada tepat di bawah output directory terpilih sebelum menyalin payload;
+  ini mencegah file payload stale ikut ZIP tanpa manifest. Regenerate dan
+  verifier `release/current-luna` lulus exit 0 setelah hardening ini.
+- M5.5 diperkuat: kegagalan command `sync` tidak lagi mematikan seluruh mode
+  karena `set -e`; stage sekarang melaporkan `Kernel sync: failed` lalu native
+  page-out/cgroup tetap berjalan dan melapor sendiri. Failure-adapter menguji
+  skenario exit 73 ini, Linux unit suite tetap 18/18.
+- Paket `release/current-luna` diregenerasi setelah patch M5.5 agar engine
+  Linux di ZIP memuat perilaku sync-failure independence terbaru; manifest dan
+  verifier checksum kembali lulus exit 0.
+- M2.2 lifecycle cleanup diperkuat: jika `WaitForSingleObject` gagal atau
+  mengembalikan hasil tidak valid, process handle dan Job Object handle kini
+  sama-sama ditutup sebelum fallback/error. Au3Check dan worker measurement
+  contract lulus setelah perubahan.
+- M7.3 kini memiliki `tests/benchmark/workload_memory.py`, fixture private
+  anonymous allocation yang menyentuh setiap page, menahan proses tetap hidup,
+  dan membatasi ukuran/durasi. Smoke 8 MiB berjalan exit 0; fixture tidak
+  menjalankan reclaim sehingga aman dijadikan workload VM/disposable.
+- Collector kemudian dijalankan dengan workload private 32 MiB, lima repetition,
+  order acak, timeout 10 detik, dan delayed sample 1/3 detik. Raw dan summary
+  tersimpan sebagai `build/benchmark-workload-5x.json` dan
+  `build/benchmark-workload-summary-5x.json`; ini bukti harness mengumpulkan
+  workload nyata, bukan bukti candidate mengalahkan baseline karena trial
+  candidate sengaja masih memakai fixture yang sama.
+- Paket release 3.0 dibuat ulang dari staging Windows terbaru setelah perubahan
+  M4/M5/M7, lalu `Verify-ReleasePackage.ps1` memvalidasi manifest, ukuran,
+  SHA-256, dan seluruh baris `SHA256SUMS` setelah ekstraksi. Hash ZIP terbaru
+  dicatat oleh command output; paket ini lokal dan source masih dirty.
+- Checkpoint M5.8 diselaraskan dengan implementasi: status berubah menjadi
+  `sebagian diperbaiki` karena cost `sync`/`drop_caches` sudah tersedia dan
+  dites, sementara korelasi cost-vs-latency pada kernel/workload nyata masih
+  menunggu runner disposable.
+- Installer Linux smoke fixture kini membuat config user-owned di prefix,
+  menjalankan update, memverifikasi isinya tetap, lalu uninstall scoped dan
+  memverifikasi config tetap ada. Ini menutup regression preservation untuk
+  M6.4/M8.2; syntax semua installer lulus, runtime penuh tetap menunggu Linux.
+- M8.5 support matrix dikoreksi agar tidak menyebut installer Linux sudah
+  lulus CI remote; sekarang dibedakan jelas antara harness yang siap dijalankan
+  dan bukti runtime yang benar-benar tersedia. Bukti targeted Windows x86
+  371.5 MB juga ditambahkan.
+
+## 2026-09-12 - Phase 1 hardening continuation (3.0 development)
+
+- Linux RSS records now carry process `starttime` through the native helper and
+  Bash session ledger, preventing PID reuse from being reported as one target.
+- Linux reclaim is scope-bound: the launcher validates cgroup-root containment,
+  while the native writer rejects arbitrary paths and symlink indirection.
+- Linux `drop_caches` is now an independent stage; read-only or denied sysctl
+  does not prevent native page-out or cgroup reclaim from reporting separately.
+- Windows worker foreground protection is explicit (`/protect-foreground=0|1`)
+  and x86 threshold conversion rejects values that do not fit `SIZE_T`.
+- History parsing rejects malformed/oversized/future data and ignores churn
+  entries beyond the 30-day TTL. Temp deletion performs a final reparse check
+  immediately before file/directory removal, with broad-root regression tests.
+- Native worker waiting uses bounded short polling slices so the AutoIt UI has
+  opportunities to process paint/close messages during a long pass.
+- Local evidence after these changes: Linux unit suite 18/18, session
+  accounting, Bash/Python syntax, Au3Check, Windows staged x86/x64 build,
+  worker protocol/lifecycle, and Temp containment tests pass. Phase 1 remains
+  open pending live integration matrices and M2.8/M3-M8 gates.
+- Follow-up gates also pass: Linux failure-adapter, fixture-isolation, and
+  baseline capture; Windows worker measurement contract; real targeted x64
+  trim measured 371.2 MB working-set reduction while the disposable target
+  remained alive. This is targeted evidence only, not proof of global reclaim.
+- A combined regression run after subsequent M3-M6 hardening also passed all
+  available Linux adapters/session tests and Windows Temp/worker measurement
+  tests in one sequence.
+- Real targeted trim now has fresh x86 evidence as well: the disposable
+  process lost 371.5 MB of working set and remained alive. This is targeted
+  process evidence, not a claim about global memory release.
+- History cache regression and native swappiness/bytes bounds were added after
+  the initial entry; Au3Check, Linux 18/18, and the full Windows staged build
+  were rerun successfully.
+
+## 2026-09-11 - M1 measured results without fabricated savings (3.0 development)
+
+- Windows now treats a successful trim and a successful post-trim query as two
+  separate facts. A failed after-query records an unmeasured operation instead
+  of claiming the full pre-trim working set was released.
+- Working-set and Available RAM deltas stay signed. The UI reports resident
+  memory as reduced, increased, unchanged, partial, or unknown; invalid global
+  snapshots also remain unknown in the UI and log.
+- Aggressive and Emergency use one per-process session ledger. Repeated passes
+  retain the first baseline and latest valid final snapshot, so the same target
+  is not counted once per pass. System-release modes no longer run an extra
+  untracked parent trim before the elevated session.
+- The x86/x64 C worker protocol now carries paired before/after values, a
+  measured/unknown status per successful trim, signed resident delta, and
+  separate measured/unmeasured counters.
+- Linux RSS accounting now includes only processes that actually received
+  `process_madvise`, still have the same observed identity, and have a valid
+  after-read. Exited, identity-changed, permission-changed, and unavailable
+  targets are kept out of the claimed gain and reported separately.
+- Linux and Windows session tests cover failed after-reads, 32 MiB growth,
+  unchanged RSS, untouched exits, duplicate targets across passes, and invalid
+  global snapshots. The Windows measurement contract runs on AutoIt x86,
+  AutoIt x64, and both native workers.
+
+## 2026-09-10 - M0 reproducible build and isolated fixtures (2.9 development)
+
+- Added one staged Windows build entry point for the canonical AutoIt frontend
+  and native C workers in both x86 and x64, without overwriting the active
+  portable installation by default.
+- Added source-runtime and staged-artifact contract checks plus a build manifest
+  containing the source commit, source hash, toolchain versions, artifact sizes,
+  architectures, and SHA-256 hashes.
+- Added a separate baseline record for the stored binaries, source files,
+  compiler hashes, AutoIt include set, OS/architecture, privilege, memory,
+  pagefile, configuration hash, and the bounded targeted-trim parameters. The
+  private INI content is not copied into the record.
+- Linux CI records its source/helper hashes, distribution, kernel,
+  architecture, effective UID, physical/swap memory, and cgroup v2 scope in a
+  separate provenance artifact before running integration fixtures.
+- Moved the real x86/x64 256 MB targeted-trim fixture out of workflow YAML into
+  a repeatable test harness. It still requires at least 64 MB of measured
+  working-set reduction and proves that the disposable target stays alive.
+- Linux test mode is now explicit and refuses to start until meminfo, VM sysctl,
+  cgroup reclaim, native helper, sync command, and effective UID are all backed
+  by test adapters. Unit and failure-adapter tests therefore do not mix fake
+  metadata with real reclaim writes.
+- Kept the existing `windows/ReduceMemory.ini` outside the generated artifacts
+  so local build verification cannot overwrite user configuration.
+- The full CI gate executes freshly compiled frontends. A local
+  `-SkipFrontendExecution` escape hatch exists only for machines whose endpoint
+  security quarantines a new unsigned AutoIt artifact; it still checks source,
+  compilation, PE architecture, manifest hashes, and both native workers, and
+  clearly reports that frontend runtime verification was skipped.
+
 This file records real milestones. It intentionally distinguishes reconstructed
 build artifacts from source-level history; the original folder did not contain
 the AutoIt source for every intermediate binary.
@@ -204,6 +433,38 @@ the AutoIt source for every intermediate binary.
 - Added real Ubuntu CI evidence using a disposable 128 MB resident file mapping;
   acceptance now requires positive bytes advised, at least 16 MB measured RSS
   reduction, and the target process remaining alive.
+
+## Latest Luna validation (2026-09-12)
+
+- Linux unit suite: `18/18` passed; the fake-syscall failure adapter passed
+  without performing real reclaim writes.
+- Benchmark tooling now records child peak RSS on Windows with a pointer-safe
+  `PROCESS_MEMORY_COUNTERS_EX` call, plus Linux fault/CPU/I/O/swap deltas when
+  those `/proc` counters exist. A Windows smoke run produced non-null peak RSS
+  and CPU samples for baseline, candidate, and no-op rows.
+- Python benchmark modules compile cleanly and `git diff --check` reports no
+  whitespace errors.
+- Current package regenerated and verified locally:
+  `release/current-luna/ReduceMemory-3.0.zip` (SHA-256
+  `2F6A16201A5BB9616BEF976B3F6FDB4A5F7A8271FA5539C924862A4F00753F17`).
+- These are local gates only. No claim is made for live Linux cgroup/page-out,
+  elevated UAC, GUI automation, or a published GitHub artifact until a Linux
+  runner and clean tag build provide evidence.
+- Linux Aggressive recovery was narrowed to measured/advised PID instances
+  from the current session; a per-PID ledger prevents a second recovery pass
+  from scanning unrelated or newly-created processes.
+- Effectiveness history keys are now versioned, user/logon scoped, and carry a
+  deterministic identity fingerprint. Live processes contribute their
+  normalized full executable path plus SHA-256 executable bytes (with size/mtime
+  metadata fallback); the readable process suffix is not used as the identity
+  portion. A dedicated collision matrix on a clean Windows runner remains.
+- Added `tests/windows/UiSmoke.Tests.ps1`, a Win32 ComboBox smoke harness that
+  verifies the six visible mode labels rather than trusting source strings.
+  The x64 staged binary passed locally; x86 remains a clean-runner gate after
+  the local host failed to produce an observable completion.
+- Added legacy effectiveness-key fallback and one-way migration: v1 name keys
+  can be read for compatibility, then are removed only from the atomically
+  published temp copy after the v2 identity write succeeds.
 
 ## Deliberately not included
 

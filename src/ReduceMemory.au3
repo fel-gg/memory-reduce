@@ -1,11 +1,12 @@
 ; Reconstructed application source
+#include <Crypt.au3>
 #NoTrayIcon
 If Not IsDeclared ( "Os" ) Then Global $OS
 ; String table inlined during verified static extraction
 Global $A3380B02A2C = "MustDeclareVars" , $A2790402500 = "GUI_RUNDEFMSG" , $A0B90601C20 = "GUIDataSeparatorChar" , $A5B90705434 = "WinDetectHiddenText" , $A1090900A56 = "1.7" , $A3A90B05762 = "ReduceMemory" , $A4890D04726 = "Reduce Memory" , $A36A0000608 = " - Author by BlueLife" , $A0CA0202515 = "[CLASS:_MReduce:v" , $A58A030490B = "]" , $A19A050611A = "2013-2024" , $A1FA0B0155D = " @UserName " , $A30A0F0565F = " @Compiled " , $A14B0102331 = " @AutoItExe " , $A19B0303F03 = " @OSArch " , $A1FB050530A = " @AutoItX64 " , $A24B0704245 = " @AutoItPID " , $A41B0904162 = " @OSVersion " , $A4EB0B05206 = "AutoIt.Error" , $A53B0E04938 = "_(XP|200(0|3))" , $A42C0005F35 = " @WindowsDir " , $A34C0203522 = "System32\" , $A17C0505B2A = " @WorkingDir " , $A48C0804D4D = "kernel32.dll" , $A23C0A04F06 = "user32.dll" , $A0CC0C01F2E = "advapi32.dll" , $A55C0E01626 = "shell32.dll" , _
 $A16D000163E = "ole32.dll" , $A57D020482F = "comctl32.dll" , $A54D0402622 = "gdi32.dll" , $A0BD0604C48 = "psapi.dll" , $A34D090231C = " @ScriptDir " , $A18D0B05E2E = "Icons\" , $A12D0D0163B = ".ini" , $A5CE0702436 = "HideWindowOnStartup" , $A4DE0905E47 = "HideWhenMinimized" , $A54E0B00A4B = "WinSetOnTop" , $A05E0D01131 = "SystemUser" , $A63E0F04B1C = "TrayIconPack" , $A45F020231C = "TaskOptions" , $A5EF040325E = "UsedMemory" , $A27F050091E = "75%" , $A57F0603C63 = "[^0-9]" , $A26F080043F = "CountDown" , $A25F0A03415 = "ExclusionOpt" , $A2AF0C0551E = "Main" , $A2DF0D02906 = "Exclusions" , $A07F0F00236 = "Main" , $A3001000F39 = "Processes" , $A1C0130371A = "HKLM" , $A0601502317 = "HKCU" , $A2001601838 = "64" , $A1C0170504E = "64" , $A0E01E04600 = "Tahoma"
 ; Reduce Memory project version (the original table entry is retained for provenance)
-$A1090900A56 = "2.8"
+$A1090900A56 = "3.0"
 Opt ( $A3380B02A2C , 1 )
 Global Const $A4080C05448 = Chr ( 92 )
 Global Const $A2280D04544 = Chr ( 47 )
@@ -125,14 +126,28 @@ Global $RM_LastTrimReleasedBytes = 0
 Global $RM_LastProcessTrimMB = 0
 Global $RM_LastTrimmedCount = 0
 Global $RM_LastPassTargetCount = 0
+Global $RM_LastPassTargetCapacity = 0
 Global $RM_LastPassTargetPIDs [ 1 ]
 Global $RM_LastPassTargetNames [ 1 ]
+Global $RM_LastPassTargetBirth [ 1 ]
 Global $RM_LastPassAfterWorkingSet [ 1 ]
 Global $RM_LastPassAfterPageFaults [ 1 ]
 Global $RM_LastPassReleasedBytes [ 1 ]
+Global $RM_RecoveryAttemptKeys = "|"
+Global $RM_SessionMeasurementCount = 0
+Global $RM_SessionMeasurementPIDs [ 1 ]
+Global $RM_SessionMeasurementNames [ 1 ]
+Global $RM_SessionMeasurementBirth [ 1 ]
+Global $RM_SessionMeasurementBefore [ 1 ]
+Global $RM_SessionMeasurementBeforeKnown [ 1 ]
+Global $RM_SessionMeasurementAfter [ 1 ]
+Global $RM_SessionMeasurementKnown [ 1 ]
+Global $RM_LastTrimMeasuredTargets = 0
+Global $RM_LastTrimUnmeasuredTargets = 0
 Global $RM_NativeSeen = 0 , $RM_NativeProtected = 0 , $RM_NativeFiltered = 0 , $RM_NativeForeground = 0
 Global $RM_NativeOpenFailed = 0 , $RM_NativePathFailed = 0 , $RM_NativeWindowsProcess = 0
 Global $RM_NativeQueryFailed = 0 , $RM_NativeBelowMinimum = 0 , $RM_NativeTrimFailed = 0 , $RM_NativeNoReduction = 0
+Global $RM_NativeMeasured = 0 , $RM_NativeUnmeasured = 0
 Global $RM_WorkerTotalTrimmed = 0
 Global $RM_WorkerTotalReleasedBytes = 0
 Global $RM_WorkerNativeSteps = 0
@@ -143,6 +158,13 @@ Global $RM_WorkerStableGainKB = 0
 Global $RM_WorkerReboundKB = 0
 Global $RM_WorkerRecoveryPasses = 0
 Global $RM_WorkerRefaultPageFaults = 0
+Global $RM_WorkerMeasuredTargets = 0
+Global $RM_WorkerUnmeasuredTargets = 0
+Global $RM_WorkerBaselineAvailableKB = 0
+Global $RM_WorkerBaselineAvailableKnown = 0
+Global $RM_WorkerAvailableKnown = 0
+Global $RM_WorkerPeakKnown = 0
+Global $RM_WorkerStableKnown = 0
 Global $RM_LastWorkerTrimmed = 0
 Global $RM_LastWorkerReleasedBytes = 0
 Global $RM_LastWorkerNativeSteps = 0
@@ -153,6 +175,11 @@ Global $RM_LastWorkerStableGainKB = 0
 Global $RM_LastWorkerReboundKB = 0
 Global $RM_LastWorkerRecoveryPasses = 0
 Global $RM_LastWorkerRefaultPageFaults = 0
+Global $RM_LastWorkerMeasuredTargets = 0
+Global $RM_LastWorkerUnmeasuredTargets = 0
+Global $RM_LastWorkerAvailableKnown = 0
+Global $RM_LastWorkerPeakKnown = 0
+Global $RM_LastWorkerStableKnown = 0
 Global $RM_LastRecoveryPageFaults = 0
 Global $RM_LastNativeStageTarget = 0
 Global $RM_RecentActivePID = 0
@@ -166,8 +193,10 @@ Global $RM_AIShieldPIDs = "|"
 Global $RM_ActiveShieldSeconds = RM_ReadBoundedInt ( "ActiveShieldSeconds" , 10 , 3 , 60 )
 Global $RM_StablePending = 0
 Global $RM_StableBeforeFree = 0
+Global $RM_StableBeforeKnown = 0
 Global $RM_StableStartedAt = 0
 Global $RM_ImmediateGainMB = 0
+Global $RM_ImmediateGainKnown = 0
 Global $RM_StablePressureText = ""
 Global $RM_LastModeName = "Normal Optimize"
 Global $RM_ReboundAt = 0
@@ -183,9 +212,17 @@ Global $RM_ProcessRefaultMinFaults = RM_ReadBoundedInt ( "ProcessRefaultMinFault
 Global $RM_ChurnHistoryLimit = 128
 Global $RM_ChurnRefaultThreshold = 2
 Global $RM_ChurnCooldownSeconds = 1800
+Global Const $RM_ChurnTTLSeconds = 2592000
 Global $RM_EffectivenessRoot = EnvGet ( "LOCALAPPDATA" )
 If StringLen ( $RM_EffectivenessRoot ) = 0 Then $RM_EffectivenessRoot = @AppDataDir
 Global $RM_EffectivenessPath = $RM_EffectivenessRoot & "\ReduceMemory\effectiveness.ini"
+Global Const $RM_EffectivenessMaxBytes = 262144
+Global $RM_EffectivenessCachePath = ""
+Global $RM_EffectivenessCacheKey = ""
+Global $RM_EffectivenessCacheRaw = ""
+Global $RM_EffectivenessCacheValues [ 6 ] = [ 5 , 0 , 0 , 0 , 0 , 0 ]
+Global $RM_EffectivenessCacheLoadedPath = ""
+Global $RM_EffectivenessCacheEntries = ObjCreate ( "Scripting.Dictionary" )
 ; Startup is a separate silent Normal pass plus a tiny pressure monitor. It
 ; never runs an elevated/native memory-list purge, so Windows login does not
 ; produce a UAC prompt or an Emergency-mode stutter. The monitor only re-arms
@@ -511,11 +548,199 @@ EndFunc
 
 Func RM_ResetLastPassTargets ( )
 	$RM_LastPassTargetCount = 0
+	$RM_LastPassTargetCapacity = 0
 	ReDim $RM_LastPassTargetPIDs [ 1 ]
 	ReDim $RM_LastPassTargetNames [ 1 ]
+	ReDim $RM_LastPassTargetBirth [ 1 ]
 	ReDim $RM_LastPassAfterWorkingSet [ 1 ]
 	ReDim $RM_LastPassAfterPageFaults [ 1 ]
 	ReDim $RM_LastPassReleasedBytes [ 1 ]
+EndFunc
+
+Func RM_ResetSessionMeasurements ( )
+	$RM_SessionMeasurementCount = 0
+	ReDim $RM_SessionMeasurementPIDs [ 1 ]
+	ReDim $RM_SessionMeasurementNames [ 1 ]
+	ReDim $RM_SessionMeasurementBirth [ 1 ]
+	ReDim $RM_SessionMeasurementBefore [ 1 ]
+	ReDim $RM_SessionMeasurementBeforeKnown [ 1 ]
+	ReDim $RM_SessionMeasurementAfter [ 1 ]
+	ReDim $RM_SessionMeasurementKnown [ 1 ]
+	$RM_LastTrimMeasuredTargets = 0
+	$RM_LastTrimUnmeasuredTargets = 0
+EndFunc
+
+Func RM_RecordSessionMeasurement ( $RM_ProcessName , $RM_ProcessPID , $RM_BeforeKnown , $RM_BeforeWorkingSet , $RM_AfterKnown , $RM_AfterWorkingSet , $RM_ProcessBirth = 0 )
+	Local $RM_Index = 0
+	For $RM_SearchIndex = 1 To $RM_SessionMeasurementCount
+		If $RM_SessionMeasurementPIDs [ $RM_SearchIndex ] = $RM_ProcessPID And $RM_SessionMeasurementNames [ $RM_SearchIndex ] = $RM_ProcessName And $RM_SessionMeasurementBirth [ $RM_SearchIndex ] = $RM_ProcessBirth Then
+			$RM_Index = $RM_SearchIndex
+			ExitLoop
+		EndIf
+	Next
+	If $RM_Index = 0 Then
+		$RM_SessionMeasurementCount += 1
+		$RM_Index = $RM_SessionMeasurementCount
+		ReDim $RM_SessionMeasurementPIDs [ $RM_Index + 1 ]
+		ReDim $RM_SessionMeasurementNames [ $RM_Index + 1 ]
+		ReDim $RM_SessionMeasurementBirth [ $RM_Index + 1 ]
+		ReDim $RM_SessionMeasurementBefore [ $RM_Index + 1 ]
+		ReDim $RM_SessionMeasurementBeforeKnown [ $RM_Index + 1 ]
+		ReDim $RM_SessionMeasurementAfter [ $RM_Index + 1 ]
+		ReDim $RM_SessionMeasurementKnown [ $RM_Index + 1 ]
+		$RM_SessionMeasurementPIDs [ $RM_Index ] = $RM_ProcessPID
+		$RM_SessionMeasurementNames [ $RM_Index ] = $RM_ProcessName
+		$RM_SessionMeasurementBirth [ $RM_Index ] = $RM_ProcessBirth
+		If $RM_BeforeKnown = 1 Then
+			$RM_SessionMeasurementBefore [ $RM_Index ] = $RM_BeforeWorkingSet
+			$RM_SessionMeasurementBeforeKnown [ $RM_Index ] = 1
+		Else
+			$RM_SessionMeasurementBeforeKnown [ $RM_Index ] = 0
+		EndIf
+	EndIf
+	If $RM_BeforeKnown = 1 And $RM_AfterKnown = 1 And $RM_SessionMeasurementBeforeKnown [ $RM_Index ] = 1 Then
+		$RM_SessionMeasurementAfter [ $RM_Index ] = $RM_AfterWorkingSet
+		$RM_SessionMeasurementKnown [ $RM_Index ] = 1
+	Else
+		$RM_SessionMeasurementKnown [ $RM_Index ] = 0
+	EndIf
+EndFunc
+
+Func RM_GetSessionResidentDelta ( ByRef $RM_Known , ByRef $RM_MeasuredTargets , ByRef $RM_UnmeasuredTargets )
+	Local $RM_Delta = 0
+	$RM_Known = 1
+	$RM_MeasuredTargets = 0
+	$RM_UnmeasuredTargets = 0
+	For $RM_Index = 1 To $RM_SessionMeasurementCount
+		If $RM_SessionMeasurementKnown [ $RM_Index ] = 1 Then
+			$RM_Delta += $RM_SessionMeasurementBefore [ $RM_Index ] - $RM_SessionMeasurementAfter [ $RM_Index ]
+			$RM_MeasuredTargets += 1
+		Else
+			$RM_UnmeasuredTargets += 1
+			$RM_Known = 0
+		EndIf
+	Next
+	Return $RM_Delta
+EndFunc
+
+Func RM_CalculateSignedDelta ( $RM_BeforeKnown , $RM_BeforeValue , $RM_AfterKnown , $RM_AfterValue , ByRef $RM_Known )
+	If $RM_BeforeKnown <> 1 Or $RM_AfterKnown <> 1 Then
+		$RM_Known = 0
+		Return 0
+	EndIf
+	$RM_Known = 1
+	Return $RM_AfterValue - $RM_BeforeValue
+EndFunc
+
+Func RM_AvailableFromStats ( $RM_Stats , ByRef $RM_Known )
+	$RM_Known = 0
+	If Not IsArray ( $RM_Stats ) Then Return 0
+	$RM_Known = 1
+	Return Number ( $RM_Stats [ 2 ] )
+EndFunc
+
+Func RM_FormatSignedMB ( $RM_ValueMB )
+	If $RM_ValueMB > 0 Then Return "+" & $RM_ValueMB & " MB"
+	Return $RM_ValueMB & " MB"
+EndFunc
+
+Func RM_FormatKnownMB ( $RM_Known , $RM_ValueMB )
+	If $RM_Known <> 1 Then Return "unknown"
+	Return RM_FormatSignedMB ( $RM_ValueMB )
+EndFunc
+
+Func RM_FormatResidentResult ( $RM_DeltaBytes , $RM_MeasuredTargets , $RM_UnmeasuredTargets )
+	If $RM_MeasuredTargets = 0 And $RM_UnmeasuredTargets > 0 Then Return "unknown (" & $RM_UnmeasuredTargets & " target)"
+	Local $RM_DeltaMB = Round ( $RM_DeltaBytes / 1048576 , 1 )
+	Local $RM_Text = "unchanged 0 MB"
+	If $RM_DeltaMB > 0 Then $RM_Text = "reduced " & $RM_DeltaMB & " MB"
+	If $RM_DeltaMB < 0 Then $RM_Text = "increased " & Abs ( $RM_DeltaMB ) & " MB"
+	If $RM_UnmeasuredTargets > 0 Then $RM_Text &= " (partial; " & $RM_UnmeasuredTargets & " unknown)"
+	Return $RM_Text
+EndFunc
+
+Func RM_MeasurementContractSelfTest ( )
+	Local $RM_MiB = 1048576 , $RM_Known = 0 , $RM_Measured = 0 , $RM_Unmeasured = 0 , $RM_Delta = 0
+	RM_ResetSessionMeasurements ( )
+	RM_RecordSessionMeasurement ( "after-query-fails.exe" , 1001 , 1 , 256 * $RM_MiB , 0 , 0 )
+	$RM_Delta = RM_GetSessionResidentDelta ( $RM_Known , $RM_Measured , $RM_Unmeasured )
+	If $RM_Delta <> 0 Or $RM_Known <> 0 Or $RM_Measured <> 0 Or $RM_Unmeasured <> 1 Then Return 0
+
+	RM_ResetSessionMeasurements ( )
+	RM_RecordSessionMeasurement ( "growth.exe" , 1002 , 1 , 256 * $RM_MiB , 1 , 288 * $RM_MiB )
+	$RM_Delta = RM_GetSessionResidentDelta ( $RM_Known , $RM_Measured , $RM_Unmeasured )
+	If $RM_Delta <> -32 * $RM_MiB Or $RM_Known <> 1 Or $RM_Measured <> 1 Or $RM_Unmeasured <> 0 Then Return 0
+
+	RM_ResetSessionMeasurements ( )
+	RM_RecordSessionMeasurement ( "unchanged.exe" , 1003 , 1 , 256 * $RM_MiB , 1 , 256 * $RM_MiB )
+	$RM_Delta = RM_GetSessionResidentDelta ( $RM_Known , $RM_Measured , $RM_Unmeasured )
+	If $RM_Delta <> 0 Or $RM_Known <> 1 Or $RM_Measured <> 1 Then Return 0
+
+	RM_ResetSessionMeasurements ( )
+	$RM_Delta = RM_GetSessionResidentDelta ( $RM_Known , $RM_Measured , $RM_Unmeasured )
+	If $RM_Delta <> 0 Or $RM_Known <> 1 Or $RM_Measured <> 0 Or $RM_Unmeasured <> 0 Then Return 0
+
+	RM_ResetSessionMeasurements ( )
+	RM_RecordSessionMeasurement ( "two-pass.exe" , 1004 , 1 , 256 * $RM_MiB , 1 , 192 * $RM_MiB )
+	RM_RecordSessionMeasurement ( "two-pass.exe" , 1004 , 1 , 192 * $RM_MiB , 1 , 128 * $RM_MiB )
+	$RM_Delta = RM_GetSessionResidentDelta ( $RM_Known , $RM_Measured , $RM_Unmeasured )
+	If $RM_Delta <> 128 * $RM_MiB Or $RM_Measured <> 1 Or $RM_Unmeasured <> 0 Then Return 0
+
+	; A missing first baseline must remain unknown even when a later pass is valid.
+	RM_ResetSessionMeasurements ( )
+	RM_RecordSessionMeasurement ( "late-baseline.exe" , 1005 , 0 , 0 , 1 , 128 * $RM_MiB )
+	RM_RecordSessionMeasurement ( "late-baseline.exe" , 1005 , 1 , 256 * $RM_MiB , 1 , 128 * $RM_MiB )
+	$RM_Delta = RM_GetSessionResidentDelta ( $RM_Known , $RM_Measured , $RM_Unmeasured )
+	If $RM_Delta <> 0 Or $RM_Known <> 0 Or $RM_Measured <> 0 Or $RM_Unmeasured <> 1 Then Return 0
+
+	$RM_Delta = RM_CalculateSignedDelta ( 0 , 1024 , 1 , 2048 , $RM_Known )
+	If $RM_Known <> 0 Or $RM_Delta <> 0 Then Return 0
+	If RM_FormatKnownMB ( 0 , 64 ) <> "unknown" Then Return 0
+	If StringLeft ( RM_FormatResidentResult ( 0 , 0 , 1 ) , 7 ) <> "unknown" Then Return 0
+
+	Local $RM_OldEffectivenessPath = $RM_EffectivenessPath
+	$RM_EffectivenessPath = @TempDir & "\ReduceMemory-measurement-selftest-" & @AutoItPID & ".ini"
+	FileDelete ( $RM_EffectivenessPath )
+	RM_ResetSessionMeasurements ( )
+	Local $RM_NativeFixture = "protocol=2" & @LF & "session=selftest" & @LF & "terminal=done" & @LF & "mutated=1" & @LF & "exit_code=0" & @LF & "trimmed=2" & @LF & "resident_delta=-33554432" & @LF & "record_count=2" & @LF & _
+		"record=1005|0000000000000111|268435456|301989888|200|measured|growth-native.exe" & @LF & _
+		"record=1006|0000000000000222|268435456|0|0|after_unknown|unknown-native.exe" & @LF & _
+		"measured=1" & @LF & "unmeasured=1"
+	Local $RM_NativeParsed = RM_ParseNativeProcessResult ( $RM_NativeFixture , "selftest" )
+	$RM_Delta = RM_GetSessionResidentDelta ( $RM_Known , $RM_Measured , $RM_Unmeasured )
+	If RM_ParseNativeProcessResult ( $RM_NativeFixture , "wrong-session" ) <> - 1 Then Return 0
+	If RM_ParseNativeProcessResult ( StringLeft ( $RM_NativeFixture , StringInStr ( $RM_NativeFixture , "record=" ) - 1 ) , "selftest" ) <> - 1 Then Return 0
+	Local $RM_DuplicateFixture = StringReplace ( StringReplace ( $RM_NativeFixture , "record_count=2" , "record_count=3" ) , "measured=1" , "record=1005|0000000000000111|1|1|0|measured|duplicate.exe" & @LF & "measured=1" )
+	If RM_ParseNativeProcessResult ( $RM_DuplicateFixture , "selftest" ) <> - 1 Then Return 0
+	Local $RM_TruncatedFixture = StringReplace ( $RM_NativeFixture , "record_count=2" , "record_count=3" )
+	If RM_ParseNativeProcessResult ( $RM_TruncatedFixture , "selftest" ) <> - 1 Then Return 0
+	Local $RM_OverflowFixture = StringReplace ( $RM_NativeFixture , "|268435456|301989888|" , "|18446744073709551616|301989888|" )
+	If RM_ParseNativeProcessResult ( $RM_OverflowFixture , "selftest" ) <> - 1 Then Return 0
+	Local $RM_ElevatedFixture = $RM_NativeFixture & @LF & "session=elevated-selftest"
+	If RM_ParseWorkerResult ( "0" & @LF & "2" & @LF & "-33554432" & @LF & "2" & @LF & "1" & @LF & "0" & @LF & "0" & @LF & "0" & @LF & "0" & @LF & "0" & @LF & "0" & @LF & "1" & @LF & "1" & @LF & "1" & @LF & "1" & @LF & "1" & @LF & "measured=1" & @LF & "unmeasured=1" & @LF & "session=elevated-selftest" , "elevated-selftest" ) <> 0 Then Return 0
+	If RM_ParseWorkerResult ( "0" & @LF & "2" & @LF & "-33554432" & @LF & "2" & @LF & "1" & @LF & "0" & @LF & "0" & @LF & "0" & @LF & "0" & @LF & "0" & @LF & "0" & @LF & "1" & @LF & "1" & @LF & "1" & @LF & "1" & @LF & "1" & @LF & "measured=1" & @LF & "unmeasured=1" & @LF & "session=wrong" , "elevated-selftest" ) <> - 1 Then Return 0
+	Local $RM_HistoryFixture [ 6 ] = [ 5 , 7 , 123456 , 2 , 654321 , RM_EffectivenessNow ( ) ]
+	If RM_WriteEffectiveness ( "cache-regression.exe" , $RM_HistoryFixture ) <> 1 Then Return 0
+	Local $RM_HistoryFirst = RM_ReadEffectiveness ( "cache-regression.exe" )
+	Local $RM_HistorySecond = RM_ReadEffectiveness ( "cache-regression.exe" )
+	For $RM_HistoryIndex = 1 To 5
+		If $RM_HistoryFirst [ $RM_HistoryIndex ] <> $RM_HistoryFixture [ $RM_HistoryIndex ] Or $RM_HistorySecond [ $RM_HistoryIndex ] <> $RM_HistoryFixture [ $RM_HistoryIndex ] Then Return 0
+	Next
+	; Churn decisions must be session/time bounded: a fresh refault entry is
+	; eligible, while an entry beyond TTL or from the future is ignored.
+	Local $RM_HistoryNow = RM_EffectivenessNow ( )
+	IniWrite ( $RM_EffectivenessPath , "Process" , "fresh-churn.exe" , "2|1|2|" & $RM_HistoryNow & "|" & $RM_HistoryNow )
+	IniWrite ( $RM_EffectivenessPath , "Process" , "stale-churn.exe" , "2|1|2|" & ( $RM_HistoryNow - $RM_ChurnTTLSeconds - 1 ) & "|" & ( $RM_HistoryNow - $RM_ChurnTTLSeconds - 1 ) )
+	IniWrite ( $RM_EffectivenessPath , "Process" , "future-churn.exe" , "2|1|2|" & ( $RM_HistoryNow + 3600 ) & "|" & ( $RM_HistoryNow + 3600 ) )
+	$RM_EffectivenessCacheLoadedPath = ""
+	Local $RM_ChurnFixture = RM_GetChurnExclusions ( )
+	If StringInStr ( $RM_ChurnFixture , "|fresh-churn.exe|" ) = 0 Then Return 0
+	If StringInStr ( $RM_ChurnFixture , "|stale-churn.exe|" ) > 0 Or StringInStr ( $RM_ChurnFixture , "|future-churn.exe|" ) > 0 Then Return 0
+	FileDelete ( $RM_EffectivenessPath )
+	$RM_EffectivenessPath = $RM_OldEffectivenessPath
+	If $RM_NativeParsed <> 2 Or $RM_LastTrimReleasedBytes <> -33554432 Or $RM_LastTrimMeasuredTargets <> 1 Or $RM_LastTrimUnmeasuredTargets <> 1 Then Return 0
+	If $RM_Delta <> -33554432 Or $RM_Known <> 0 Or $RM_Measured <> 1 Or $RM_Unmeasured <> 1 Then Return 0
+	Return 1
 EndFunc
 
 Func RM_EffectivenessNow ( )
@@ -525,18 +750,111 @@ Func RM_EffectivenessNow ( )
 EndFunc
 
 Func RM_EffectivenessKey ( $RM_ProcessName )
+	Local $RM_Normalized = StringLower ( StringStripWS ( $RM_ProcessName , 3 ) )
+	If StringLen ( $RM_Normalized ) = 0 Then Return ""
+	; Prefer the normalized full image path whenever the instance is still
+	; alive. A name-only fallback is retained for historical/fixture records
+	; whose process has already exited.
+	Local $RM_ProcessPID = ProcessExists ( $RM_ProcessName )
+	If $RM_ProcessPID > 0 Then
+		Local $RM_ProcessPath = RM_GetProcessPath ( $RM_ProcessPID )
+		If StringLen ( $RM_ProcessPath ) > 0 Then
+			$RM_Normalized = StringLower ( StringStripWS ( $RM_ProcessPath , 3 ) )
+			; Include cheap file identity metadata so replacing an executable at
+			; the same path starts a fresh learning key. Failure to read metadata
+			; remains a safe path-only identity.
+			Local $RM_FileSize = FileGetSize ( $RM_ProcessPath )
+			Local $RM_FileTime = FileGetTime ( $RM_ProcessPath , 0 , 1 )
+			If $RM_FileSize >= 0 And IsArray ( $RM_FileTime ) Then $RM_Normalized &= "|size=" & $RM_FileSize & "|mtime=" & String ( $RM_FileTime [ 0 ] )
+			Local $RM_ExecutableHash = RM_GetExecutableHash ( $RM_ProcessPath )
+			If StringLen ( $RM_ExecutableHash ) = 64 Then $RM_Normalized &= "|sha256=" & $RM_ExecutableHash
+		EndIf
+	EndIf
+	; Versioned, user-scoped FNV-1a fingerprint prevents collisions between
+	; sanitized Unicode/display names and keeps one user's learning data from
+	; affecting another user's optimizer decisions. The readable suffix is only
+	; for diagnostics; the fingerprint is the identity portion of the key.
+	Local $RM_Scope = StringLower ( @LogonDomain & "\\" & @UserName )
+	Local $RM_Hash = 2166136261
+	Local $RM_Identity = $RM_Scope & "|" & $RM_Normalized
+	For $RM_CharIndex = 1 To StringLen ( $RM_Identity )
+		$RM_Hash = BitXOR ( $RM_Hash , Asc ( StringMid ( $RM_Identity , $RM_CharIndex , 1 ) ) )
+		$RM_Hash = BitAND ( $RM_Hash * 16777619 , 0xFFFFFFFF )
+	Next
+	Local $RM_Display = StringRegExpReplace ( $RM_Normalized , "[^a-z0-9._-]" , "_" )
+	Return "v2_" & Hex ( $RM_Hash , 8 ) & "_" & $RM_Display
+EndFunc
+
+Func RM_LegacyEffectivenessKey ( $RM_ProcessName )
 	Return StringRegExpReplace ( StringLower ( StringStripWS ( $RM_ProcessName , 3 ) ) , "[^a-z0-9._-]" , "_" )
+EndFunc
+
+Func RM_GetExecutableHash ( $RM_ProcessPath )
+	If Not FileExists ( $RM_ProcessPath ) Then Return ""
+	Local $RM_Hash = _Crypt_HashFile ( $RM_ProcessPath , $CALG_SHA_256 )
+	If @error Or $RM_Hash = - 1 Then Return ""
+	Return StringUpper ( Hex ( $RM_Hash ) )
+EndFunc
+
+Func RM_EffectivenessFileUsable ( )
+	If Not FileExists ( $RM_EffectivenessPath ) Then Return 1
+	Local $RM_Size = FileGetSize ( $RM_EffectivenessPath )
+	If $RM_Size < 0 Or $RM_Size > $RM_EffectivenessMaxBytes Then Return 0
+	Return 1
 EndFunc
 
 Func RM_ReadEffectiveness ( $RM_ProcessName )
 	Local $RM_Values [ 6 ] = [ 5 , 0 , 0 , 0 , 0 , 0 ]
+	If Not RM_EffectivenessFileUsable ( ) Then Return $RM_Values
 	Local $RM_Key = RM_EffectivenessKey ( $RM_ProcessName )
 	If StringLen ( $RM_Key ) = 0 Then Return $RM_Values
-	Local $RM_Raw = IniRead ( $RM_EffectivenessPath , "Process" , $RM_Key , "" )
+	; Load the bounded Process section once per effectiveness-path/session. A
+	; dictionary avoids one IniRead per target while preserving the existing
+	; schema and allowing writes to invalidate the snapshot safely.
+	If $RM_EffectivenessCacheLoadedPath <> $RM_EffectivenessPath Then
+		$RM_EffectivenessCacheEntries = ObjCreate ( "Scripting.Dictionary" )
+		Local $RM_Section = IniReadSection ( $RM_EffectivenessPath , "Process" )
+		If IsArray ( $RM_Section ) Then
+			For $RM_SectionIndex = 1 To $RM_Section [ 0 ] [ 0 ]
+				$RM_EffectivenessCacheEntries.Add ( $RM_Section [ $RM_SectionIndex ] [ 0 ] , $RM_Section [ $RM_SectionIndex ] [ 1 ] )
+			Next
+		EndIf
+		$RM_EffectivenessCacheLoadedPath = $RM_EffectivenessPath
+	EndIf
+	Local $RM_Raw = ""
+	If IsObj ( $RM_EffectivenessCacheEntries ) And $RM_EffectivenessCacheEntries.Exists ( $RM_Key ) Then $RM_Raw = $RM_EffectivenessCacheEntries.Item ( $RM_Key )
+	; Read the pre-v2 name key only when no v2 identity exists. The next
+	; successful write migrates it and removes the legacy collision-prone key.
+	If StringLen ( $RM_Raw ) = 0 Then
+		Local $RM_LegacyKey = RM_LegacyEffectivenessKey ( $RM_ProcessName )
+		If IsObj ( $RM_EffectivenessCacheEntries ) And $RM_EffectivenessCacheEntries.Exists ( $RM_LegacyKey ) Then $RM_Raw = $RM_EffectivenessCacheEntries.Item ( $RM_LegacyKey )
+	EndIf
+	If $RM_EffectivenessCachePath = $RM_EffectivenessPath And $RM_EffectivenessCacheKey = $RM_Key And $RM_EffectivenessCacheRaw = $RM_Raw Then
+		For $RM_CacheIndex = 1 To 5
+			$RM_Values [ $RM_CacheIndex ] = $RM_EffectivenessCacheValues [ $RM_CacheIndex ]
+		Next
+		Return $RM_Values
+	EndIf
 	Local $RM_Parts = StringSplit ( $RM_Raw , "|" , 1 )
 	If Not IsArray ( $RM_Parts ) Or $RM_Parts [ 0 ] <> 5 Then Return $RM_Values
 	For $RM_PartIndex = 1 To 5
-		If StringRegExp ( $RM_Parts [ $RM_PartIndex ] , "^[0-9]+$" ) Then $RM_Values [ $RM_PartIndex ] = Number ( $RM_Parts [ $RM_PartIndex ] )
+		If Not StringRegExp ( $RM_Parts [ $RM_PartIndex ] , "^[0-9]+$" ) Then Return $RM_Values
+		$RM_Values [ $RM_PartIndex ] = Number ( $RM_Parts [ $RM_PartIndex ] )
+	Next
+	; Corrupt or implausibly large history must never create a permanent
+	; cooldown or overflow the in-memory counters.
+	If $RM_Values [ 1 ] > 1000000 Or $RM_Values [ 3 ] > 1000000 Or $RM_Values [ 2 ] > 9007199254740991 Or $RM_Values [ 5 ] > RM_EffectivenessNow ( ) + 300 Then
+		$RM_Values [ 1 ] = 0
+		$RM_Values [ 2 ] = 0
+		$RM_Values [ 3 ] = 0
+		$RM_Values [ 4 ] = 0
+		$RM_Values [ 5 ] = 0
+	EndIf
+	$RM_EffectivenessCachePath = $RM_EffectivenessPath
+	$RM_EffectivenessCacheKey = $RM_Key
+	$RM_EffectivenessCacheRaw = $RM_Raw
+	For $RM_CacheIndex = 1 To 5
+		$RM_EffectivenessCacheValues [ $RM_CacheIndex ] = $RM_Values [ $RM_CacheIndex ]
 	Next
 	Return $RM_Values
 EndFunc
@@ -544,6 +862,15 @@ EndFunc
 Func RM_WriteEffectiveness ( $RM_ProcessName , $RM_Values )
 	Local $RM_Key = RM_EffectivenessKey ( $RM_ProcessName )
 	If StringLen ( $RM_Key ) = 0 Then Return 0
+	If Not RM_EffectivenessFileUsable ( ) Then Return 0
+	$RM_EffectivenessCachePath = ""
+	$RM_EffectivenessCacheKey = ""
+	$RM_EffectivenessCacheRaw = ""
+	$RM_EffectivenessCacheLoadedPath = ""
+	$RM_EffectivenessCacheEntries = ObjCreate ( "Scripting.Dictionary" )
+	For $RM_CacheIndex = 1 To 5
+		$RM_EffectivenessCacheValues [ $RM_CacheIndex ] = 0
+	Next
 	Local $RM_Existing = IniRead ( $RM_EffectivenessPath , "Process" , $RM_Key , "" )
 	If StringLen ( $RM_Existing ) = 0 Then
 		Local $RM_Section = IniReadSection ( $RM_EffectivenessPath , "Process" )
@@ -564,13 +891,33 @@ Func RM_WriteEffectiveness ( $RM_ProcessName , $RM_Values )
 		EndIf
 	EndIf
 	DirCreate ( $RM_EffectivenessRoot & "\ReduceMemory" )
-	Return IniWrite ( $RM_EffectivenessPath , "Process" , $RM_Key , $RM_Values [ 1 ] & "|" & $RM_Values [ 2 ] & "|" & $RM_Values [ 3 ] & "|" & $RM_Values [ 4 ] & "|" & $RM_Values [ 5 ] )
+	Local $RM_TempPath = $RM_EffectivenessPath & ".tmp-" & @AutoItPID & "-" & Int ( Random ( 1000 , 999999 , 1 ) )
+	FileDelete ( $RM_TempPath )
+	If FileExists ( $RM_EffectivenessPath ) Then
+		If FileCopy ( $RM_EffectivenessPath , $RM_TempPath , 1 ) = 0 Then Return 0
+	EndIf
+	Local $RM_LegacyKey = RM_LegacyEffectivenessKey ( $RM_ProcessName )
+	If $RM_LegacyKey <> $RM_Key Then IniDelete ( $RM_TempPath , "Process" , $RM_LegacyKey )
+	If IniWrite ( $RM_TempPath , "Process" , $RM_Key , $RM_Values [ 1 ] & "|" & $RM_Values [ 2 ] & "|" & $RM_Values [ 3 ] & "|" & $RM_Values [ 4 ] & "|" & $RM_Values [ 5 ] ) = 0 Then
+		FileDelete ( $RM_TempPath )
+		Return 0
+	EndIf
+	If FileMove ( $RM_TempPath , $RM_EffectivenessPath , 1 ) = 0 Then
+		FileDelete ( $RM_TempPath )
+		Return 0
+	EndIf
+	Return 1
 EndFunc
 
 Func RM_RecordEffectivenessAttempt ( $RM_ProcessName , $RM_ReleasedBytes )
 	Local $RM_Values = RM_ReadEffectiveness ( $RM_ProcessName )
 	$RM_Values [ 1 ] += 1
 	$RM_Values [ 2 ] += $RM_ReleasedBytes
+	; A measured positive release is a stable observation. Decay one prior
+	; refault strike, but never manufacture a sample when the observation is
+	; missing or unmeasured. This keeps churn cooldowns self-healing across
+	; later successful sessions without erasing the attempt history.
+	If $RM_ReleasedBytes > 0 And $RM_Values [ 3 ] > 0 Then $RM_Values [ 3 ] -= 1
 	$RM_Values [ 5 ] = RM_EffectivenessNow ( )
 	RM_WriteEffectiveness ( $RM_ProcessName , $RM_Values )
 EndFunc
@@ -585,30 +932,45 @@ EndFunc
 
 Func RM_GetChurnExclusions ( )
 	Local $RM_Result = "|" , $RM_Now = RM_EffectivenessNow ( )
+	If Not RM_EffectivenessFileUsable ( ) Then Return $RM_Result
 	Local $RM_Section = IniReadSection ( $RM_EffectivenessPath , "Process" )
 	If Not IsArray ( $RM_Section ) Then Return $RM_Result
 	For $RM_Index = 1 To $RM_Section [ 0 ] [ 0 ]
+		Local $RM_ChurnKey = $RM_Section [ $RM_Index ] [ 0 ]
 		Local $RM_Parts = StringSplit ( $RM_Section [ $RM_Index ] [ 1 ] , "|" , 1 )
 		If Not IsArray ( $RM_Parts ) Or $RM_Parts [ 0 ] <> 5 Then ContinueLoop
 		Local $RM_Refaults = Number ( $RM_Parts [ 3 ] ) , $RM_LastRefault = Number ( $RM_Parts [ 4 ] )
-		If $RM_Refaults >= $RM_ChurnRefaultThreshold And $RM_LastRefault > 0 And $RM_Now - $RM_LastRefault < $RM_ChurnCooldownSeconds Then $RM_Result &= $RM_Section [ $RM_Index ] [ 0 ] & "|"
+		Local $RM_LastSeen = Number ( $RM_Parts [ 5 ] )
+		If $RM_LastSeen <= 0 Or $RM_Now < $RM_LastSeen Or $RM_Now - $RM_LastSeen > $RM_ChurnTTLSeconds Then ContinueLoop
+		If $RM_Refaults >= $RM_ChurnRefaultThreshold And $RM_LastRefault > 0 And $RM_Now - $RM_LastRefault < $RM_ChurnCooldownSeconds Then $RM_Result &= $RM_ChurnKey & "|"
 	Next
 	Return $RM_Result
 EndFunc
 
-Func RM_RecordLastPassTarget ( $RM_ProcessName , $RM_ProcessPID , $RM_AfterWorkingSet , $RM_AfterPageFaults = 0 , $RM_ReleasedBytes = 0 )
+Func RM_RecordLastPassTarget ( $RM_ProcessName , $RM_ProcessPID , $RM_AfterWorkingSet , $RM_AfterPageFaults = 0 , $RM_ReleasedBytes = 0 , $RM_ProcessBirth = "" )
 	$RM_LastPassTargetCount += 1
-	ReDim $RM_LastPassTargetPIDs [ $RM_LastPassTargetCount + 1 ]
-	ReDim $RM_LastPassTargetNames [ $RM_LastPassTargetCount + 1 ]
-	ReDim $RM_LastPassAfterWorkingSet [ $RM_LastPassTargetCount + 1 ]
-	ReDim $RM_LastPassAfterPageFaults [ $RM_LastPassTargetCount + 1 ]
-	ReDim $RM_LastPassReleasedBytes [ $RM_LastPassTargetCount + 1 ]
+	If $RM_LastPassTargetCount > $RM_LastPassTargetCapacity Then
+		If $RM_LastPassTargetCapacity < 1 Then
+			$RM_LastPassTargetCapacity = 8
+		Else
+			$RM_LastPassTargetCapacity *= 2
+		EndIf
+		ReDim $RM_LastPassTargetPIDs [ $RM_LastPassTargetCapacity + 1 ]
+		ReDim $RM_LastPassTargetNames [ $RM_LastPassTargetCapacity + 1 ]
+		ReDim $RM_LastPassTargetBirth [ $RM_LastPassTargetCapacity + 1 ]
+		ReDim $RM_LastPassAfterWorkingSet [ $RM_LastPassTargetCapacity + 1 ]
+		ReDim $RM_LastPassAfterPageFaults [ $RM_LastPassTargetCapacity + 1 ]
+		ReDim $RM_LastPassReleasedBytes [ $RM_LastPassTargetCapacity + 1 ]
+	EndIf
 	$RM_LastPassTargetPIDs [ $RM_LastPassTargetCount ] = $RM_ProcessPID
 	$RM_LastPassTargetNames [ $RM_LastPassTargetCount ] = $RM_ProcessName
+	$RM_LastPassTargetBirth [ $RM_LastPassTargetCount ] = $RM_ProcessBirth
 	$RM_LastPassAfterWorkingSet [ $RM_LastPassTargetCount ] = $RM_AfterWorkingSet
 	$RM_LastPassAfterPageFaults [ $RM_LastPassTargetCount ] = $RM_AfterPageFaults
 	$RM_LastPassReleasedBytes [ $RM_LastPassTargetCount ] = $RM_ReleasedBytes
-	RM_RecordEffectivenessAttempt ( $RM_ProcessName , $RM_ReleasedBytes )
+	Local $RM_EffectivenessBytes = $RM_ReleasedBytes
+	If $RM_EffectivenessBytes < 0 Then $RM_EffectivenessBytes = 0
+	RM_RecordEffectivenessAttempt ( $RM_ProcessName , $RM_EffectivenessBytes )
 EndFunc
 
 Func RM_RunRefaultRecovery ( $RM_Profile )
@@ -621,6 +983,10 @@ Func RM_RunRefaultRecovery ( $RM_Profile )
 		If Not ProcessExists ( $RM_TargetPID ) Then ContinueLoop
 		Local $RM_CurrentWorkingSet = 0 , $RM_TargetHandle = 0
 		If RM_ShouldSkipProcess ( $RM_LastPassTargetNames [ $RM_TargetIndex ] , $RM_TargetPID , $RM_ForegroundPID , $RM_Profile , $RM_CurrentWorkingSet , $RM_TargetHandle ) Then ContinueLoop
+		If StringLen ( $RM_LastPassTargetBirth [ $RM_TargetIndex ] ) > 0 And RM_GetProcessBirthFromHandle ( $RM_TargetHandle ) <> $RM_LastPassTargetBirth [ $RM_TargetIndex ] Then
+			RM_CloseProcessHandle ( $RM_TargetHandle )
+			ContinueLoop
+		EndIf
 		Local $RM_CurrentPageFaults = 0
 		If RM_QueryProcessMemory ( $RM_TargetHandle , $RM_CurrentWorkingSet , $RM_CurrentPageFaults ) = 0 Then
 			RM_CloseProcessHandle ( $RM_TargetHandle )
@@ -635,10 +1001,20 @@ Func RM_RunRefaultRecovery ( $RM_Profile )
 			RM_CloseProcessHandle ( $RM_TargetHandle )
 			ContinueLoop
 		EndIf
+		Local $RM_RecoveryIdentity = $RM_TargetPID & ":" & $RM_LastPassTargetBirth [ $RM_TargetIndex ]
+		If StringInStr ( $RM_RecoveryAttemptKeys , "|" & $RM_RecoveryIdentity & "|" ) > 0 Then
+			RM_CloseProcessHandle ( $RM_TargetHandle )
+			ContinueLoop
+		EndIf
+		; Mark before mutation so a failed/interrupted trim cannot be retried
+		; repeatedly during this worker session.
+		$RM_RecoveryAttemptKeys &= $RM_RecoveryIdentity & "|"
 		RM_RecordEffectivenessRefault ( $RM_LastPassTargetNames [ $RM_TargetIndex ] )
 		If RM_TrimProcessHandle ( $RM_TargetHandle ) = 1 Then
-			Local $RM_AfterWorkingSet = RM_GetWorkingSetFromHandle ( $RM_TargetHandle )
-			If $RM_CurrentWorkingSet > $RM_AfterWorkingSet Then $RM_RecoveryReleasedBytes += $RM_CurrentWorkingSet - $RM_AfterWorkingSet
+			Local $RM_AfterWorkingSet = 0 , $RM_AfterPageFaults = 0
+			Local $RM_AfterKnown = RM_QueryProcessMemory ( $RM_TargetHandle , $RM_AfterWorkingSet , $RM_AfterPageFaults )
+			RM_RecordSessionMeasurement ( $RM_LastPassTargetNames [ $RM_TargetIndex ] , $RM_TargetPID , 1 , $RM_CurrentWorkingSet , $RM_AfterKnown , $RM_AfterWorkingSet , $RM_LastPassTargetBirth [ $RM_TargetIndex ] )
+			If $RM_AfterKnown = 1 Then $RM_RecoveryReleasedBytes += $RM_CurrentWorkingSet - $RM_AfterWorkingSet
 			$RM_RecoveryCount += 1
 			$RM_LastRecoveryPageFaults += $RM_RefaultFaults
 		EndIf
@@ -651,6 +1027,8 @@ EndFunc
 Func RM_AggressiveRelease ( $RM_Smooth = 0 , $RM_ProcessProfile = 2 )
 	$RM_LastRecoveryPageFaults = 0
 	Local $RM_AvailableBefore = MemGetStats ( )
+	Local $RM_AvailableBeforeKnown = 0
+	Local $RM_AvailableBeforeValue = RM_AvailableFromStats ( $RM_AvailableBefore , $RM_AvailableBeforeKnown )
 	Local $RM_ProfilePrivilege = RM_EnablePrivilege ( "SeProfileSingleProcessPrivilege" )
 	Local $RM_QuotaPrivilege = RM_EnablePrivilege ( "SeIncreaseQuotaPrivilege" )
 	Local $RM_EmptyStatus = - 2 , $RM_FlushStatus = - 2 , $RM_PurgeStatus = - 2
@@ -658,6 +1036,8 @@ Func RM_AggressiveRelease ( $RM_Smooth = 0 , $RM_ProcessProfile = 2 )
 	Local $RM_CacheOk = 0 , $RM_ProcessTrimmed = 0 , $RM_ProcessReleasedBytes = 0
 	Local $RM_ThisNativeSteps = 0 , $RM_ThisPasses = 0
 	Local $RM_ThisPeakGainKB = 0 , $RM_ThisStableGainKB = 0 , $RM_ThisReboundKB = 0 , $RM_ThisRecoveryPasses = 0
+	Local $RM_ThisAvailableKnown = 0 , $RM_ThisPeakKnown = 0 , $RM_ThisStableKnown = 0
+	Local $RM_PeakStats = 0 , $RM_PreRecoveryStats = 0
 	If $RM_Smooth = 1 Then
 		; Smooth still gets one elevated process pass so inaccessible background
 		; applications are not silently missed, but it only purges low-priority
@@ -706,62 +1086,91 @@ Func RM_AggressiveRelease ( $RM_Smooth = 0 , $RM_ProcessProfile = 2 )
 		; The old two passes were only hundreds of milliseconds apart. Measure the
 		; immediate peak, let live applications perform their first normal refault,
 		; and recover that rebound once when it is both material and proportional.
-		Local $RM_PeakStats = MemGetStats ( )
+		$RM_PeakStats = MemGetStats ( )
 		If IsArray ( $RM_AvailableBefore ) And IsArray ( $RM_PeakStats ) Then
 			$RM_ThisPeakGainKB = $RM_PeakStats [ 2 ] - $RM_AvailableBefore [ 2 ]
-			If $RM_ThisPeakGainKB < 0 Then $RM_ThisPeakGainKB = 0
+			$RM_ThisPeakKnown = 1
 		EndIf
 		Sleep ( $RM_AggressiveStabilizeMs )
-		Local $RM_PreRecoveryStats = MemGetStats ( )
+		$RM_PreRecoveryStats = MemGetStats ( )
 		If IsArray ( $RM_AvailableBefore ) And IsArray ( $RM_PreRecoveryStats ) Then
 			$RM_ThisStableGainKB = $RM_PreRecoveryStats [ 2 ] - $RM_AvailableBefore [ 2 ]
-			If $RM_ThisStableGainKB < 0 Then $RM_ThisStableGainKB = 0
-			$RM_ThisReboundKB = $RM_ThisPeakGainKB - $RM_ThisStableGainKB
-			If $RM_ThisReboundKB < 0 Then $RM_ThisReboundKB = 0
+			$RM_ThisStableKnown = 1
+			If $RM_ThisPeakKnown = 1 Then
+				$RM_ThisReboundKB = $RM_ThisPeakGainKB - $RM_ThisStableGainKB
+				If $RM_ThisReboundKB < 0 Then $RM_ThisReboundKB = 0
+			EndIf
 		EndIf
-		If RM_ShouldRecoverRebound ( $RM_ThisPeakGainKB , $RM_ThisStableGainKB ) Then
+		If $RM_ThisPeakKnown = 1 And $RM_ThisStableKnown = 1 And RM_ShouldRecoverRebound ( $RM_ThisPeakGainKB , $RM_ThisStableGainKB ) Then
 			Local $RM_RecoveryTrimmed = RM_RunRefaultRecovery ( $RM_ProcessProfile )
 			$RM_ProcessTrimmed += $RM_RecoveryTrimmed
 			$RM_ProcessReleasedBytes += $RM_LastTrimReleasedBytes
 			$RM_ThisPasses += 1
 			$RM_ThisRecoveryPasses = 1
-			Local $RM_RecoveryEmptyStatus = RM_MemoryListCommand ( 2 )
-			If $RM_RecoveryEmptyStatus = 0 Then $RM_ThisNativeSteps += 1
-			Sleep ( 150 )
-			Local $RM_RecoveryPurgeStatus = RM_MemoryListCommand ( 4 )
-			If $RM_RecoveryPurgeStatus = 0 Then $RM_ThisNativeSteps += 1
-			Sleep ( 500 )
+			; Recovery is deliberately target-only. Global empty/purge APIs cannot
+			; honor foreground or churn exclusions and would turn one refaulting
+			; process into another whole-system pass.
+			Sleep ( 250 )
 		EndIf
 	EndIf
 	Local $RM_AvailableAfter = MemGetStats ( )
-	Local $RM_ThisAvailableGainKB = 0
-	If IsArray ( $RM_AvailableBefore ) And IsArray ( $RM_AvailableAfter ) Then
-		$RM_ThisAvailableGainKB = $RM_AvailableAfter [ 2 ] - $RM_AvailableBefore [ 2 ]
-		If $RM_ThisAvailableGainKB < 0 Then $RM_ThisAvailableGainKB = 0
-	EndIf
+	Local $RM_AvailableAfterKnown = 0
+	Local $RM_AvailableAfterValue = RM_AvailableFromStats ( $RM_AvailableAfter , $RM_AvailableAfterKnown )
+	Local $RM_ThisAvailableGainKB = RM_CalculateSignedDelta ( $RM_AvailableBeforeKnown , $RM_AvailableBeforeValue , $RM_AvailableAfterKnown , $RM_AvailableAfterValue , $RM_ThisAvailableKnown )
 	If $RM_Smooth = 1 Then
 		$RM_ThisPeakGainKB = $RM_ThisAvailableGainKB
 		$RM_ThisStableGainKB = $RM_ThisAvailableGainKB
+		$RM_ThisPeakKnown = $RM_ThisAvailableKnown
+		$RM_ThisStableKnown = $RM_ThisAvailableKnown
+		$RM_PeakStats = $RM_AvailableAfter
+		$RM_PreRecoveryStats = $RM_AvailableAfter
 	ElseIf $RM_ThisRecoveryPasses = 1 Then
 		$RM_ThisStableGainKB = $RM_ThisAvailableGainKB
+		$RM_ThisStableKnown = $RM_ThisAvailableKnown
+		$RM_PreRecoveryStats = $RM_AvailableAfter
 	EndIf
+	Local $RM_SessionKnown = 0
+	$RM_ProcessReleasedBytes = RM_GetSessionResidentDelta ( $RM_SessionKnown , $RM_LastTrimMeasuredTargets , $RM_LastTrimUnmeasuredTargets )
 	$RM_WorkerTotalTrimmed += $RM_ProcessTrimmed
-	$RM_WorkerTotalReleasedBytes += $RM_ProcessReleasedBytes
+	$RM_WorkerTotalReleasedBytes = $RM_ProcessReleasedBytes
+	$RM_WorkerMeasuredTargets = $RM_LastTrimMeasuredTargets
+	$RM_WorkerUnmeasuredTargets = $RM_LastTrimUnmeasuredTargets
 	$RM_WorkerNativeSteps += $RM_ThisNativeSteps
 	$RM_WorkerPasses += $RM_ThisPasses
-	$RM_WorkerAvailableGainKB += $RM_ThisAvailableGainKB
-	$RM_WorkerPeakGainKB += $RM_ThisPeakGainKB
-	$RM_WorkerStableGainKB += $RM_ThisStableGainKB
-	$RM_WorkerReboundKB += $RM_ThisReboundKB
+	If $RM_WorkerBaselineAvailableKnown = 1 And IsArray ( $RM_AvailableAfter ) Then
+		$RM_WorkerAvailableGainKB = $RM_AvailableAfter [ 2 ] - $RM_WorkerBaselineAvailableKB
+		$RM_WorkerAvailableKnown = 1
+	Else
+		$RM_WorkerAvailableKnown = 0
+	EndIf
+	If $RM_WorkerBaselineAvailableKnown = 1 And IsArray ( $RM_PeakStats ) Then
+		Local $RM_SessionPeakGainKB = $RM_PeakStats [ 2 ] - $RM_WorkerBaselineAvailableKB
+		If $RM_WorkerPeakKnown = 0 Or $RM_SessionPeakGainKB > $RM_WorkerPeakGainKB Then $RM_WorkerPeakGainKB = $RM_SessionPeakGainKB
+		$RM_WorkerPeakKnown = 1
+	EndIf
+	If $RM_WorkerBaselineAvailableKnown = 1 And $RM_ThisStableKnown = 1 And IsArray ( $RM_PreRecoveryStats ) Then
+		$RM_WorkerStableGainKB = $RM_PreRecoveryStats [ 2 ] - $RM_WorkerBaselineAvailableKB
+		$RM_WorkerStableKnown = 1
+	ElseIf $RM_ThisStableKnown = 0 Then
+		$RM_WorkerStableKnown = 0
+	EndIf
+	If $RM_WorkerPeakKnown = 1 And $RM_WorkerStableKnown = 1 Then
+		$RM_WorkerReboundKB = $RM_WorkerPeakGainKB - $RM_WorkerStableGainKB
+		If $RM_WorkerReboundKB < 0 Then $RM_WorkerReboundKB = 0
+	Else
+		$RM_WorkerReboundKB = 0
+	EndIf
 	$RM_WorkerRecoveryPasses += $RM_ThisRecoveryPasses
 	$RM_WorkerRefaultPageFaults += $RM_LastRecoveryPageFaults
 	$RM_LastAggressiveOk = ( $RM_ProcessTrimmed > 0 Or $RM_PurgeStatus = 0 Or $RM_EmptyStatus = 0 Or $RM_FinalPurgeStatus = 0 Or $RM_FinalEmptyStatus = 0 Or $RM_CacheOk = 1 )
+	Local $RM_ThisReboundText = "unknown"
+	If $RM_ThisPeakKnown = 1 And $RM_ThisStableKnown = 1 Then $RM_ThisReboundText = Round ( $RM_ThisReboundKB / 1024 , 1 ) & " MB"
 	$RM_LastAggressiveDetail = "Privilege profile/quota: " & $RM_ProfilePrivilege & "/" & $RM_QuotaPrivilege & @CRLF & _
 		"User/background trim operations: " & $RM_ProcessTrimmed & @CRLF & _
-		"Measured working-set reduction: " & Round ( $RM_ProcessReleasedBytes / 1048576 , 1 ) & " MB" & @CRLF & _
-		"Measured worker available gain: " & Round ( $RM_ThisAvailableGainKB / 1024 , 1 ) & " MB" & @CRLF & _
-		"Peak/stable available gain: " & Round ( $RM_ThisPeakGainKB / 1024 , 1 ) & "/" & Round ( $RM_ThisStableGainKB / 1024 , 1 ) & " MB" & @CRLF & _
-		"Observed rebound: " & Round ( $RM_ThisReboundKB / 1024 , 1 ) & " MB | recovery passes: " & $RM_ThisRecoveryPasses & " | refaults: " & $RM_LastRecoveryPageFaults & @CRLF & _
+		"Measured working-set change: " & RM_FormatResidentResult ( $RM_ProcessReleasedBytes , $RM_LastTrimMeasuredTargets , $RM_LastTrimUnmeasuredTargets ) & " | measured/unknown targets: " & $RM_LastTrimMeasuredTargets & "/" & $RM_LastTrimUnmeasuredTargets & @CRLF & _
+		"Measured worker available change: " & RM_FormatKnownMB ( $RM_ThisAvailableKnown , Round ( $RM_ThisAvailableGainKB / 1024 , 1 ) ) & @CRLF & _
+		"Peak/stable available change: " & RM_FormatKnownMB ( $RM_ThisPeakKnown , Round ( $RM_ThisPeakGainKB / 1024 , 1 ) ) & "/" & RM_FormatKnownMB ( $RM_ThisStableKnown , Round ( $RM_ThisStableGainKB / 1024 , 1 ) ) & @CRLF & _
+		"Observed rebound: " & $RM_ThisReboundText & " | recovery passes: " & $RM_ThisRecoveryPasses & " | refaults: " & $RM_LastRecoveryPageFaults & @CRLF & _
 		"Measured process passes: " & $RM_ThisPasses & @CRLF & _
 		"Native scan: " & $RM_NativeSeen & " seen | " & $RM_NativeFiltered & " filtered | " & ( $RM_NativeOpenFailed + $RM_NativePathFailed + $RM_NativeQueryFailed ) & " inaccessible | " & $RM_NativeNoReduction & " no reduction" & @CRLF & _
 		"Initial empty working sets status: " & $RM_EmptyStatus & @CRLF & _
@@ -780,6 +1189,9 @@ Func RM_EmergencyRelease ( )
 	Local $RM_FirstPass = RM_AggressiveRelease ( 0 , 3 )
 	Sleep ( 1000 )
 	Local $RM_SecondPass = RM_AggressiveRelease ( 0 , 3 )
+	; The per-call detail only describes the second cycle. Let the caller build
+	; its tooltip from the session totals instead of presenting a partial cycle.
+	$RM_LastAggressiveDetail = ""
 	Return ( $RM_FirstPass = 1 Or $RM_SecondPass = 1 )
 EndFunc
 
@@ -790,13 +1202,25 @@ Func RM_GetWorkerResultPath ( )
 	Return ""
 EndFunc
 
+Func RM_GetWorkerSessionID ( )
+	For $RM_ArgumentIndex = 2 To $CMDLINE [ 0 ]
+		If StringLeft ( $CMDLINE [ $RM_ArgumentIndex ] , 11 ) = "/RMSESSION=" Then Return StringTrimLeft ( $CMDLINE [ $RM_ArgumentIndex ] , 11 )
+	Next
+	Return ""
+EndFunc
+
 Func RM_FinishWorker ( $RM_ExitCode )
 	Local $RM_ResultPath = RM_GetWorkerResultPath ( )
-	If StringLen ( $RM_ResultPath ) > 0 Then FileWrite ( $RM_ResultPath , $RM_ExitCode & @LF & $RM_WorkerTotalTrimmed & @LF & $RM_WorkerTotalReleasedBytes & @LF & $RM_WorkerNativeSteps & @LF & $RM_WorkerPasses & @LF & $RM_WorkerAvailableGainKB & @LF & $RM_WorkerPeakGainKB & @LF & $RM_WorkerStableGainKB & @LF & $RM_WorkerReboundKB & @LF & $RM_WorkerRecoveryPasses & @LF & $RM_WorkerRefaultPageFaults & @LF & RM_NativeMetricText ( ) )
+	Local $RM_SessionSuffix = ""
+	Local $RM_WorkerSession = RM_GetWorkerSessionID ( )
+	If StringLen ( $RM_WorkerSession ) > 0 Then $RM_SessionSuffix = "session=" & $RM_WorkerSession & @LF
+	If StringLen ( $RM_ResultPath ) > 0 Then FileWrite ( $RM_ResultPath , $RM_ExitCode & @LF & $RM_WorkerTotalTrimmed & @LF & $RM_WorkerTotalReleasedBytes & @LF & $RM_WorkerNativeSteps & @LF & $RM_WorkerPasses & @LF & $RM_WorkerAvailableGainKB & @LF & $RM_WorkerPeakGainKB & @LF & $RM_WorkerStableGainKB & @LF & $RM_WorkerReboundKB & @LF & $RM_WorkerRecoveryPasses & @LF & $RM_WorkerRefaultPageFaults & @LF & $RM_WorkerMeasuredTargets & @LF & $RM_WorkerUnmeasuredTargets & @LF & $RM_WorkerAvailableKnown & @LF & $RM_WorkerPeakKnown & @LF & $RM_WorkerStableKnown & @LF & RM_NativeMetricText ( ) & $RM_SessionSuffix )
 	Exit $RM_ExitCode
 EndFunc
 
 Func RM_ResetWorkerTotals ( )
+	RM_ResetSessionMeasurements ( )
+	$RM_RecoveryAttemptKeys = "|"
 	$RM_WorkerTotalTrimmed = 0
 	$RM_WorkerTotalReleasedBytes = 0
 	$RM_WorkerNativeSteps = 0
@@ -807,6 +1231,22 @@ Func RM_ResetWorkerTotals ( )
 	$RM_WorkerReboundKB = 0
 	$RM_WorkerRecoveryPasses = 0
 	$RM_WorkerRefaultPageFaults = 0
+	$RM_WorkerMeasuredTargets = 0
+	$RM_WorkerUnmeasuredTargets = 0
+	$RM_WorkerAvailableGainKB = 0
+	$RM_WorkerPeakGainKB = 0
+	$RM_WorkerStableGainKB = 0
+	$RM_WorkerAvailableKnown = 0
+	$RM_WorkerPeakKnown = 0
+	$RM_WorkerStableKnown = 0
+	Local $RM_BaselineStats = MemGetStats ( )
+	If IsArray ( $RM_BaselineStats ) Then
+		$RM_WorkerBaselineAvailableKB = $RM_BaselineStats [ 2 ]
+		$RM_WorkerBaselineAvailableKnown = 1
+	Else
+		$RM_WorkerBaselineAvailableKB = 0
+		$RM_WorkerBaselineAvailableKnown = 0
+	EndIf
 EndFunc
 
 Func RM_ResetLastWorkerMetrics ( )
@@ -820,6 +1260,11 @@ Func RM_ResetLastWorkerMetrics ( )
 	$RM_LastWorkerReboundKB = 0
 	$RM_LastWorkerRecoveryPasses = 0
 	$RM_LastWorkerRefaultPageFaults = 0
+	$RM_LastWorkerMeasuredTargets = 0
+	$RM_LastWorkerUnmeasuredTargets = 0
+	$RM_LastWorkerAvailableKnown = 0
+	$RM_LastWorkerPeakKnown = 0
+	$RM_LastWorkerStableKnown = 0
 EndFunc
 
 Func RM_CopyWorkerMetrics ( )
@@ -833,30 +1278,72 @@ Func RM_CopyWorkerMetrics ( )
 	$RM_LastWorkerReboundKB = $RM_WorkerReboundKB
 	$RM_LastWorkerRecoveryPasses = $RM_WorkerRecoveryPasses
 	$RM_LastWorkerRefaultPageFaults = $RM_WorkerRefaultPageFaults
+	$RM_LastWorkerMeasuredTargets = $RM_WorkerMeasuredTargets
+	$RM_LastWorkerUnmeasuredTargets = $RM_WorkerUnmeasuredTargets
+	$RM_LastWorkerAvailableKnown = $RM_WorkerAvailableKnown
+	$RM_LastWorkerPeakKnown = $RM_WorkerPeakKnown
+	$RM_LastWorkerStableKnown = $RM_WorkerStableKnown
 EndFunc
 
-Func RM_ParseWorkerResult ( $RM_ResultText )
-	RM_ResetLastWorkerMetrics ( )
-	RM_ResetNativeMetrics ( )
+Func RM_ParseWorkerResult ( $RM_ResultText , $RM_ExpectedSession = "" )
 	$RM_ResultText = StringReplace ( $RM_ResultText , @CR , "" )
 	Local $RM_ResultFields = StringSplit ( $RM_ResultText , @LF , 1 )
-	If Not IsArray ( $RM_ResultFields ) Or $RM_ResultFields [ 0 ] < 11 Then Return - 1
-	For $RM_FieldIndex = 1 To 11
+	If Not IsArray ( $RM_ResultFields ) Or $RM_ResultFields [ 0 ] < 16 Then Return - 1
+	If $RM_ResultFields [ $RM_ResultFields [ 0 ] ] = "" Then $RM_ResultFields [ 0 ] -= 1
+	If $RM_ResultFields [ 0 ] < 16 Then Return - 1
+	For $RM_FieldIndex = 1 To 16
 		If Not StringRegExp ( StringStripWS ( $RM_ResultFields [ $RM_FieldIndex ] , 3 ) , "^-?[0-9]+$" ) Then Return - 1
 	Next
 	Local $RM_ParsedExitCode = Int ( Number ( StringStripWS ( $RM_ResultFields [ 1 ] , 3 ) ) )
-	$RM_LastWorkerTrimmed = Int ( Number ( StringStripWS ( $RM_ResultFields [ 2 ] , 3 ) ) )
-	$RM_LastWorkerReleasedBytes = Number ( StringStripWS ( $RM_ResultFields [ 3 ] , 3 ) )
-	$RM_LastWorkerNativeSteps = Int ( Number ( StringStripWS ( $RM_ResultFields [ 4 ] , 3 ) ) )
-	$RM_LastWorkerPasses = Int ( Number ( StringStripWS ( $RM_ResultFields [ 5 ] , 3 ) ) )
-	$RM_LastWorkerAvailableGainKB = Number ( StringStripWS ( $RM_ResultFields [ 6 ] , 3 ) )
-	$RM_LastWorkerPeakGainKB = Number ( StringStripWS ( $RM_ResultFields [ 7 ] , 3 ) )
-	$RM_LastWorkerStableGainKB = Number ( StringStripWS ( $RM_ResultFields [ 8 ] , 3 ) )
-	$RM_LastWorkerReboundKB = Number ( StringStripWS ( $RM_ResultFields [ 9 ] , 3 ) )
-	$RM_LastWorkerRecoveryPasses = Int ( Number ( StringStripWS ( $RM_ResultFields [ 10 ] , 3 ) ) )
-	$RM_LastWorkerRefaultPageFaults = Number ( StringStripWS ( $RM_ResultFields [ 11 ] , 3 ) )
-	If $RM_LastWorkerTrimmed < 0 Or $RM_LastWorkerReleasedBytes < 0 Or $RM_LastWorkerNativeSteps < 0 Or $RM_LastWorkerPasses < 0 Or $RM_LastWorkerAvailableGainKB < 0 Or $RM_LastWorkerPeakGainKB < 0 Or $RM_LastWorkerStableGainKB < 0 Or $RM_LastWorkerReboundKB < 0 Or $RM_LastWorkerRecoveryPasses < 0 Or $RM_LastWorkerRefaultPageFaults < 0 Then Return - 1
-	For $RM_MetricIndex = 12 To $RM_ResultFields [ 0 ]
+	Local $RM_ParsedTrimmed = Int ( Number ( StringStripWS ( $RM_ResultFields [ 2 ] , 3 ) ) )
+	Local $RM_ParsedReleased = Number ( StringStripWS ( $RM_ResultFields [ 3 ] , 3 ) )
+	Local $RM_ParsedNativeSteps = Int ( Number ( StringStripWS ( $RM_ResultFields [ 4 ] , 3 ) ) )
+	Local $RM_ParsedPasses = Int ( Number ( StringStripWS ( $RM_ResultFields [ 5 ] , 3 ) ) )
+	Local $RM_ParsedAvailable = Number ( StringStripWS ( $RM_ResultFields [ 6 ] , 3 ) )
+	Local $RM_ParsedPeak = Number ( StringStripWS ( $RM_ResultFields [ 7 ] , 3 ) )
+	Local $RM_ParsedStable = Number ( StringStripWS ( $RM_ResultFields [ 8 ] , 3 ) )
+	Local $RM_ParsedRebound = Number ( StringStripWS ( $RM_ResultFields [ 9 ] , 3 ) )
+	Local $RM_ParsedRecovery = Int ( Number ( StringStripWS ( $RM_ResultFields [ 10 ] , 3 ) ) )
+	Local $RM_ParsedFaults = Number ( StringStripWS ( $RM_ResultFields [ 11 ] , 3 ) )
+	Local $RM_ParsedMeasured = Int ( Number ( StringStripWS ( $RM_ResultFields [ 12 ] , 3 ) ) )
+	Local $RM_ParsedUnmeasured = Int ( Number ( StringStripWS ( $RM_ResultFields [ 13 ] , 3 ) ) )
+	Local $RM_ParsedAvailableKnown = Int ( Number ( StringStripWS ( $RM_ResultFields [ 14 ] , 3 ) ) )
+	Local $RM_ParsedPeakKnown = Int ( Number ( StringStripWS ( $RM_ResultFields [ 15 ] , 3 ) ) )
+	Local $RM_ParsedStableKnown = Int ( Number ( StringStripWS ( $RM_ResultFields [ 16 ] , 3 ) ) )
+	If $RM_ParsedTrimmed < 0 Or $RM_ParsedNativeSteps < 0 Or $RM_ParsedPasses < 0 Or $RM_ParsedRebound < 0 Or $RM_ParsedRecovery < 0 Or $RM_ParsedFaults < 0 Or $RM_ParsedMeasured < 0 Or $RM_ParsedUnmeasured < 0 Then Return - 1
+	If $RM_ParsedAvailableKnown < 0 Or $RM_ParsedAvailableKnown > 1 Or $RM_ParsedPeakKnown < 0 Or $RM_ParsedPeakKnown > 1 Or $RM_ParsedStableKnown < 0 Or $RM_ParsedStableKnown > 1 Then Return - 1
+	Local $RM_EnvelopeSession = ""
+	For $RM_ValidateMetricIndex = 17 To $RM_ResultFields [ 0 ]
+		Local $RM_ValidatedLine = StringStripWS ( $RM_ResultFields [ $RM_ValidateMetricIndex ] , 3 )
+		If StringLeft ( $RM_ValidatedLine , 8 ) = "session=" Then
+			If StringLen ( $RM_EnvelopeSession ) > 0 Or Not StringRegExp ( StringTrimLeft ( $RM_ValidatedLine , 8 ) , "^[A-Za-z0-9_-]{1,128}$" ) Then Return - 1
+			$RM_EnvelopeSession = StringTrimLeft ( $RM_ValidatedLine , 8 )
+		ElseIf Not StringRegExp ( $RM_ValidatedLine , "^[a-z_]+=[0-9]+$" ) Then
+			Return - 1
+		EndIf
+	Next
+	If StringLen ( $RM_ExpectedSession ) > 0 And $RM_EnvelopeSession <> $RM_ExpectedSession Then Return - 1
+	; Commit parsed values only after every envelope field and metric has passed
+	; validation. A malformed elevated result must not erase the previous UI
+	; totals or native taxonomy.
+	RM_ResetLastWorkerMetrics ( )
+	RM_ResetNativeMetrics ( )
+	$RM_LastWorkerTrimmed = $RM_ParsedTrimmed
+	$RM_LastWorkerReleasedBytes = $RM_ParsedReleased
+	$RM_LastWorkerNativeSteps = $RM_ParsedNativeSteps
+	$RM_LastWorkerPasses = $RM_ParsedPasses
+	$RM_LastWorkerAvailableGainKB = $RM_ParsedAvailable
+	$RM_LastWorkerPeakGainKB = $RM_ParsedPeak
+	$RM_LastWorkerStableGainKB = $RM_ParsedStable
+	$RM_LastWorkerReboundKB = $RM_ParsedRebound
+	$RM_LastWorkerRecoveryPasses = $RM_ParsedRecovery
+	$RM_LastWorkerRefaultPageFaults = $RM_ParsedFaults
+	$RM_LastWorkerMeasuredTargets = $RM_ParsedMeasured
+	$RM_LastWorkerUnmeasuredTargets = $RM_ParsedUnmeasured
+	$RM_LastWorkerAvailableKnown = $RM_ParsedAvailableKnown
+	$RM_LastWorkerPeakKnown = $RM_ParsedPeakKnown
+	$RM_LastWorkerStableKnown = $RM_ParsedStableKnown
+	For $RM_MetricIndex = 17 To $RM_ResultFields [ 0 ]
 		RM_ParseNativeMetric ( $RM_ResultFields [ $RM_MetricIndex ] )
 	Next
 	Return $RM_ParsedExitCode
@@ -865,36 +1352,70 @@ EndFunc
 Func RM_RunAggressiveWorker ( $RM_Smooth = 0 )
 	RM_ResetLastWorkerMetrics ( )
 	If IsAdmin ( ) Then
-		RM_ResetWorkerTotals ( )
-		Local $RM_DirectResult = 0
-		If $RM_Smooth = 2 Then
-			$RM_DirectResult = RM_EmergencyRelease ( )
-		Else
-			$RM_DirectResult = RM_AggressiveRelease ( $RM_Smooth )
+		; Keep the GUI responsive even when the parent is already elevated. The
+		; elevated child is still owned by an exact process handle and private Job
+		; Object, so timeout/close cannot leave an orphaned release pass behind.
+		Local $RM_AdminWorkerArgument = "/RMAGGRESSIVE"
+		If $RM_Smooth = 1 Then $RM_AdminWorkerArgument = "/RMSMOOTH"
+		If $RM_Smooth = 2 Then $RM_AdminWorkerArgument = "/RMEMERGENCY"
+		Local $RM_AdminResultPath = @TempDir & "\ReduceMemory-admin-worker-" & @AutoItPID & "-" & Int ( Random ( 100000 , 999999 , 1 ) ) & ".result"
+		Local $RM_AdminSession = RM_NewSessionID ( )
+		FileDelete ( $RM_AdminResultPath )
+		Local $RM_AdminCommand = '"' & @AutoItExe & '" ' & $RM_AdminWorkerArgument & ' /RMRESULT="' & $RM_AdminResultPath & '" /RMSESSION=' & $RM_AdminSession
+		Local $RM_AdminTimedOut = 0
+		Local $RM_AdminTimeoutMs = 45000
+		If $RM_Smooth = 1 Then $RM_AdminTimeoutMs = 30000
+		If $RM_Smooth = 2 Then $RM_AdminTimeoutMs = 90000
+		Local $RM_AdminExitCode = RM_RunOwnedNativeWorker ( $RM_AdminCommand , $RM_AdminTimeoutMs , $RM_AdminTimedOut )
+		If $RM_AdminTimedOut <> 0 Or $RM_AdminExitCode <> 0 Or Not FileExists ( $RM_AdminResultPath ) Then
+			FileDelete ( $RM_AdminResultPath )
+			Return 0
 		EndIf
-		RM_CopyWorkerMetrics ( )
-		Return $RM_DirectResult
+		Local $RM_AdminParsedExit = RM_ParseWorkerResult ( FileRead ( $RM_AdminResultPath ) , $RM_AdminSession )
+		FileDelete ( $RM_AdminResultPath )
+		Return ( $RM_AdminParsedExit = 0 )
 	EndIf
 	Local $RM_WorkerArgument = "/RMAGGRESSIVE"
 	If $RM_Smooth = 1 Then $RM_WorkerArgument = "/RMSMOOTH"
 	If $RM_Smooth = 2 Then $RM_WorkerArgument = "/RMEMERGENCY"
 	Local $RM_ResultPath = @TempDir & "\ReduceMemory-worker-" & @AutoItPID & "-" & Int ( Random ( 100000 , 999999 , 1 ) ) & ".result"
+	Local $RM_ElevatedSession = RM_NewSessionID ( )
 	FileDelete ( $RM_ResultPath )
-	Local $RM_WorkerParameters = $RM_WorkerArgument & ' /RMRESULT="' & $RM_ResultPath & '"'
-	Local $RM_WorkerPid = ShellExecute ( @AutoItExe , $RM_WorkerParameters , @ScriptDir , "runas" , @SW_HIDE )
-	If @error Or $RM_WorkerPid = 0 Then Return 0
+	Local $RM_WorkerParameters = $RM_WorkerArgument & ' /RMRESULT="' & $RM_ResultPath & '" /RMSESSION=' & $RM_ElevatedSession
+	Local $RM_Verb = DllStructCreate ( "wchar Text[6]" )
+	Local $RM_File = DllStructCreate ( "wchar Text[" & StringLen ( @AutoItExe ) + 1 & "]" )
+	Local $RM_Params = DllStructCreate ( "wchar Text[" & StringLen ( $RM_WorkerParameters ) + 1 & "]" )
+	Local $RM_Directory = DllStructCreate ( "wchar Text[" & StringLen ( @ScriptDir ) + 1 & "]" )
+	DllStructSetData ( $RM_Verb , "Text" , "runas" )
+	DllStructSetData ( $RM_File , "Text" , @AutoItExe )
+	DllStructSetData ( $RM_Params , "Text" , $RM_WorkerParameters )
+	DllStructSetData ( $RM_Directory , "Text" , @ScriptDir )
+	Local $RM_Execute = DllStructCreate ( "dword cbSize;ulong fMask;hwnd hwnd;ptr lpVerb;ptr lpFile;ptr lpParameters;ptr lpDirectory;int nShow;handle hInstApp;ptr lpIDList;ptr lpClass;handle hkeyClass;dword dwHotKey;handle hIcon;handle hProcess" )
+	DllStructSetData ( $RM_Execute , "cbSize" , DllStructGetSize ( $RM_Execute ) )
+	DllStructSetData ( $RM_Execute , "fMask" , 0x40 )
+	DllStructSetData ( $RM_Execute , "hwnd" , $A59A0605008 )
+	DllStructSetData ( $RM_Execute , "lpVerb" , DllStructGetPtr ( $RM_Verb ) )
+	DllStructSetData ( $RM_Execute , "lpFile" , DllStructGetPtr ( $RM_File ) )
+	DllStructSetData ( $RM_Execute , "lpParameters" , DllStructGetPtr ( $RM_Params ) )
+	DllStructSetData ( $RM_Execute , "lpDirectory" , DllStructGetPtr ( $RM_Directory ) )
+	DllStructSetData ( $RM_Execute , "nShow" , @SW_HIDE )
+	Local $RM_Launched = DllCall ( "shell32.dll" , "bool" , "ShellExecuteExW" , "ptr" , DllStructGetPtr ( $RM_Execute ) )
+	If @error Or Not IsArray ( $RM_Launched ) Or $RM_Launched [ 0 ] = 0 Then Return 0
+	Local $RM_WorkerHandle = DllStructGetData ( $RM_Execute , "hProcess" )
+	If $RM_WorkerHandle = 0 Then Return 0
 	Local $RM_WorkerTimeoutMs = 45000
 	If $RM_Smooth = 1 Then $RM_WorkerTimeoutMs = 30000
 	If $RM_Smooth = 2 Then $RM_WorkerTimeoutMs = 90000
-	Local $RM_WorkerTimer = TimerInit ( )
-	While ProcessExists ( $RM_WorkerPid ) And TimerDiff ( $RM_WorkerTimer ) < $RM_WorkerTimeoutMs
-		Sleep ( 50 )
-	WEnd
-	If ProcessExists ( $RM_WorkerPid ) Then
-		ProcessClose ( $RM_WorkerPid )
+	Local $RM_WorkerWait = DllCall ( "kernel32.dll" , "dword" , "WaitForSingleObject" , "handle" , $RM_WorkerHandle , "dword" , $RM_WorkerTimeoutMs )
+	If @error Or Not IsArray ( $RM_WorkerWait ) Or $RM_WorkerWait [ 0 ] = 0x102 Then
+		; The exact process handle pins ownership even if its numeric PID is reused.
+		DllCall ( "kernel32.dll" , "bool" , "TerminateProcess" , "handle" , $RM_WorkerHandle , "uint" , 124 )
+		DllCall ( "kernel32.dll" , "dword" , "WaitForSingleObject" , "handle" , $RM_WorkerHandle , "dword" , 5000 )
+		DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_WorkerHandle )
 		FileDelete ( $RM_ResultPath )
 		Return 0
 	EndIf
+	DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_WorkerHandle )
 	Local $RM_ResultTimer = TimerInit ( )
 	While Not FileExists ( $RM_ResultPath ) And TimerDiff ( $RM_ResultTimer ) < 1000
 		Sleep ( 25 )
@@ -903,7 +1424,7 @@ Func RM_RunAggressiveWorker ( $RM_Smooth = 0 )
 		FileDelete ( $RM_ResultPath )
 		Return 0
 	EndIf
-	Local $RM_WorkerExitCode = RM_ParseWorkerResult ( FileRead ( $RM_ResultPath ) )
+	Local $RM_WorkerExitCode = RM_ParseWorkerResult ( FileRead ( $RM_ResultPath ) , $RM_ElevatedSession )
 	FileDelete ( $RM_ResultPath )
 	Return ( $RM_WorkerExitCode = 0 )
 EndFunc
@@ -960,7 +1481,13 @@ Func RM_WriteLog ( $RM_StableGain , $RM_ReboundDetected )
 	If FileExists ( $RM_LogPath ) And FileGetSize ( $RM_LogPath ) > 131072 Then FileDelete ( $RM_LogPath )
 	Local $RM_ReboundValue = "no"
 	If $RM_ReboundDetected = 1 Then $RM_ReboundValue = "yes"
-	FileWriteLine ( $RM_LogPath , @YEAR & "-" & StringFormat ( "%02d" , @MON ) & "-" & StringFormat ( "%02d" , @MDAY ) & " " & StringFormat ( "%02d:%02d:%02d" , @HOUR , @MIN , @SEC ) & " | mode=" & $RM_LastModeName & " | immediate=" & $RM_ImmediateGainMB & " MB | stable=" & $RM_StableGain & " MB | process_trim=" & $RM_LastProcessTrimMB & " MB | trim_operations=" & $RM_LastTrimmedCount & " | worker_available=" & Round ( $RM_LastWorkerAvailableGainKB / 1024 , 1 ) & " MB | worker_peak=" & Round ( $RM_LastWorkerPeakGainKB / 1024 , 1 ) & " MB | worker_stable=" & Round ( $RM_LastWorkerStableGainKB / 1024 , 1 ) & " MB | worker_rebound=" & Round ( $RM_LastWorkerReboundKB / 1024 , 1 ) & " MB | recovery_passes=" & $RM_LastWorkerRecoveryPasses & " | recovery_faults=" & $RM_LastWorkerRefaultPageFaults & " | native_seen=" & $RM_NativeSeen & " | native_filtered=" & $RM_NativeFiltered & " | native_access_fail=" & ( $RM_NativeOpenFailed + $RM_NativePathFailed + $RM_NativeQueryFailed ) & " | native_trim_fail=" & $RM_NativeTrimFailed & " | native_no_reduction=" & $RM_NativeNoReduction & " | worker_passes=" & $RM_LastWorkerPasses & " | native_steps=" & $RM_LastWorkerNativeSteps & "/" & $RM_LastNativeStageTarget & " | rebound=" & $RM_ReboundValue & " | " & $RM_StablePressureText )
+	Local $RM_ImmediateLog = RM_FormatKnownMB ( $RM_ImmediateGainKnown , $RM_ImmediateGainMB )
+	Local $RM_WorkerAvailableLog = RM_FormatKnownMB ( $RM_LastWorkerAvailableKnown , Round ( $RM_LastWorkerAvailableGainKB / 1024 , 1 ) )
+	Local $RM_WorkerPeakLog = RM_FormatKnownMB ( $RM_LastWorkerPeakKnown , Round ( $RM_LastWorkerPeakGainKB / 1024 , 1 ) )
+	Local $RM_WorkerStableLog = RM_FormatKnownMB ( $RM_LastWorkerStableKnown , Round ( $RM_LastWorkerStableGainKB / 1024 , 1 ) )
+	Local $RM_WorkerReboundLog = "unknown"
+	If $RM_LastWorkerPeakKnown = 1 And $RM_LastWorkerStableKnown = 1 Then $RM_WorkerReboundLog = Round ( $RM_LastWorkerReboundKB / 1024 , 1 ) & " MB"
+	FileWriteLine ( $RM_LogPath , @YEAR & "-" & StringFormat ( "%02d" , @MON ) & "-" & StringFormat ( "%02d" , @MDAY ) & " " & StringFormat ( "%02d:%02d:%02d" , @HOUR , @MIN , @SEC ) & " | mode=" & $RM_LastModeName & " | immediate=" & $RM_ImmediateLog & " | stable=" & $RM_StableGain & " | process_ws_change=" & $RM_LastProcessTrimMB & " MB | measured_targets=" & $RM_LastWorkerMeasuredTargets & " | unknown_targets=" & $RM_LastWorkerUnmeasuredTargets & " | trim_operations=" & $RM_LastTrimmedCount & " | worker_available=" & $RM_WorkerAvailableLog & " | worker_peak=" & $RM_WorkerPeakLog & " | worker_stable=" & $RM_WorkerStableLog & " | worker_rebound=" & $RM_WorkerReboundLog & " | recovery_passes=" & $RM_LastWorkerRecoveryPasses & " | recovery_faults=" & $RM_LastWorkerRefaultPageFaults & " | native_seen=" & $RM_NativeSeen & " | native_filtered=" & $RM_NativeFiltered & " | native_access_fail=" & ( $RM_NativeOpenFailed + $RM_NativePathFailed + $RM_NativeQueryFailed ) & " | native_trim_fail=" & $RM_NativeTrimFailed & " | native_no_reduction=" & $RM_NativeNoReduction & " | worker_passes=" & $RM_LastWorkerPasses & " | native_steps=" & $RM_LastWorkerNativeSteps & "/" & $RM_LastNativeStageTarget & " | rebound=" & $RM_ReboundValue & " | " & $RM_StablePressureText )
 EndFunc
 
 Func RM_GetMemoryLoadPercent ( )
@@ -987,26 +1514,34 @@ EndFunc
 Func RM_RunSilentNormalPass ( $RM_Reason )
 	Local $RM_Before = MemGetStats ( )
 	If Not IsArray ( $RM_Before ) Then Return 0
+	Local $RM_BeforeKnown = 0
+	Local $RM_BeforeAvailable = RM_AvailableFromStats ( $RM_Before , $RM_BeforeKnown )
 	Local $RM_IncludeOnly = 0
 	Local $RM_ProcessRule = $A1DF0B03725
 	If $A3FF090012D = 0 Then
 		$RM_ProcessRule = $A10F0E03A56
 		If StringLen ( $RM_ProcessRule ) > 1 Then $RM_IncludeOnly = 1
 	EndIf
+	RM_ResetSessionMeasurements ( )
 	Local $RM_Trimmed = A2A20200810 ( $RM_IncludeOnly , $RM_ProcessRule )
 	RM_ResetLastWorkerMetrics ( )
 	$RM_LastTrimmedCount = $RM_Trimmed
+	Local $RM_SessionKnown = 0
+	$RM_LastTrimReleasedBytes = RM_GetSessionResidentDelta ( $RM_SessionKnown , $RM_LastTrimMeasuredTargets , $RM_LastTrimUnmeasuredTargets )
+	$RM_LastWorkerMeasuredTargets = $RM_LastTrimMeasuredTargets
+	$RM_LastWorkerUnmeasuredTargets = $RM_LastTrimUnmeasuredTargets
 	$RM_LastProcessTrimMB = Round ( $RM_LastTrimReleasedBytes / 1048576 , 1 )
 	Sleep ( 250 )
 	Local $RM_After = MemGetStats ( )
-	Local $RM_GainMB = 0
-	If IsArray ( $RM_After ) Then $RM_GainMB = Round ( ( $RM_After [ 2 ] - $RM_Before [ 2 ] ) / 1024 )
-	If $RM_GainMB < 0 Then $RM_GainMB = 0
+	Local $RM_AfterKnown = 0
+	Local $RM_AfterAvailable = RM_AvailableFromStats ( $RM_After , $RM_AfterKnown )
+	Local $RM_GainKB = RM_CalculateSignedDelta ( $RM_BeforeKnown , $RM_BeforeAvailable , $RM_AfterKnown , $RM_AfterAvailable , $RM_ImmediateGainKnown )
+	Local $RM_GainMB = Round ( $RM_GainKB / 1024 )
 	$RM_ImmediateGainMB = $RM_GainMB
 	$RM_LastModeName = $RM_Reason & " Normal"
 	$RM_LastNativeStageTarget = 0
 	$RM_StablePressureText = RM_GetPressureSummary ( ) & " | trimmed " & $RM_Trimmed
-	RM_WriteLog ( $RM_GainMB , 0 )
+	RM_WriteLog ( RM_FormatKnownMB ( $RM_ImmediateGainKnown , $RM_GainMB ) , 0 )
 	Return $RM_Trimmed
 EndFunc
 
@@ -1088,17 +1623,21 @@ Func RM_StableCheck ( )
 	If $RM_StablePending = 0 Or $RM_StableStartedAt = 0 Then Return
 	If TimerDiff ( $RM_StableStartedAt ) < 15000 Then Return
 	Local $RM_StableStats = MemGetStats ( )
-	Local $RM_StableGain = Round ( ( $RM_StableStats [ 2 ] - $RM_StableBeforeFree ) / 1024 )
-	If $RM_StableGain < 0 Then $RM_StableGain = 0
+	Local $RM_StableGain = 0 , $RM_StableKnown = 0
+	If $RM_StableBeforeKnown = 1 And IsArray ( $RM_StableStats ) Then
+		$RM_StableGain = Round ( ( $RM_StableStats [ 2 ] - $RM_StableBeforeFree ) / 1024 )
+		$RM_StableKnown = 1
+	EndIf
 	Local $RM_ReboundText = ""
 	Local $RM_ReboundDetected = 0
-	If $RM_ImmediateGainMB > 0 And $RM_StableGain < $RM_ImmediateGainMB / 2 Then
+	If $RM_ImmediateGainKnown = 1 And $RM_StableKnown = 1 And $RM_ImmediateGainMB > 0 And $RM_StableGain < $RM_ImmediateGainMB / 2 Then
 		$RM_ReboundText = " | rebound detected"
 		$RM_ReboundDetected = 1
 		$RM_ReboundAt = TimerInit ( )
 	EndIf
-	GUICtrlSetData ( $A3411D0002B [ 4 ] , "Stable release: " & $RM_StableGain & " MB" & $RM_ReboundText & " | " & $RM_StablePressureText )
-	RM_WriteLog ( $RM_StableGain , $RM_ReboundDetected )
+	Local $RM_StableText = RM_FormatKnownMB ( $RM_StableKnown , $RM_StableGain )
+	GUICtrlSetData ( $A3411D0002B [ 4 ] , "Stable available change: " & $RM_StableText & $RM_ReboundText & " | " & $RM_StablePressureText )
+	RM_WriteLog ( $RM_StableText , $RM_ReboundDetected )
 	$RM_StablePending = 0
 	$RM_StableStartedAt = 0
 	AdlibUnRegister ( "RM_StableCheck" )
@@ -1112,7 +1651,46 @@ Func RM_DeleteTempFiles ( )
 	Return $RM_Deleted
 EndFunc
 
-Func RM_DeleteTempTree ( $RM_Root , ByRef $RM_Deleted , ByRef $RM_Skipped )
+Func RM_NormalizePath ( $RM_Path )
+	Local $RM_Buffer = DllStructCreate ( "wchar[32768]" )
+	Local $RM_Full = DllCall ( "kernel32.dll" , "dword" , "GetFullPathNameW" , "wstr" , $RM_Path , "dword" , 32768 , "ptr" , DllStructGetPtr ( $RM_Buffer ) , "ptr" , 0 )
+	If @error Or Not IsArray ( $RM_Full ) Or $RM_Full [ 0 ] = 0 Or $RM_Full [ 0 ] >= 32768 Then Return ""
+	Local $RM_Result = StringLower ( StringReplace ( DllStructGetData ( $RM_Buffer , 1 ) , "/" , "\" ) )
+	While StringLen ( $RM_Result ) > 3 And StringRight ( $RM_Result , 1 ) = "\"
+		$RM_Result = StringTrimRight ( $RM_Result , 1 )
+	WEnd
+	Return $RM_Result
+EndFunc
+
+Func RM_IsReparsePoint ( $RM_Path )
+	Local $RM_Attributes = DllCall ( "kernel32.dll" , "dword" , "GetFileAttributesW" , "wstr" , $RM_Path )
+	If @error Or Not IsArray ( $RM_Attributes ) Or $RM_Attributes [ 0 ] = 0xFFFFFFFF Then Return 1
+	Return Number ( BitAND ( $RM_Attributes [ 0 ] , 0x400 ) <> 0 )
+EndFunc
+
+Func RM_IsAllowedTempRoot ( $RM_Root )
+	Local $RM_Normal = RM_NormalizePath ( $RM_Root )
+	Local $RM_UserTemp = RM_NormalizePath ( @TempDir )
+	Local $RM_WindowsTemp = RM_NormalizePath ( @WindowsDir & "\Temp" )
+	If StringLen ( $RM_Normal ) <= 3 Or RM_IsReparsePoint ( $RM_Normal ) Then Return 0
+	If $RM_Normal = $RM_WindowsTemp Then Return 1
+	If $RM_Normal = $RM_UserTemp Or StringLeft ( $RM_Normal , StringLen ( $RM_UserTemp ) + 1 ) = $RM_UserTemp & "\" Then Return 1
+	Return 0
+EndFunc
+
+Func RM_DeleteTempTree ( $RM_Root , ByRef $RM_Deleted , ByRef $RM_Skipped , $RM_Anchor = "" )
+	If StringLen ( $RM_Anchor ) = 0 Then
+		If Not RM_IsAllowedTempRoot ( $RM_Root ) Then
+			$RM_Skipped += 1
+			Return
+		EndIf
+		$RM_Anchor = RM_NormalizePath ( $RM_Root )
+	EndIf
+	Local $RM_NormalRoot = RM_NormalizePath ( $RM_Root )
+	If StringLen ( $RM_NormalRoot ) = 0 Or ( $RM_NormalRoot <> $RM_Anchor And StringLeft ( $RM_NormalRoot , StringLen ( $RM_Anchor ) + 1 ) <> $RM_Anchor & "\" ) Or RM_IsReparsePoint ( $RM_Root ) Then
+		$RM_Skipped += 1
+		Return
+	EndIf
 	If Not FileExists ( $RM_Root ) Then Return
 	Local $RM_Search = FileFindFirstFile ( $RM_Root & "\*" )
 	If $RM_Search = - 1 Then Return
@@ -1121,9 +1699,21 @@ Func RM_DeleteTempTree ( $RM_Root , ByRef $RM_Deleted , ByRef $RM_Skipped )
 		If @error Then ExitLoop
 		If $RM_Name = "." Or $RM_Name = ".." Then ContinueLoop
 		Local $RM_Path = $RM_Root & "\\" & $RM_Name
+		If RM_IsReparsePoint ( $RM_Path ) Then
+			$RM_Skipped += 1
+			ContinueLoop
+		EndIf
 		If StringInStr ( FileGetAttrib ( $RM_Path ) , "D" ) > 0 Then
-			RM_DeleteTempTree ( $RM_Path , $RM_Deleted , $RM_Skipped )
-			If DirRemove ( $RM_Path ) = 0 Then $RM_Skipped += 1
+			RM_DeleteTempTree ( $RM_Path , $RM_Deleted , $RM_Skipped , $RM_Anchor )
+			; Re-check immediately before removing the directory. A reparse point
+			; can be introduced after enumeration; never follow/remove it.
+			If RM_IsReparsePoint ( $RM_Path ) Then
+				$RM_Skipped += 1
+			ElseIf DirRemove ( $RM_Path ) = 0 Then
+				$RM_Skipped += 1
+			EndIf
+		ElseIf RM_IsReparsePoint ( $RM_Path ) Then
+			$RM_Skipped += 1
 		ElseIf FileDelete ( $RM_Path ) Then
 			$RM_Deleted += 1
 		Else
@@ -1131,6 +1721,26 @@ Func RM_DeleteTempTree ( $RM_Root , ByRef $RM_Deleted , ByRef $RM_Skipped )
 		EndIf
 	WEnd
 	FileClose ( $RM_Search )
+EndFunc
+
+Func RM_AcquireOptimizationLock ( )
+	; Include the logon domain in the scope. User names are not globally unique
+	; (especially with local accounts and domain accounts sharing a workstation),
+	; while the Local namespace keeps separate users from blocking each other.
+	Local $RM_UserScope = StringRegExpReplace ( StringLower ( @LogonDomain & "_" & @UserName ) , "[^a-z0-9._-]" , "_" )
+	If StringLen ( $RM_UserScope ) = 0 Then $RM_UserScope = "unknown-user"
+	Local $RM_Mutex = DllCall ( "kernel32.dll" , "handle" , "CreateMutexW" , "ptr" , 0 , "bool" , False , "wstr" , "Local\ReduceMemory.Optimize.v3." & $RM_UserScope )
+	If @error Or Not IsArray ( $RM_Mutex ) Or $RM_Mutex [ 0 ] = 0 Then Return 0
+	Local $RM_LastError = DllCall ( "kernel32.dll" , "dword" , "GetLastError" )
+	If IsArray ( $RM_LastError ) And $RM_LastError [ 0 ] = 183 Then
+		DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_Mutex [ 0 ] )
+		Return 0
+	EndIf
+	Return $RM_Mutex [ 0 ]
+EndFunc
+
+Func RM_ReleaseOptimizationLock ( $RM_MutexHandle )
+	If $RM_MutexHandle <> 0 Then DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_MutexHandle )
 EndFunc
 
 Func RM_RunOptimize ( )
@@ -1150,11 +1760,17 @@ Func RM_RunOptimize ( )
 			Return
 		EndIf
 	EndIf
+	Local $RM_OptimizationLock = RM_AcquireOptimizationLock ( )
+	If $RM_OptimizationLock = 0 Then
+		GUICtrlSetData ( $A3411D0002B [ 4 ] , "Another Reduce Memory optimization is already running" )
+		Return
+	EndIf
 	GUISetState ( Execute ( $A1251701F38 ) , $A59A0605008 )
 	GUICtrlSetOnEvent ( $A3C21204863 , "" )
 	RM_SetTrayInteractionPaused ( 1 )
 	Local $A0141502E2D = MemGetStats ( )
-	$RM_StableBeforeFree = $A0141502E2D [ 2 ]
+	Local $RM_BeforeAvailable = RM_AvailableFromStats ( $A0141502E2D , $RM_StableBeforeKnown )
+	If $RM_StableBeforeKnown = 1 Then $RM_StableBeforeFree = $RM_BeforeAvailable
 	$RM_StablePressureText = RM_GetPressureSummary ( )
 	$RM_LastModeName = RM_GetModeName ( )
 	$RM_LastNativeStageTarget = RM_GetNativeStageTarget ( )
@@ -1165,9 +1781,13 @@ Func RM_RunOptimize ( )
 	If $RM_CurrentTrimProfile = $RM_PROFILE_AGGRESSIVE Then $RM_StageOneText = "Stage 1/3 - trimming broad user/background set"
 	If $RM_CurrentTrimProfile = $RM_PROFILE_EMERGENCY Then $RM_StageOneText = "Stage 1/3 - trimming all eligible user applications"
 	If $RM_CurrentTrimProfile = $RM_PROFILE_AI_SHIELD Then $RM_StageOneText = "Stage 1/3 - protecting AI and trimming other background apps"
+	If RM_ModeUsesSystemRelease ( ) Then $RM_StageOneText = "Stage 1/3 - preparing one measured elevated session"
 	GUICtrlSetData ( $A3411D0002B [ 4 ] , $RM_StageOneText )
-	Local $A2751A01544 = RM_RunConfiguredTrim ( $RM_CurrentTrimProfile )
-	Local $RM_FirstPassReleasedBytes = $RM_LastTrimReleasedBytes
+	RM_ResetSessionMeasurements ( )
+	Local $A2751A01544 = 0
+	If Not RM_ModeUsesSystemRelease ( ) Then $A2751A01544 = RM_RunConfiguredTrim ( $RM_CurrentTrimProfile )
+	Local $RM_FirstPassKnown = 0 , $RM_FirstPassMeasured = 0 , $RM_FirstPassUnmeasured = 0
+	Local $RM_FirstPassReleasedBytes = RM_GetSessionResidentDelta ( $RM_FirstPassKnown , $RM_FirstPassMeasured , $RM_FirstPassUnmeasured )
 	Local $RM_AggressiveResult = 0
 	If RM_ModeUsesSystemRelease ( ) Then GUICtrlSetData ( $A3411D0002B [ 4 ] , "Stage 2/3 - releasing Windows memory" )
 	If $RM_OptimizeMode = $RM_MODE_AGGRESSIVE Or $RM_OptimizeMode = $RM_MODE_TEMP Then $RM_AggressiveResult = RM_RunAggressiveWorker ( 0 )
@@ -1185,33 +1805,47 @@ Func RM_RunOptimize ( )
 	GUICtrlSetData ( $A3411D0002B [ 4 ] , "Stage 3/3 - measuring immediate result" )
 	RM_UpdateMemoryDisplay ( )
 	Local $A1F51B0452B = MemGetStats ( )
-	$A0141502E2D = Round ( ( $A1F51B0452B [ 2 ] - $A0141502E2D [ 2 ] ) / 1024 )
-	If $A0141502E2D < 1 Then $A0141502E2D = 0
-	$RM_ImmediateGainMB = $A0141502E2D
+	Local $RM_AfterAvailableKnown = 0
+	Local $RM_AfterAvailable = RM_AvailableFromStats ( $A1F51B0452B , $RM_AfterAvailableKnown )
+	Local $RM_AvailableGainKB = RM_CalculateSignedDelta ( $RM_StableBeforeKnown , $RM_BeforeAvailable , $RM_AfterAvailableKnown , $RM_AfterAvailable , $RM_ImmediateGainKnown )
+	Local $RM_AvailableGainMB = Round ( $RM_AvailableGainKB / 1024 )
+	$RM_ImmediateGainMB = $RM_AvailableGainMB
 	$RM_LastTrimmedCount = $A2751A01544 + $RM_LastWorkerTrimmed
-	$RM_LastProcessTrimMB = Round ( ( $RM_FirstPassReleasedBytes + $RM_LastWorkerReleasedBytes ) / 1048576 , 1 )
+	Local $RM_ReportResidentBytes = $RM_FirstPassReleasedBytes
+	Local $RM_ReportMeasured = $RM_FirstPassMeasured , $RM_ReportUnmeasured = $RM_FirstPassUnmeasured
+	If RM_ModeUsesSystemRelease ( ) Then
+		$RM_ReportResidentBytes = $RM_LastWorkerReleasedBytes
+		$RM_ReportMeasured = $RM_LastWorkerMeasuredTargets
+		$RM_ReportUnmeasured = $RM_LastWorkerUnmeasuredTargets
+	EndIf
+	$RM_LastWorkerMeasuredTargets = $RM_ReportMeasured
+	$RM_LastWorkerUnmeasuredTargets = $RM_ReportUnmeasured
+	$RM_LastProcessTrimMB = Round ( $RM_ReportResidentBytes / 1048576 , 1 )
 	If $RM_OptimizeMode = $RM_MODE_NORMAL Or $RM_OptimizeMode = $RM_MODE_AI_SHIELD Or $RM_AggressiveResult = 1 Then
 		$RM_StablePending = 1
 		$RM_StableStartedAt = TimerInit ( )
 		AdlibUnRegister ( "RM_StableCheck" )
 		AdlibRegister ( "RM_StableCheck" , 1000 )
 	EndIf
-	If $A2751A01544 = 0 And ( $RM_OptimizeMode = $RM_MODE_NORMAL Or $RM_OptimizeMode = $RM_MODE_AI_SHIELD ) Then $A0141502E2D = 0
+	Local $RM_AvailableText = RM_FormatKnownMB ( $RM_ImmediateGainKnown , $RM_AvailableGainMB )
+	Local $RM_WorkingSetText = RM_FormatResidentResult ( $RM_ReportResidentBytes , $RM_ReportMeasured , $RM_ReportUnmeasured )
 	If $RM_OptimizeMode = $RM_MODE_NORMAL Then
-		GUICtrlSetData ( $A3411D0002B [ 4 ] , "Normal available: +" & $A0141502E2D & " MB | working set: -" & $RM_LastProcessTrimMB & " MB | trims: " & $RM_LastTrimmedCount )
+		GUICtrlSetData ( $A3411D0002B [ 4 ] , "Normal available change: " & $RM_AvailableText & " | WS change: " & $RM_WorkingSetText & " | trims: " & $RM_LastTrimmedCount )
 	ElseIf $RM_OptimizeMode = $RM_MODE_AI_SHIELD Then
-		GUICtrlSetData ( $A3411D0002B [ 4 ] , "AI Shield available: +" & $A0141502E2D & " MB | working set: -" & $RM_LastProcessTrimMB & " MB | AI protected: " & $RM_AIProtectedCount )
+		GUICtrlSetData ( $A3411D0002B [ 4 ] , "AI Shield available change: " & $RM_AvailableText & " | WS change: " & $RM_WorkingSetText & " | AI protected: " & $RM_AIProtectedCount )
 	ElseIf $RM_AggressiveResult = 1 Then
 		Local $RM_ModeResultText = "Aggressive"
 		If $RM_OptimizeMode = $RM_MODE_SMOOTH Then $RM_ModeResultText = "Smooth"
 		If $RM_OptimizeMode = $RM_MODE_EMERGENCY Then $RM_ModeResultText = "Emergency"
-		GUICtrlSetData ( $A3411D0002B [ 4 ] , $RM_ModeResultText & ": +" & $A0141502E2D & " MB | native " & $RM_LastWorkerNativeSteps & "/" & RM_GetNativeStageTarget ( ) & " | WS -" & $RM_LastProcessTrimMB & " MB" )
+		GUICtrlSetData ( $A3411D0002B [ 4 ] , $RM_ModeResultText & " available change: " & $RM_AvailableText & " | native " & $RM_LastWorkerNativeSteps & "/" & RM_GetNativeStageTarget ( ) & " | WS change: " & $RM_WorkingSetText )
 		Local $RM_ResultTip = $RM_LastAggressiveDetail
+		Local $RM_WorkerReboundTip = "unknown"
+		If $RM_LastWorkerPeakKnown = 1 And $RM_LastWorkerStableKnown = 1 Then $RM_WorkerReboundTip = Round ( $RM_LastWorkerReboundKB / 1024 , 1 ) & " MB"
 		If StringLen ( $RM_ResultTip ) = 0 Then $RM_ResultTip = "Elevated process passes: " & $RM_LastWorkerPasses & @CRLF & _
-			"Measured elevated working-set reduction: " & Round ( $RM_LastWorkerReleasedBytes / 1048576 , 1 ) & " MB" & @CRLF & _
-			"Measured elevated available gain: " & Round ( $RM_LastWorkerAvailableGainKB / 1024 , 1 ) & " MB" & @CRLF & _
-			"Peak/stable gain: " & Round ( $RM_LastWorkerPeakGainKB / 1024 , 1 ) & "/" & Round ( $RM_LastWorkerStableGainKB / 1024 , 1 ) & " MB" & @CRLF & _
-			"Observed rebound: " & Round ( $RM_LastWorkerReboundKB / 1024 , 1 ) & " MB | recovery passes: " & $RM_LastWorkerRecoveryPasses & " | refaults: " & $RM_LastWorkerRefaultPageFaults & @CRLF & _
+			"Measured elevated working-set change: " & RM_FormatResidentResult ( $RM_LastWorkerReleasedBytes , $RM_LastWorkerMeasuredTargets , $RM_LastWorkerUnmeasuredTargets ) & @CRLF & _
+			"Measured elevated available change: " & RM_FormatKnownMB ( $RM_LastWorkerAvailableKnown , Round ( $RM_LastWorkerAvailableGainKB / 1024 , 1 ) ) & @CRLF & _
+			"Peak/stable change: " & RM_FormatKnownMB ( $RM_LastWorkerPeakKnown , Round ( $RM_LastWorkerPeakGainKB / 1024 , 1 ) ) & "/" & RM_FormatKnownMB ( $RM_LastWorkerStableKnown , Round ( $RM_LastWorkerStableGainKB / 1024 , 1 ) ) & @CRLF & _
+			"Observed rebound: " & $RM_WorkerReboundTip & " | recovery passes: " & $RM_LastWorkerRecoveryPasses & " | refaults: " & $RM_LastWorkerRefaultPageFaults & @CRLF & _
 			"Native scan: " & $RM_NativeSeen & " seen | " & $RM_NativeFiltered & " filtered | " & ( $RM_NativeOpenFailed + $RM_NativePathFailed + $RM_NativeQueryFailed ) & " inaccessible | " & $RM_NativeNoReduction & " no reduction" & @CRLF & _
 			"Native stages successful: " & $RM_LastWorkerNativeSteps & "/" & $RM_LastNativeStageTarget
 		GUICtrlSetTip ( $A3411D0002B [ 4 ] , $RM_ResultTip )
@@ -1225,6 +1859,7 @@ Func RM_RunOptimize ( )
 	GUICtrlSetOnEvent ( $A3C21204863 , "RM_RunOptimize" )
 	GUISetState ( Execute ( $A0A51D04231 ) , $A59A0605008 )
 	GUISwitch ( $A59A0605008 )
+	RM_ReleaseOptimizationLock ( $RM_OptimizationLock )
 EndFunc
 Func RM_FormatMemorySize ( $A0A51E05D01 , $A0351F03359 = 0 )
 	If Not IsDeclared ( "SSRM_FormatMemorySize" ) Then
@@ -1320,6 +1955,18 @@ Func RM_HandleCommandLine ( )
 		Global $SSRM_HandleCommandLine = 1
 	EndIf
 	If $CMDLINE [ 0 ] = 0 Then Return 0
+	If $CMDLINE [ 1 ] = "/RMMEASUREMENTSELFTEST" Then
+		If RM_MeasurementContractSelfTest ( ) <> 1 Then Exit 60
+		Exit 0
+	EndIf
+	If $CMDLINE [ 1 ] = "/RMWORKERLIFECYCLESELFTEST" Then
+		Local $RM_LifecycleWorker = RM_GetNativeWorkerPath ( )
+		If StringLen ( $RM_LifecycleWorker ) = 0 Then Exit 61
+		Local $RM_LifecycleTimedOut = 0
+		Local $RM_LifecycleExit = RM_RunOwnedNativeWorker ( '"' & $RM_LifecycleWorker & '" /measurement-selftest' , 15000 , $RM_LifecycleTimedOut )
+		If $RM_LifecycleTimedOut <> 0 Or $RM_LifecycleExit <> 0 Then Exit 62
+		Exit 0
+	EndIf
 	If $CMDLINE [ 1 ] = "/RMSELFTEST" Then
 		Local $RM_SelfPressure = RM_GetPressureSummary ( )
 		If StringInStr ( $RM_SelfPressure , "RAM load" ) = 0 Then Exit 10
@@ -1330,8 +1977,8 @@ Func RM_HandleCommandLine ( )
 		If RM_StartupMonitorSelfTest ( ) <> 1 Then Exit 16
 		If RM_IsAIProcessName ( "ollama.exe" ) <> 1 Then Exit 17
 		If RM_IsAIProcessName ( "notepad.exe" ) <> 0 Then Exit 18
-		If RM_ParseWorkerResult ( "0" & @LF & "7" & @LF & "134217728" & @LF & "6" & @LF & "2" & @LF & "65536" & @LF & "98304" & @LF & "73728" & @LF & "24576" & @LF & "1" & @LF & "4096" & @LF & "seen=50" & @LF & "filtered=12" & @LF & "no_reduction=3" ) <> 0 Then Exit 22
-		If $RM_LastWorkerTrimmed <> 7 Or $RM_LastWorkerReleasedBytes <> 134217728 Or $RM_LastWorkerNativeSteps <> 6 Or $RM_LastWorkerPasses <> 2 Or $RM_LastWorkerAvailableGainKB <> 65536 Or $RM_LastWorkerPeakGainKB <> 98304 Or $RM_LastWorkerStableGainKB <> 73728 Or $RM_LastWorkerReboundKB <> 24576 Or $RM_LastWorkerRecoveryPasses <> 1 Or $RM_LastWorkerRefaultPageFaults <> 4096 Or $RM_NativeSeen <> 50 Or $RM_NativeFiltered <> 12 Or $RM_NativeNoReduction <> 3 Then Exit 23
+		If RM_ParseWorkerResult ( "0" & @LF & "7" & @LF & "-33554432" & @LF & "6" & @LF & "2" & @LF & "-4096" & @LF & "98304" & @LF & "-2048" & @LF & "24576" & @LF & "1" & @LF & "4096" & @LF & "5" & @LF & "2" & @LF & "1" & @LF & "1" & @LF & "1" & @LF & "seen=50" & @LF & "filtered=12" & @LF & "no_reduction=3" ) <> 0 Then Exit 22
+		If $RM_LastWorkerTrimmed <> 7 Or $RM_LastWorkerReleasedBytes <> -33554432 Or $RM_LastWorkerNativeSteps <> 6 Or $RM_LastWorkerPasses <> 2 Or $RM_LastWorkerAvailableGainKB <> -4096 Or $RM_LastWorkerPeakGainKB <> 98304 Or $RM_LastWorkerStableGainKB <> -2048 Or $RM_LastWorkerReboundKB <> 24576 Or $RM_LastWorkerRecoveryPasses <> 1 Or $RM_LastWorkerRefaultPageFaults <> 4096 Or $RM_LastWorkerMeasuredTargets <> 5 Or $RM_LastWorkerUnmeasuredTargets <> 2 Or $RM_LastWorkerAvailableKnown <> 1 Or $RM_LastWorkerPeakKnown <> 1 Or $RM_LastWorkerStableKnown <> 1 Or $RM_NativeSeen <> 50 Or $RM_NativeFiltered <> 12 Or $RM_NativeNoReduction <> 3 Then Exit 23
 		If RM_ParseWorkerResult ( "broken" & @LF & "7" & @LF & "134217728" & @LF & "6" & @LF & "2" & @LF & "65536" & @LF & "98304" & @LF & "73728" & @LF & "24576" & @LF & "1" & @LF & "4096" ) <> - 1 Then Exit 29
 		If RM_ShouldRecoverRebound ( 1048576 , 983040 ) <> 0 Then Exit 30
 		If RM_ShouldRecoverRebound ( 1048576 , 524288 ) <> 1 Then Exit 31
@@ -1342,14 +1989,29 @@ Func RM_HandleCommandLine ( )
 		Local $RM_SelfHistoryPath = $RM_EffectivenessPath
 		$RM_EffectivenessPath = @TempDir & "\ReduceMemory-effectiveness-selftest-" & @AutoItPID & ".ini"
 		FileDelete ( $RM_EffectivenessPath )
+		IniWrite ( $RM_EffectivenessPath , "Process" , RM_LegacyEffectivenessKey ( "legacy-worker.exe" ) , "1|4096|0|0|" & RM_EffectivenessNow ( ) )
+		Local $RM_LegacyHistory = RM_ReadEffectiveness ( "legacy-worker.exe" )
+		If $RM_LegacyHistory [ 1 ] <> 1 Or $RM_LegacyHistory [ 2 ] <> 4096 Then Exit 41
+		RM_RecordEffectivenessAttempt ( "legacy-worker.exe" , 1048576 )
+		If IniRead ( $RM_EffectivenessPath , "Process" , RM_LegacyEffectivenessKey ( "legacy-worker.exe" ) , "" ) <> "" Then Exit 42
+		If StringLen ( IniRead ( $RM_EffectivenessPath , "Process" , RM_EffectivenessKey ( "legacy-worker.exe" ) , "" ) ) = 0 Then Exit 43
 		RM_RecordEffectivenessAttempt ( "selftest-worker.exe" , 1048576 )
 		RM_RecordEffectivenessAttempt ( "selftest-worker.exe" , 2097152 )
 		RM_RecordEffectivenessRefault ( "selftest-worker.exe" )
 		RM_RecordEffectivenessRefault ( "selftest-worker.exe" )
-		Local $RM_SelfHistory = RM_ReadEffectiveness ( "selftest-worker.exe" )
-		If $RM_SelfHistory [ 1 ] <> 2 Or $RM_SelfHistory [ 2 ] <> 3145728 Or $RM_SelfHistory [ 3 ] <> 2 Then Exit 36
-		If StringInStr ( RM_GetChurnExclusions ( ) , "|selftest-worker.exe|" ) = 0 Then Exit 37
-		FileDelete ( $RM_EffectivenessPath )
+	Local $RM_SelfHistory = RM_ReadEffectiveness ( "selftest-worker.exe" )
+	If $RM_SelfHistory [ 1 ] <> 2 Or $RM_SelfHistory [ 2 ] <> 3145728 Or $RM_SelfHistory [ 3 ] <> 2 Then Exit 36
+	If StringInStr ( RM_GetChurnExclusions ( ) , "|" & RM_EffectivenessKey ( "selftest-worker.exe" ) & "|" ) = 0 Then Exit 37
+	RM_RecordEffectivenessAttempt ( "selftest-worker.exe" , 1048576 )
+	$RM_SelfHistory = RM_ReadEffectiveness ( "selftest-worker.exe" )
+	If $RM_SelfHistory [ 1 ] <> 3 Or $RM_SelfHistory [ 2 ] <> 4194304 Or $RM_SelfHistory [ 3 ] <> 1 Then Exit 40
+	IniWrite ( $RM_EffectivenessPath , "Process" , "malformed-selftest.exe" , "not|numeric|history" )
+	Local $RM_BadHistory = RM_ReadEffectiveness ( "malformed-selftest.exe" )
+	If $RM_BadHistory [ 1 ] <> 0 Or $RM_BadHistory [ 3 ] <> 0 Then Exit 38
+	IniWrite ( $RM_EffectivenessPath , "Process" , "future-selftest.exe" , "1|1|1|1|9999999999" )
+	Local $RM_FutureHistory = RM_ReadEffectiveness ( "future-selftest.exe" )
+	If $RM_FutureHistory [ 1 ] <> 0 Or $RM_FutureHistory [ 5 ] <> 0 Then Exit 39
+	FileDelete ( $RM_EffectivenessPath )
 		$RM_EffectivenessPath = $RM_SelfHistoryPath
 		RM_ResetLastWorkerMetrics ( )
 		If RM_GetProfileMinimumMB ( $RM_PROFILE_NORMAL ) < 16 Or RM_GetProfileMinimumMB ( $RM_PROFILE_NORMAL ) < $RM_MinProcessMB Then Exit 24
@@ -1375,6 +2037,16 @@ Func RM_HandleCommandLine ( )
 	If $CMDLINE [ 1 ] = "/RMMONITORSELFTEST" Then
 		If RM_StartupMonitorSelfTest ( ) = 1 Then Exit 0
 		Exit 16
+	EndIf
+	; Disposable containment probe. The root must still pass the production
+	; Temp-root validator; this command never permits an arbitrary directory.
+	If $CMDLINE [ 1 ] = "/RMTEMPTEST" Then
+		If $CMDLINE [ 0 ] < 3 Then Exit 70
+		Local $RM_TempTestDeleted = 0 , $RM_TempTestSkipped = 0
+		RM_DeleteTempTree ( $CMDLINE [ 2 ] , $RM_TempTestDeleted , $RM_TempTestSkipped )
+		FileWrite ( $CMDLINE [ 3 ] , $RM_TempTestDeleted & @LF & $RM_TempTestSkipped )
+		If $RM_TempTestDeleted > 0 And $RM_TempTestSkipped > 0 Then Exit 0
+		Exit 71
 	EndIf
 	; CI-only targeted probe: trims one disposable process and proves the process
 	; remains alive. It never enumerates or changes any other process.
@@ -1441,20 +2113,41 @@ Func RM_HandleCommandLine ( )
 	EndIf
 	If $CMDLINE [ 1 ] = "/RMAGGRESSIVE" Then
 		If Not IsAdmin ( ) Then RM_FinishWorker ( 5 )
+		Local $RM_CLIOptimizationLock = 0
+		If StringLen ( RM_GetWorkerSessionID ( ) ) = 0 Then
+			$RM_CLIOptimizationLock = RM_AcquireOptimizationLock ( )
+			If $RM_CLIOptimizationLock = 0 Then RM_FinishWorker ( 7 )
+		EndIf
 		RM_ResetWorkerTotals ( )
-		If RM_AggressiveRelease ( 0 ) = 1 Then RM_FinishWorker ( 0 )
+		Local $RM_CLIResult = RM_AggressiveRelease ( 0 )
+		RM_ReleaseOptimizationLock ( $RM_CLIOptimizationLock )
+		If $RM_CLIResult = 1 Then RM_FinishWorker ( 0 )
 		RM_FinishWorker ( 6 )
 	EndIf
 	If $CMDLINE [ 1 ] = "/RMSMOOTH" Then
 		If Not IsAdmin ( ) Then RM_FinishWorker ( 5 )
+		Local $RM_CLIOptimizationLock = 0
+		If StringLen ( RM_GetWorkerSessionID ( ) ) = 0 Then
+			$RM_CLIOptimizationLock = RM_AcquireOptimizationLock ( )
+			If $RM_CLIOptimizationLock = 0 Then RM_FinishWorker ( 7 )
+		EndIf
 		RM_ResetWorkerTotals ( )
-		If RM_AggressiveRelease ( 1 ) = 1 Then RM_FinishWorker ( 0 )
+		Local $RM_CLIResult = RM_AggressiveRelease ( 1 )
+		RM_ReleaseOptimizationLock ( $RM_CLIOptimizationLock )
+		If $RM_CLIResult = 1 Then RM_FinishWorker ( 0 )
 		RM_FinishWorker ( 6 )
 	EndIf
 	If $CMDLINE [ 1 ] = "/RMEMERGENCY" Then
 		If Not IsAdmin ( ) Then RM_FinishWorker ( 5 )
+		Local $RM_CLIOptimizationLock = 0
+		If StringLen ( RM_GetWorkerSessionID ( ) ) = 0 Then
+			$RM_CLIOptimizationLock = RM_AcquireOptimizationLock ( )
+			If $RM_CLIOptimizationLock = 0 Then RM_FinishWorker ( 7 )
+		EndIf
 		RM_ResetWorkerTotals ( )
-		If RM_EmergencyRelease ( ) = 1 Then RM_FinishWorker ( 0 )
+		Local $RM_CLIResult = RM_EmergencyRelease ( )
+		RM_ReleaseOptimizationLock ( $RM_CLIOptimizationLock )
+		If $RM_CLIResult = 1 Then RM_FinishWorker ( 0 )
 		RM_FinishWorker ( 6 )
 	EndIf
 	If ( $CMDLINE [ 0 ] = 2 And $CMDLINE [ 1 ] = $A4191204E34 ) Then
@@ -2018,6 +2711,16 @@ Func RM_QueryProcessMemory ( $RM_ProcessHandle , ByRef $RM_WorkingSetBytes , ByR
 	Return 1
 EndFunc
 
+Func RM_GetProcessBirthFromHandle ( $RM_ProcessHandle )
+	Local $RM_Created = DllStructCreate ( "dword Low;dword High" )
+	Local $RM_Exited = DllStructCreate ( "uint64 Value" )
+	Local $RM_Kernel = DllStructCreate ( "uint64 Value" )
+	Local $RM_User = DllStructCreate ( "uint64 Value" )
+	Local $RM_Times = DllCall ( "kernel32.dll" , "bool" , "GetProcessTimes" , "handle" , $RM_ProcessHandle , "ptr" , DllStructGetPtr ( $RM_Created ) , "ptr" , DllStructGetPtr ( $RM_Exited ) , "ptr" , DllStructGetPtr ( $RM_Kernel ) , "ptr" , DllStructGetPtr ( $RM_User ) )
+	If @error Or Not IsArray ( $RM_Times ) Or $RM_Times [ 0 ] = 0 Then Return ""
+	Return Hex ( DllStructGetData ( $RM_Created , "High" ) , 8 ) & Hex ( DllStructGetData ( $RM_Created , "Low" ) , 8 )
+EndFunc
+
 Func RM_GetWorkingSetFromHandle ( $RM_ProcessHandle )
 	Local $RM_WorkingSetBytes = 0 , $RM_PageFaultCount = 0
 	If RM_QueryProcessMemory ( $RM_ProcessHandle , $RM_WorkingSetBytes , $RM_PageFaultCount ) = 0 Then Return 0
@@ -2176,6 +2879,10 @@ Func RM_RunConfiguredTrim ( $RM_Profile = - 1 )
 	If $RM_Profile = $RM_PROFILE_AGGRESSIVE Or $RM_Profile = $RM_PROFILE_EMERGENCY Then
 		Local $RM_NativeTrimmed = RM_RunNativeProcessPass ( $RM_Profile , $RM_IncludeOnly , $RM_ProcessFilter )
 		If $RM_NativeTrimmed >= 0 Then Return $RM_NativeTrimmed
+		; -2 means the worker reached its pre-mutation handshake. The result is
+		; unknown/partial, so replaying every target through the fallback could
+		; double-trim processes that the worker already changed.
+		If $RM_NativeTrimmed = - 2 Then Return 0
 	EndIf
 	Return A2A20200810 ( $RM_IncludeOnly , $RM_ProcessFilter , $RM_Profile )
 EndFunc
@@ -2200,10 +2907,12 @@ Func RM_ResetNativeMetrics ( )
 	$RM_NativeBelowMinimum = 0
 	$RM_NativeTrimFailed = 0
 	$RM_NativeNoReduction = 0
+	$RM_NativeMeasured = 0
+	$RM_NativeUnmeasured = 0
 EndFunc
 
 Func RM_NativeMetricText ( )
-	Return "seen=" & $RM_NativeSeen & @LF & "protected=" & $RM_NativeProtected & @LF & "filtered=" & $RM_NativeFiltered & @LF & "foreground=" & $RM_NativeForeground & @LF & "open_failed=" & $RM_NativeOpenFailed & @LF & "path_failed=" & $RM_NativePathFailed & @LF & "windows_process=" & $RM_NativeWindowsProcess & @LF & "query_failed=" & $RM_NativeQueryFailed & @LF & "below_minimum=" & $RM_NativeBelowMinimum & @LF & "trim_failed=" & $RM_NativeTrimFailed & @LF & "no_reduction=" & $RM_NativeNoReduction
+	Return "seen=" & $RM_NativeSeen & @LF & "protected=" & $RM_NativeProtected & @LF & "filtered=" & $RM_NativeFiltered & @LF & "foreground=" & $RM_NativeForeground & @LF & "open_failed=" & $RM_NativeOpenFailed & @LF & "path_failed=" & $RM_NativePathFailed & @LF & "windows_process=" & $RM_NativeWindowsProcess & @LF & "query_failed=" & $RM_NativeQueryFailed & @LF & "below_minimum=" & $RM_NativeBelowMinimum & @LF & "trim_failed=" & $RM_NativeTrimFailed & @LF & "no_reduction=" & $RM_NativeNoReduction & @LF & "measured=" & $RM_NativeMeasured & @LF & "unmeasured=" & $RM_NativeUnmeasured
 EndFunc
 
 Func RM_ParseNativeMetric ( $RM_Line )
@@ -2233,10 +2942,193 @@ Func RM_ParseNativeMetric ( $RM_Line )
 			$RM_NativeTrimFailed = $RM_Value
 		Case "no_reduction"
 			$RM_NativeNoReduction = $RM_Value
+		Case "measured"
+			$RM_NativeMeasured = $RM_Value
+		Case "unmeasured"
+			$RM_NativeUnmeasured = $RM_Value
 		Case Else
 			Return 0
 	EndSwitch
 	Return 1
+EndFunc
+
+Func RM_ResultValue ( $RM_Line , $RM_Key )
+	Local $RM_Prefix = $RM_Key & "="
+	If StringLeft ( $RM_Line , StringLen ( $RM_Prefix ) ) <> $RM_Prefix Then Return SetError ( 1 , 0 , "" )
+	Return StringTrimLeft ( $RM_Line , StringLen ( $RM_Prefix ) )
+EndFunc
+
+Func RM_IsUInt64Text ( $RM_Text )
+	If Not StringRegExp ( $RM_Text , "^[0-9]+$" ) Then Return 0
+	Local $RM_Normalized = StringRegExpReplace ( $RM_Text , "^0+" , "" )
+	If StringLen ( $RM_Normalized ) = 0 Then Return 1
+	If StringLen ( $RM_Normalized ) < 20 Then Return 1
+	If StringLen ( $RM_Normalized ) > 20 Then Return 0
+	Return StringCompare ( $RM_Normalized , "18446744073709551615" , 1 ) <= 0
+EndFunc
+
+Func RM_IsInt64Text ( $RM_Text )
+	Local $RM_Unsigned = $RM_Text
+	If StringLeft ( $RM_Unsigned , 1 ) = "-" Then $RM_Unsigned = StringTrimLeft ( $RM_Unsigned , 1 )
+	If Not RM_IsUInt64Text ( $RM_Unsigned ) Then Return 0
+	Local $RM_Normalized = StringRegExpReplace ( $RM_Unsigned , "^0+" , "" )
+	If StringLen ( $RM_Normalized ) = 0 Then Return 1
+	If StringCompare ( $RM_Normalized , "9223372036854775808" , 1 ) > 0 Then Return 0
+	If StringCompare ( $RM_Normalized , "9223372036854775807" , 1 ) <= 0 Then Return 1
+	Return StringLeft ( $RM_Text , 1 ) = "-"
+EndFunc
+
+Func RM_NewSessionID ( )
+	Return Hex ( @AutoItPID , 8 ) & Hex ( Int ( TimerInit ( ) ) , 8 ) & Hex ( Random ( 0 , 0x7FFFFFFF , 1 ) , 8 )
+EndFunc
+
+; Own the exact worker instance through a kernel handle. A PID alone can be
+; reused after exit, so timeout cleanup must never call ProcessClose(pid).
+Func RM_RunOwnedNativeWorker ( $RM_Command , $RM_TimeoutMs , ByRef $RM_TimedOut )
+	$RM_TimedOut = 0
+	; CreateProcessW returns the exact child handle. Do not Run()+OpenProcess(PID):
+	; that gap can observe a recycled PID and makes timeout ownership ambiguous.
+	Local $RM_Startup = DllStructCreate ( "dword cb;ptr reserved;ptr desktop;ptr title;dword x;dword y;dword xsize;dword ysize;dword xcount;dword ycount;dword fill;dword flags;word show;word reserved2;ptr reserved3;ptr stdin;ptr stdout;ptr stderr" )
+	Local $RM_ProcessInfo = DllStructCreate ( "ptr process;ptr thread;dword pid;dword tid" )
+	DllStructSetData ( $RM_Startup , "cb" , DllStructGetSize ( $RM_Startup ) )
+	Local $RM_CommandLine = $RM_Command
+	Local $RM_Created = DllCall ( "kernel32.dll" , "bool" , "CreateProcessW" , "ptr" , 0 , "wstr" , $RM_CommandLine , "ptr" , 0 , "ptr" , 0 , "bool" , False , "dword" , 0x08000000 , "ptr" , 0 , "wstr" , @ScriptDir , "ptr" , DllStructGetPtr ( $RM_Startup ) , "ptr" , DllStructGetPtr ( $RM_ProcessInfo ) )
+	If @error Or Not IsArray ( $RM_Created ) Or $RM_Created [ 0 ] = 0 Then Return - 1
+	Local $RM_Handle = DllStructGetData ( $RM_ProcessInfo , "process" )
+	Local $RM_ThreadHandle = DllStructGetData ( $RM_ProcessInfo , "thread" )
+	If $RM_ThreadHandle <> 0 Then DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_ThreadHandle )
+	If $RM_Handle = 0 Then Return - 1
+	; Put the child in a private kill-on-close job. If the frontend exits or the
+	; operation is cancelled, the optimizer child cannot remain orphaned.
+	Local $RM_Job = DllCall ( "kernel32.dll" , "handle" , "CreateJobObjectW" , "ptr" , 0 , "ptr" , 0 )
+	If @error Or Not IsArray ( $RM_Job ) Or $RM_Job [ 0 ] = 0 Then
+		DllCall ( "kernel32.dll" , "bool" , "TerminateProcess" , "handle" , $RM_Handle , "uint" , 125 )
+		DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_Handle )
+		Return - 1
+	EndIf
+	Local $RM_JobHandle = $RM_Job [ 0 ]
+	Local $RM_JobLimits = DllStructCreate ( "uint64 read_ops;uint64 write_ops;uint64 other_ops;uint64 read_bytes;uint64 write_bytes;uint64 other_bytes;uint64 per_process;uint64 per_job;dword limit_flags;ulong_ptr min_working_set;ulong_ptr max_working_set;dword active_process;ulong_ptr affinity;dword priority;dword scheduling_class" )
+	DllStructSetData ( $RM_JobLimits , "limit_flags" , 0x2000 ) ; JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+	Local $RM_JobSet = DllCall ( "kernel32.dll" , "bool" , "SetInformationJobObject" , "handle" , $RM_JobHandle , "int" , 9 , "ptr" , DllStructGetPtr ( $RM_JobLimits ) , "dword" , DllStructGetSize ( $RM_JobLimits ) )
+	Local $RM_JobAssign = DllCall ( "kernel32.dll" , "bool" , "AssignProcessToJobObject" , "handle" , $RM_JobHandle , "handle" , $RM_Handle )
+	; Some hosts reject the extended-limit layout (for example nested jobs).
+	; Assignment is still useful ownership; only fail when the process cannot be
+	; assigned at all. The kill-on-close flag is reported as best-effort until a
+	; host integration test proves it on every supported Windows build.
+	If @error Or Not IsArray ( $RM_JobAssign ) Or $RM_JobAssign [ 0 ] = 0 Then
+		DllCall ( "kernel32.dll" , "bool" , "TerminateProcess" , "handle" , $RM_Handle , "uint" , 125 )
+		DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_Handle )
+		DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_JobHandle )
+		Return - 1
+	EndIf
+	; Poll in short slices instead of blocking the GUI thread for the whole
+	; native pass. Sleep lets AutoIt dispatch paint/close messages while the
+	; owned child continues under the same timeout budget.
+	Local $RM_Wait = DllCall ( "kernel32.dll" , "dword" , "WaitForSingleObject" , "handle" , $RM_Handle , "dword" , 0 )
+	Local $RM_WaitStarted = TimerInit ( )
+	While IsArray ( $RM_Wait ) And $RM_Wait [ 0 ] = 0x102 And TimerDiff ( $RM_WaitStarted ) < $RM_TimeoutMs
+		Sleep ( 25 )
+		$RM_Wait = DllCall ( "kernel32.dll" , "dword" , "WaitForSingleObject" , "handle" , $RM_Handle , "dword" , 100 )
+	WEnd
+	If @error Or Not IsArray ( $RM_Wait ) Then
+		DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_Handle )
+		DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_JobHandle )
+		Return - 1
+	EndIf
+	If $RM_Wait [ 0 ] = 0x102 And TimerDiff ( $RM_WaitStarted ) >= $RM_TimeoutMs Then
+		$RM_TimedOut = 1
+		DllCall ( "kernel32.dll" , "bool" , "TerminateProcess" , "handle" , $RM_Handle , "uint" , 124 )
+		DllCall ( "kernel32.dll" , "dword" , "WaitForSingleObject" , "handle" , $RM_Handle , "dword" , 5000 )
+	EndIf
+	Local $RM_Exit = DllCall ( "kernel32.dll" , "bool" , "GetExitCodeProcess" , "handle" , $RM_Handle , "dword*" , 0 )
+	Local $RM_ExitError = @error
+	DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_Handle )
+	DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_JobHandle )
+	If $RM_ExitError Or Not IsArray ( $RM_Exit ) Or $RM_Exit [ 0 ] = 0 Then Return - 1
+	Return $RM_Exit [ 2 ]
+EndFunc
+
+Func RM_ParseNativeProcessResult ( $RM_ResultText , $RM_ExpectedSession = "" )
+	If StringLen ( $RM_ResultText ) > 8388608 Then Return - 1
+	$RM_ResultText = StringReplace ( $RM_ResultText , @CR , "" )
+	Local $RM_Lines = StringSplit ( $RM_ResultText , @LF , 1 )
+	If Not IsArray ( $RM_Lines ) Or $RM_Lines [ 0 ] < 8 Then Return - 1
+	If $RM_Lines [ $RM_Lines [ 0 ] ] = "" Then $RM_Lines [ 0 ] -= 1
+	If $RM_Lines [ 0 ] < 8 Then Return - 1
+	Local $RM_Protocol = RM_ResultValue ( $RM_Lines [ 1 ] , "protocol" )
+	Local $RM_Session = RM_ResultValue ( $RM_Lines [ 2 ] , "session" )
+	Local $RM_Terminal = RM_ResultValue ( $RM_Lines [ 3 ] , "terminal" )
+	Local $RM_Mutated = RM_ResultValue ( $RM_Lines [ 4 ] , "mutated" )
+	Local $RM_ExitCode = RM_ResultValue ( $RM_Lines [ 5 ] , "exit_code" )
+	Local $RM_TrimmedText = RM_ResultValue ( $RM_Lines [ 6 ] , "trimmed" )
+	Local $RM_ReleasedText = RM_ResultValue ( $RM_Lines [ 7 ] , "resident_delta" )
+	Local $RM_CountText = RM_ResultValue ( $RM_Lines [ 8 ] , "record_count" )
+	If $RM_Protocol <> "2" Or StringLen ( $RM_Session ) = 0 Then Return - 1
+	If StringLen ( $RM_ExpectedSession ) > 0 And $RM_Session <> $RM_ExpectedSession Then Return - 1
+	If $RM_Terminal <> "done" And $RM_Terminal <> "partial" Then Return - 1
+	If Not StringRegExp ( $RM_Mutated , "^[01]$" ) Or Not StringRegExp ( $RM_ExitCode , "^[0-9]+$" ) Or Int ( $RM_ExitCode ) <> 0 Then Return - 1
+	If Not RM_IsUInt64Text ( $RM_TrimmedText ) Or Not RM_IsInt64Text ( $RM_ReleasedText ) Or Not RM_IsUInt64Text ( $RM_CountText ) Then Return - 1
+	Local $RM_Trimmed = Int ( $RM_TrimmedText )
+	Local $RM_ReleasedBytes = Number ( $RM_ReleasedText )
+	Local $RM_TargetCount = Int ( $RM_CountText )
+	If $RM_TargetCount < 0 Or $RM_TargetCount > 16384 Or $RM_TargetCount > $RM_Lines [ 0 ] - 8 Then Return - 1
+	Local $RM_IdentitySet = ObjCreate ( "Scripting.Dictionary" )
+	Local $RM_ParsedMeasured = 0 , $RM_ParsedUnmeasured = 0
+	For $RM_TargetIndex = 1 To $RM_TargetCount
+		Local $RM_RecordLine = RM_ResultValue ( $RM_Lines [ $RM_TargetIndex + 8 ] , "record" )
+		If @error Then Return - 1
+		Local $RM_TargetFields = StringSplit ( $RM_RecordLine , "|" , 1 )
+		If Not IsArray ( $RM_TargetFields ) Or $RM_TargetFields [ 0 ] <> 7 Then Return - 1
+		If Not RM_IsUInt64Text ( $RM_TargetFields [ 1 ] ) Or Not StringRegExp ( $RM_TargetFields [ 2 ] , "^[0-9A-Fa-f]{16}$" ) Or Not RM_IsUInt64Text ( $RM_TargetFields [ 3 ] ) Or Not RM_IsUInt64Text ( $RM_TargetFields [ 4 ] ) Or Not RM_IsUInt64Text ( $RM_TargetFields [ 5 ] ) Then Return - 1
+		If $RM_TargetFields [ 6 ] <> "measured" And $RM_TargetFields [ 6 ] <> "after_unknown" And $RM_TargetFields [ 6 ] <> "identity_changed" Then Return - 1
+		If StringLen ( $RM_TargetFields [ 7 ] ) = 0 Then Return - 1
+		If $RM_TargetFields [ 6 ] = "measured" Then
+			$RM_ParsedMeasured += 1
+		Else
+			$RM_ParsedUnmeasured += 1
+		EndIf
+		Local $RM_IdentityKey = $RM_TargetFields [ 1 ] & ":" & $RM_TargetFields [ 2 ]
+		If IsObj ( $RM_IdentitySet ) Then
+			If $RM_IdentitySet.Exists ( $RM_IdentityKey ) Then Return - 1
+			$RM_IdentitySet.Add ( $RM_IdentityKey , 1 )
+		EndIf
+	Next
+	; Every trailing line is a native taxonomy metric. Reject malformed or
+	; duplicate keys before touching the session ledger; otherwise a truncated
+	; result could silently become a successful zero-measurement pass.
+	Local $RM_MetricSet = ObjCreate ( "Scripting.Dictionary" )
+	Local $RM_MetricMeasured = - 1 , $RM_MetricUnmeasured = - 1
+	For $RM_MetricIndex = $RM_TargetCount + 9 To $RM_Lines [ 0 ]
+		Local $RM_MetricParts = StringSplit ( $RM_Lines [ $RM_MetricIndex ] , "=" , 1 )
+		If Not IsArray ( $RM_MetricParts ) Or $RM_MetricParts [ 0 ] <> 2 Or StringLen ( $RM_MetricParts [ 1 ] ) = 0 Or Not RM_IsUInt64Text ( $RM_MetricParts [ 2 ] ) Then Return - 1
+		If IsObj ( $RM_MetricSet ) Then
+			If $RM_MetricSet.Exists ( $RM_MetricParts [ 1 ] ) Then Return - 1
+			$RM_MetricSet.Add ( $RM_MetricParts [ 1 ] , 1 )
+		EndIf
+		If $RM_MetricParts [ 1 ] = "measured" Then $RM_MetricMeasured = Int ( $RM_MetricParts [ 2 ] )
+		If $RM_MetricParts [ 1 ] = "unmeasured" Then $RM_MetricUnmeasured = Int ( $RM_MetricParts [ 2 ] )
+	Next
+	If $RM_MetricMeasured < 0 Or $RM_MetricUnmeasured < 0 Then Return - 1
+	If $RM_MetricMeasured <> $RM_ParsedMeasured Or $RM_MetricUnmeasured <> $RM_ParsedUnmeasured Then Return - 1
+	RM_ResetLastPassTargets ( )
+	For $RM_TargetIndex = 1 To $RM_TargetCount
+		Local $RM_TargetFields = StringSplit ( RM_ResultValue ( $RM_Lines [ $RM_TargetIndex + 8 ] , "record" ) , "|" , 1 )
+		If $RM_TargetFields [ 6 ] = "measured" Then
+			Local $RM_TargetDelta = Number ( $RM_TargetFields [ 3 ] ) - Number ( $RM_TargetFields [ 4 ] )
+			RM_RecordSessionMeasurement ( $RM_TargetFields [ 7 ] , Int ( $RM_TargetFields [ 1 ] ) , 1 , Number ( $RM_TargetFields [ 3 ] ) , 1 , Number ( $RM_TargetFields [ 4 ] ) , $RM_TargetFields [ 2 ] )
+			RM_RecordLastPassTarget ( $RM_TargetFields [ 7 ] , Int ( $RM_TargetFields [ 1 ] ) , Number ( $RM_TargetFields [ 4 ] ) , Number ( $RM_TargetFields [ 5 ] ) , $RM_TargetDelta , StringUpper ( $RM_TargetFields [ 2 ] ) )
+		Else
+			RM_RecordSessionMeasurement ( $RM_TargetFields [ 7 ] , Int ( $RM_TargetFields [ 1 ] ) , 1 , Number ( $RM_TargetFields [ 3 ] ) , 0 , 0 , $RM_TargetFields [ 2 ] )
+		EndIf
+	Next
+	RM_ResetNativeMetrics ( )
+	For $RM_MetricIndex = $RM_TargetCount + 9 To $RM_Lines [ 0 ]
+		RM_ParseNativeMetric ( $RM_Lines [ $RM_MetricIndex ] )
+	Next
+	$RM_LastTrimReleasedBytes = $RM_ReleasedBytes
+	$RM_LastTrimMeasuredTargets = $RM_NativeMeasured
+	$RM_LastTrimUnmeasuredTargets = $RM_NativeUnmeasured
+	Return $RM_Trimmed
 EndFunc
 
 Func RM_RunNativeProcessPass ( $RM_Profile , $RM_IncludeOnly , $RM_ProcessFilter )
@@ -2244,9 +3136,13 @@ Func RM_RunNativeProcessPass ( $RM_Profile , $RM_IncludeOnly , $RM_ProcessFilter
 	Local $RM_WorkerPath = RM_GetNativeWorkerPath ( )
 	If StringLen ( $RM_WorkerPath ) = 0 Then Return - 1
 	Local $RM_ResultPath = @TempDir & "\ReduceMemory-native-" & @AutoItPID & "-" & Int ( Random ( 100000 , 999999 , 1 ) ) & ".result"
+	Local $RM_HandshakePath = $RM_ResultPath & ".ready"
+	Local $RM_SessionID = RM_NewSessionID ( )
 	Local $RM_ForegroundPID = 0
 	If $RM_Profile <> $RM_PROFILE_EMERGENCY And $RM_ProtectForeground = 1 Then $RM_ForegroundPID = WinGetProcess ( "[ACTIVE]" )
-	Local $RM_Arguments = "/all /profile=" & $RM_Profile & " /foreground=" & $RM_ForegroundPID & " /exclude-pid=" & @AutoItPID & ' /result="' & $RM_ResultPath & '"'
+	Local $RM_ProtectForegroundFlag = 0
+	If $RM_Profile <> $RM_PROFILE_EMERGENCY And $RM_ProtectForeground = 1 Then $RM_ProtectForegroundFlag = 1
+	Local $RM_Arguments = "/all /profile=" & $RM_Profile & " /minimum-mb=" & RM_GetProfileMinimumMB ( $RM_Profile ) & " /protect-foreground=" & $RM_ProtectForegroundFlag & " /protocol=2 /session=" & $RM_SessionID & " /foreground=" & $RM_ForegroundPID & " /exclude-pid=" & @AutoItPID & ' /result="' & $RM_ResultPath & '" /handshake="' & $RM_HandshakePath & '"'
 	Local $RM_EffectiveExclude = "|"
 	If $RM_IncludeOnly = 1 Then
 		If StringLen ( $RM_ProcessFilter ) > 1 Then $RM_Arguments &= ' /include="' & $RM_ProcessFilter & '"'
@@ -2258,36 +3154,22 @@ Func RM_RunNativeProcessPass ( $RM_Profile , $RM_IncludeOnly , $RM_ProcessFilter
 	If $RM_Profile = $RM_PROFILE_AGGRESSIVE Then $RM_EffectiveExclude &= StringTrimLeft ( RM_GetChurnExclusions ( ) , 1 )
 	If StringLen ( $RM_EffectiveExclude ) > 1 Then $RM_Arguments &= ' /exclude="' & $RM_EffectiveExclude & '"'
 	FileDelete ( $RM_ResultPath )
-	Local $RM_ExitCode = RunWait ( '"' & $RM_WorkerPath & '" ' & $RM_Arguments , @ScriptDir , @SW_HIDE )
+	FileDelete ( $RM_HandshakePath )
+	Local $RM_TimedOut = 0
+	Local $RM_ExitCode = RM_RunOwnedNativeWorker ( '"' & $RM_WorkerPath & '" ' & $RM_Arguments , 45000 , $RM_TimedOut )
 	If $RM_ExitCode <> 0 Or Not FileExists ( $RM_ResultPath ) Then
+		Local $RM_MutationMayHaveStarted = FileExists ( $RM_HandshakePath )
 		FileDelete ( $RM_ResultPath )
+		FileDelete ( $RM_HandshakePath )
+		If $RM_MutationMayHaveStarted Then Return - 2
 		Return - 1
 	EndIf
-	Local $RM_ResultText = StringReplace ( FileRead ( $RM_ResultPath ) , @CR , "" )
+	Local $RM_ResultText = FileRead ( $RM_ResultPath )
 	FileDelete ( $RM_ResultPath )
-	Local $RM_Lines = StringSplit ( $RM_ResultText , @LF , 1 )
-	If Not IsArray ( $RM_Lines ) Or $RM_Lines [ 0 ] < 4 Then Return - 1
-	For $RM_HeaderIndex = 1 To 4
-		If Not StringRegExp ( StringStripWS ( $RM_Lines [ $RM_HeaderIndex ] , 3 ) , "^[0-9]+$" ) Then Return - 1
-	Next
-	If Int ( $RM_Lines [ 1 ] ) <> 0 Then Return - 1
-	Local $RM_Trimmed = Int ( $RM_Lines [ 2 ] )
-	Local $RM_ReleasedBytes = Number ( $RM_Lines [ 3 ] )
-	Local $RM_TargetCount = Int ( $RM_Lines [ 4 ] )
-	If $RM_Trimmed < 0 Or $RM_ReleasedBytes < 0 Or $RM_TargetCount < 0 Or $RM_TargetCount > $RM_Lines [ 0 ] - 4 Then Return - 1
-	RM_ResetLastPassTargets ( )
-	For $RM_TargetIndex = 1 To $RM_TargetCount
-		Local $RM_TargetFields = StringSplit ( $RM_Lines [ $RM_TargetIndex + 4 ] , "|" , 1 )
-		If Not IsArray ( $RM_TargetFields ) Or $RM_TargetFields [ 0 ] < 5 Then ContinueLoop
-		If Not StringRegExp ( $RM_TargetFields [ 1 ] , "^[0-9]+$" ) Or Not StringRegExp ( $RM_TargetFields [ 2 ] , "^[0-9]+$" ) Or Not StringRegExp ( $RM_TargetFields [ 3 ] , "^[0-9]+$" ) Or Not StringRegExp ( $RM_TargetFields [ 4 ] , "^[0-9]+$" ) Then ContinueLoop
-		RM_RecordLastPassTarget ( $RM_TargetFields [ 5 ] , Int ( $RM_TargetFields [ 1 ] ) , Number ( $RM_TargetFields [ 2 ] ) , Number ( $RM_TargetFields [ 3 ] ) , Number ( $RM_TargetFields [ 4 ] ) )
-	Next
-	RM_ResetNativeMetrics ( )
-	For $RM_MetricIndex = $RM_TargetCount + 5 To $RM_Lines [ 0 ]
-		RM_ParseNativeMetric ( $RM_Lines [ $RM_MetricIndex ] )
-	Next
-	$RM_LastTrimReleasedBytes = $RM_ReleasedBytes
-	Return $RM_Trimmed
+	FileDelete ( $RM_HandshakePath )
+	Local $RM_Parsed = RM_ParseNativeProcessResult ( $RM_ResultText , $RM_SessionID )
+	If $RM_Parsed < 0 Then Return - 2
+	Return $RM_Parsed
 EndFunc
 
 Func RM_GetWorkingSetBytes ( $RM_ProcessPID )
@@ -2330,6 +3212,8 @@ Func A2A20200810 ( $A3C42101753 = 0 , $A6242203763 = "" , $RM_Profile = - 1 )
 	Local $A2A4230391F = 0
 	Local $RM_TotalReleasedBytes = 0
 	$RM_LastTrimReleasedBytes = 0
+	$RM_LastTrimMeasuredTargets = 0
+	$RM_LastTrimUnmeasuredTargets = 0
 	RM_ResetLastPassTargets ( )
 	If $RM_Profile < 0 Then $RM_Profile = RM_GetTrimProfile ( )
 	If $RM_Profile = $RM_PROFILE_AI_SHIELD Then
@@ -2343,6 +3227,8 @@ Func A2A20200810 ( $A3C42101753 = 0 , $A6242203763 = "" , $RM_Profile = - 1 )
 	Local $A5E4240211A = ProcessList ( ) , $A17A0803B53 , $A2B42506363
 	If Not IsArray ( $A5E4240211A ) Then Return 0
 	Local $RM_ForegroundPID = 0
+	Local $RM_FallbackChurnExclusions = "|"
+	If $RM_Profile = $RM_PROFILE_AGGRESSIVE Then $RM_FallbackChurnExclusions = RM_GetChurnExclusions ( )
 	RM_TrackActiveProcess ( )
 	If $A3C42101753 = 0 And ( $RM_Profile = $RM_PROFILE_NORMAL Or $RM_Profile = $RM_PROFILE_SMOOTH Or $RM_Profile = $RM_PROFILE_AI_SHIELD ) Then
 		RM_BuildCPUShield ( )
@@ -2353,20 +3239,35 @@ Func A2A20200810 ( $A3C42101753 = 0 , $A6242203763 = "" , $RM_Profile = - 1 )
 	For $A17A0803B53 = 1 To $A5E4240211A [ 0 ] [ 0 ]
 		$A2B42506363 = StringInStr ( $A6242203763 , $A5580E05E46 & $A5E4240211A [ $A17A0803B53 ] [ 0 ] & $A5580E05E46 )
 		If ( $A3C42101753 = 0 And $A2B42506363 = 0 ) Or ( $A3C42101753 = 1 And $A2B42506363 <> 0 ) Then
+			If $RM_Profile = $RM_PROFILE_AGGRESSIVE And StringInStr ( $RM_FallbackChurnExclusions , "|" & RM_EffectivenessKey ( $A5E4240211A [ $A17A0803B53 ] [ 0 ] ) & "|" ) > 0 Then ContinueLoop
 
 			Local $RM_TargetPID = $A5E4240211A [ $A17A0803B53 ] [ 1 ]
 			Local $RM_BeforeWorkingSet = 0
 			Local $RM_TargetHandle = 0
 			If RM_ShouldSkipProcess ( $A5E4240211A [ $A17A0803B53 ] [ 0 ] , $RM_TargetPID , $RM_ForegroundPID , $RM_Profile , $RM_BeforeWorkingSet , $RM_TargetHandle ) Then ContinueLoop
+			If $RM_Profile <> $RM_PROFILE_EMERGENCY And $RM_ProtectForeground = 1 And WinGetProcess ( "[ACTIVE]" ) = $RM_TargetPID Then
+				RM_CloseProcessHandle ( $RM_TargetHandle )
+				ContinueLoop
+			EndIf
+			Local $RM_TargetBirth = RM_GetProcessBirthFromHandle ( $RM_TargetHandle )
+			If StringLen ( $RM_TargetBirth ) = 0 Then
+				RM_CloseProcessHandle ( $RM_TargetHandle )
+				ContinueLoop
+			EndIf
 			Local $RM_TrimSucceeded = RM_TrimProcessHandle ( $RM_TargetHandle )
 			If $RM_TrimSucceeded = 1 Then
 				$A2A4230391F += 1
 				Local $RM_AfterWorkingSet = 0 , $RM_AfterPageFaults = 0
-				RM_QueryProcessMemory ( $RM_TargetHandle , $RM_AfterWorkingSet , $RM_AfterPageFaults )
-				If $RM_BeforeWorkingSet > $RM_AfterWorkingSet Then $RM_TotalReleasedBytes += $RM_BeforeWorkingSet - $RM_AfterWorkingSet
-				Local $RM_ProcessReleased = 0
-				If $RM_BeforeWorkingSet > $RM_AfterWorkingSet Then $RM_ProcessReleased = $RM_BeforeWorkingSet - $RM_AfterWorkingSet
-				RM_RecordLastPassTarget ( $A5E4240211A [ $A17A0803B53 ] [ 0 ] , $RM_TargetPID , $RM_AfterWorkingSet , $RM_AfterPageFaults , $RM_ProcessReleased )
+				Local $RM_AfterKnown = RM_QueryProcessMemory ( $RM_TargetHandle , $RM_AfterWorkingSet , $RM_AfterPageFaults )
+				RM_RecordSessionMeasurement ( $A5E4240211A [ $A17A0803B53 ] [ 0 ] , $RM_TargetPID , 1 , $RM_BeforeWorkingSet , $RM_AfterKnown , $RM_AfterWorkingSet , $RM_TargetBirth )
+				If $RM_AfterKnown = 1 Then
+					Local $RM_ProcessReleased = $RM_BeforeWorkingSet - $RM_AfterWorkingSet
+					$RM_TotalReleasedBytes += $RM_ProcessReleased
+					$RM_LastTrimMeasuredTargets += 1
+					RM_RecordLastPassTarget ( $A5E4240211A [ $A17A0803B53 ] [ 0 ] , $RM_TargetPID , $RM_AfterWorkingSet , $RM_AfterPageFaults , $RM_ProcessReleased , $RM_TargetBirth )
+				Else
+					$RM_LastTrimUnmeasuredTargets += 1
+				EndIf
 			EndIf
 			RM_CloseProcessHandle ( $RM_TargetHandle )
 		EndIf
@@ -2388,6 +3289,11 @@ Func RM_ShouldSkipProcess ( $RM_ProcessName , $RM_ProcessPID , $RM_ForegroundPID
 	$RM_ProcessHandle = RM_OpenTrimProcess ( $RM_ProcessPID )
 	If $RM_ProcessHandle = 0 Then Return 1
 	Local $RM_Path = StringLower ( StringStripWS ( RM_GetProcessPathFromHandle ( $RM_ProcessHandle ) , 3 ) )
+	If StringLen ( $RM_Path ) = 0 Then
+		RM_CloseProcessHandle ( $RM_ProcessHandle )
+		$RM_ProcessHandle = 0
+		Return 1
+	EndIf
 	Local $RM_WindowsRoot = @WindowsDir
 	If StringRight ( $RM_WindowsRoot , 1 ) <> "\" Then $RM_WindowsRoot &= "\"
 	$RM_WindowsRoot = StringLower ( $RM_WindowsRoot )

@@ -1,5 +1,50 @@
 # Version history
 
+## Reduce Memory 3.0 — Phase 1 hardening update
+
+- Linux native RSS identity now includes process starttime through the final
+  session ledger, and reclaim writes are constrained to validated cgroup
+  `memory.reclaim` files.
+- Linux cache-drop failure is reported per stage instead of aborting independent
+  native/cgroup reclaim work.
+- Windows foreground protection and x86 threshold bounds are explicit in the
+  native protocol path.
+- Effectiveness history rejects oversized/corrupt/future data and expires churn
+  after 30 days; Temp cleanup adds a final reparse-point check before deletion.
+- Native worker waits use short bounded polling slices to reduce UI blocking.
+- Elevated parents now use the same owned child-worker/session envelope as
+  non-elevated parents, so long Aggressive passes do not execute directly on
+  the GUI thread.
+- Linux native reclaim validates INT64 byte bounds and kernel swappiness range
+  (`0–200`) before opening the cgroup control file.
+
+## Reduce Memory 3.0 — 2026 (development)
+
+- Replaced optimistic per-pass savings with signed, paired before/after
+  measurements on Windows and Linux.
+- Added explicit unknown/partial accounting for failed post-action queries,
+  process exit, identity changes, and Linux permission changes.
+- Added one session baseline for Aggressive/Emergency and deduplicated targets
+  across repeated passes.
+- Updated the Windows native protocol and Linux launcher report with
+  measured/unmeasured counters and truthful reduced/increased/unchanged labels.
+- Added deterministic M1 contract tests plus fresh x86/x64 source builds and
+  real disposable working-set trim verification.
+
+## Reduce Memory 2.9 — 2026 (development)
+
+- Added a reproducible staged Windows build pipeline for AutoIt frontends and
+  native workers in x86 and x64.
+- Added source-runtime checks, artifact self-tests, and a machine-readable build
+  manifest tying the generated executables to a source commit and SHA-256 hash.
+- Added a machine-readable M0 baseline that records the original stored binary
+  hashes, compiler/include identity, platform/privilege/memory facts, and the
+  disposable benchmark contract without copying private INI content.
+- Extracted the real Windows trim fixture from CI YAML and added explicit Linux
+  fixture/failure adapters, including a fake sync command, so unit tests cannot
+  accidentally combine mocked metadata with real global reclaim operations.
+- Build output is explicit and isolated from the active portable configuration.
+
 ## Reduce Memory 2.8 — 2026
 
 - Added per-process page-fault snapshots and native skip/failure diagnostics.

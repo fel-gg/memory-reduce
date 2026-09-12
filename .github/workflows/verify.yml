@@ -10,29 +10,54 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build native Windows workers
+      - name: Build Windows frontends and native workers from source
         shell: pwsh
         run: |
-          $version = '0.16.0'
-          $expected = '68659eb5f1e4eb1437a722f1dd889c5a322c9954607f5edcf337bc3684a75a7e'
-          $archive = Join-Path $env:RUNNER_TEMP "zig-$version.zip"
-          $toolRoot = Join-Path $env:RUNNER_TEMP 'zig-toolchain'
-          Invoke-WebRequest -Uri "https://ziglang.org/download/$version/zig-x86_64-windows-$version.zip" -OutFile $archive
-          $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actual -ne $expected) { throw "Zig checksum mismatch: $actual" }
-          New-Item -ItemType Directory -Path $toolRoot -Force | Out-Null
-          tar.exe -xf $archive -C $toolRoot
-          $zig = Join-Path $toolRoot "zig-x86_64-windows-$version\zig.exe"
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\native\build.ps1 -ZigPath $zig
-          if ($LASTEXITCODE -ne 0) { throw "Native worker build failed: $LASTEXITCODE" }
+          $zigVersion = '0.16.0'
+          $zigExpected = '68659eb5f1e4eb1437a722f1dd889c5a322c9954607f5edcf337bc3684a75a7e'
+          $zigArchive = Join-Path $env:RUNNER_TEMP "zig-$zigVersion.zip"
+          $zigRoot = Join-Path $env:RUNNER_TEMP 'zig-toolchain'
+          Invoke-WebRequest -Uri "https://ziglang.org/download/$zigVersion/zig-x86_64-windows-$zigVersion.zip" -OutFile $zigArchive
+          $zigActual = (Get-FileHash -LiteralPath $zigArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($zigActual -ne $zigExpected) { throw "Zig checksum mismatch: $zigActual" }
+          New-Item -ItemType Directory -Path $zigRoot -Force | Out-Null
+          tar.exe -xf $zigArchive -C $zigRoot
+          $zig = Join-Path $zigRoot "zig-x86_64-windows-$zigVersion\zig.exe"
+
+          $autoItVersion = '3.3.18.0'
+          $autoItExpected = 'ceb666a993a9f62621c3a0d4ee602774b2e7f543de1f08ec0380632ee3f89beb'
+          $autoItArchive = Join-Path $env:RUNNER_TEMP "autoit-v$autoItVersion.zip"
+          $autoItRoot = Join-Path $env:RUNNER_TEMP 'autoit-toolchain'
+          Invoke-WebRequest -Uri "https://www.autoitscript.com/autoit3/files/archive/autoit/autoit-v$autoItVersion.zip" -OutFile $autoItArchive
+          $autoItActual = (Get-FileHash -LiteralPath $autoItArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($autoItActual -ne $autoItExpected) { throw "AutoIt checksum mismatch: $autoItActual" }
+          Expand-Archive -LiteralPath $autoItArchive -DestinationPath $autoItRoot -Force
+          $autoIt = Join-Path $autoItRoot 'install'
+
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\windows\Build.Tests.ps1 `
+            -AutoItRoot $autoIt -ZigPath $zig -OutputDirectory .\windows
+          if ($LASTEXITCODE -ne 0) { throw "Windows source build contract failed: $LASTEXITCODE" }
+
           foreach ($worker in @('.\windows\ReduceMemoryWorker_x64.exe', '.\windows\ReduceMemoryWorker.exe')) {
             $probe = Start-Process -FilePath $worker -ArgumentList '/selftest' -Wait -PassThru
             if ($probe.ExitCode -ne 0) { throw "$worker self-test failed with $($probe.ExitCode)" }
+            $measurement = Start-Process -FilePath $worker -ArgumentList '/measurement-selftest' -Wait -PassThru
+            if ($measurement.ExitCode -ne 0) { throw "$worker measurement self-test failed with $($measurement.ExitCode)" }
             $launcher = Start-Process -FilePath $worker -ArgumentList '/launch-test' -Wait -PassThru
             if ($launcher.ExitCode -ne 0) { throw "$worker cannot locate its matching frontend" }
             $guard = Start-Process -FilePath $worker -ArgumentList '/profile=2','/result=guard.result' -Wait -PassThru
             if ($guard.ExitCode -ne 2) { throw "$worker accepted an implicit system-wide trim" }
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\windows\WorkerProtocol.Tests.ps1 -WorkerPath $worker
+            if ($LASTEXITCODE -ne 0) { throw "$worker protocol v2 contract failed: $LASTEXITCODE" }
           }
+      - name: Upload M0 Windows provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-m0-provenance
+          path: |
+            windows/BUILD-MANIFEST.json
+            windows/M0-BASELINE.json
+          if-no-files-found: error
       - name: Verify x64 self-test
         shell: pwsh
         run: |
@@ -40,6 +65,13 @@ jobs:
           if ($process.ExitCode -ne 0) { throw "x64 self-test failed with exit code $($process.ExitCode)" }
           $monitor = Start-Process -FilePath .\windows\ReduceMemory_x64.exe -ArgumentList /RMMONITORSELFTEST -Wait -PassThru
           if ($monitor.ExitCode -ne 0) { throw "x64 monitor logic failed with exit code $($monitor.ExitCode)" }
+          $measurement = Start-Process -FilePath .\windows\ReduceMemory_x64.exe -ArgumentList /RMMEASUREMENTSELFTEST -Wait -PassThru
+          if ($measurement.ExitCode -ne 0) { throw "x64 measurement logic failed with exit code $($measurement.ExitCode)" }
+          $lifecycle = Start-Process -FilePath .\windows\ReduceMemory_x64.exe -ArgumentList /RMWORKERLIFECYCLESELFTEST -Wait -PassThru
+          if ($lifecycle.ExitCode -ne 0) { throw "x64 worker lifecycle failed with exit code $($lifecycle.ExitCode)" }
+          $ui = Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','.\tests\windows\UiSmoke.Tests.ps1','-FrontendPath','.\windows\ReduceMemory_x64.exe' -PassThru
+          if (-not $ui.WaitForExit(30000)) { taskkill.exe /PID $ui.Id /T /F; throw 'x64 UI smoke timed out' }
+          if ($ui.ExitCode -ne 0) { throw "x64 UI smoke failed with exit code $($ui.ExitCode)" }
       - name: Verify x86 self-test
         shell: pwsh
         run: |
@@ -47,43 +79,18 @@ jobs:
           if ($process.ExitCode -ne 0) { throw "x86 self-test failed with exit code $($process.ExitCode)" }
           $monitor = Start-Process -FilePath .\windows\ReduceMemory.exe -ArgumentList /RMMONITORSELFTEST -Wait -PassThru
           if ($monitor.ExitCode -ne 0) { throw "x86 monitor logic failed with exit code $($monitor.ExitCode)" }
+          $measurement = Start-Process -FilePath .\windows\ReduceMemory.exe -ArgumentList /RMMEASUREMENTSELFTEST -Wait -PassThru
+          if ($measurement.ExitCode -ne 0) { throw "x86 measurement logic failed with exit code $($measurement.ExitCode)" }
+          $lifecycle = Start-Process -FilePath .\windows\ReduceMemory.exe -ArgumentList /RMWORKERLIFECYCLESELFTEST -Wait -PassThru
+          if ($lifecycle.ExitCode -ne 0) { throw "x86 worker lifecycle failed with exit code $($lifecycle.ExitCode)" }
+          $ui = Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','.\tests\windows\UiSmoke.Tests.ps1','-FrontendPath','.\windows\ReduceMemory.exe' -PassThru
+          if (-not $ui.WaitForExit(30000)) { taskkill.exe /PID $ui.Id /T /F; throw 'x86 UI smoke timed out' }
+          if ($ui.ExitCode -ne 0) { throw "x86 UI smoke failed with exit code $($ui.ExitCode)" }
       - name: Verify real Windows working-set trim
         shell: pwsh
         run: |
-          $targetScript = Join-Path $env:RUNNER_TEMP 'reduce-memory-target.ps1'
-          @'
-          $buffer = [byte[]]::new(256MB)
-          for ($offset = 0; $offset -lt $buffer.Length; $offset += 4096) { $buffer[$offset] = 1 }
-          Start-Sleep -Seconds 30
-          '@ | Set-Content -LiteralPath $targetScript -Encoding UTF8
-          foreach ($binary in @('.\windows\ReduceMemory_x64.exe', '.\windows\ReduceMemory.exe')) {
-            $target = Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File', $targetScript -PassThru
-            $resultPath = Join-Path $env:RUNNER_TEMP ("trim-{0}.result" -f [IO.Path]::GetFileName($binary))
-            try {
-              $deadline = [DateTime]::UtcNow.AddSeconds(15)
-              do {
-                if ($target.HasExited) { throw "$binary disposable target exited before trim" }
-                $resident = (Get-Process -Id $target.Id).WorkingSet64
-                if ($resident -ge 128MB) { break }
-                Start-Sleep -Milliseconds 100
-              } while ([DateTime]::UtcNow -lt $deadline)
-              if ($resident -lt 128MB) { throw "$binary disposable target never became resident" }
-              $probe = Start-Process -FilePath $binary -ArgumentList '/RMTRIMTEST', $target.Id, $resultPath -Wait -PassThru
-              if ($probe.ExitCode -ne 0) { throw "$binary real trim failed with exit code $($probe.ExitCode)" }
-              if ($target.HasExited) { throw "$binary terminated the disposable target" }
-              $measurements = @(Get-Content -LiteralPath $resultPath | ForEach-Object { [int64]$_ })
-              if ($measurements.Count -ne 2) { throw "$binary did not return structured measurements" }
-              $reduced = $measurements[0] - $measurements[1]
-              if ($reduced -lt 64MB) { throw "$binary reduced only $reduced bytes from a disposable 256 MB target" }
-              Write-Output "$binary measured working-set reduction: $([math]::Round($reduced / 1MB, 1)) MB"
-            } catch {
-              $failure = $_.Exception.Message -replace '[\r\n]+', ' '
-              Write-Output "::error title=Targeted trim $binary::$failure"
-              throw
-            } finally {
-              if (-not $target.HasExited) { Stop-Process -Id $target.Id -Force }
-            }
-          }
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\windows\RealTrim.Tests.ps1
+          if ($LASTEXITCODE -ne 0) { throw "Targeted Windows trim fixture failed: $LASTEXITCODE" }
       - name: Verify bounded Windows refault recovery
         shell: pwsh
         run: |
@@ -127,14 +134,17 @@ jobs:
                 if ($before -ge 128MB) { break }
                 Start-Sleep -Milliseconds 100
               } while ([DateTime]::UtcNow -lt $deadline)
-              $probe = Start-Process -FilePath $worker -ArgumentList '/profile=2',("/pid=$($target.Id)"),("/result=$result") -Wait -PassThru
+              $session = [guid]::NewGuid().ToString('N')
+              $handshake = "$result.ready"
+              $probe = Start-Process -FilePath $worker -ArgumentList '/profile=2','/minimum-mb=4','/protocol=2',("/session=$session"),("/pid=$($target.Id)"),("/result=$result"),("/handshake=$handshake") -Wait -PassThru
               if ($probe.ExitCode -ne 0) { throw "$worker targeted trim failed with $($probe.ExitCode)" }
               $after = (Get-Process -Id $target.Id).WorkingSet64
               $fields = @(Get-Content -LiteralPath $result)
-              if ($fields.Count -lt 5 -or [int]$fields[1] -ne 1) { throw "$worker returned malformed targeted metrics" }
-              $targetFields = @($fields[4] -split '\|')
-              if ($targetFields.Count -lt 5 -or [int64]$targetFields[2] -lt 0 -or [int64]$targetFields[3] -lt 64MB) { throw "$worker omitted per-target effectiveness metrics" }
-              foreach ($metric in @('seen','protected','filtered','foreground','open_failed','path_failed','windows_process','query_failed','below_minimum','trim_failed','no_reduction')) {
+              if (-not ($fields -contains 'protocol=2') -or -not ($fields -contains "session=$session") -or -not ($fields -contains 'record_count=1')) { throw "$worker returned malformed targeted metrics" }
+              $targetRecord = @($fields | Where-Object { $_ -like 'record=*' })
+              $targetFields = @(($targetRecord[0].Substring(7)) -split '\|',7)
+              if ($targetFields.Count -ne 7 -or $targetFields[5] -ne 'measured' -or ([int64]$targetFields[2] - [int64]$targetFields[3]) -lt 64MB) { throw "$worker omitted valid paired target metrics" }
+              foreach ($metric in @('seen','protected','filtered','foreground','open_failed','path_failed','windows_process','query_failed','below_minimum','trim_failed','no_reduction','measured','unmeasured')) {
                 if (-not ($fields -match "^$metric=\d+$")) { throw "$worker omitted taxonomy metric $metric" }
               }
               if ($before - $after -lt 64MB) { throw "$worker native reduction was too small" }
@@ -228,8 +238,8 @@ jobs:
             if ($target.HasExited) { throw 'Aggressive terminated the disposable target' }
 
             $rawFields = @(Get-Content -LiteralPath $resultPath)
-            if ($rawFields.Count -lt 22) { throw "Aggressive returned only $($rawFields.Count) result fields" }
-            $fields = @($rawFields[0..10] | ForEach-Object { [int64]$_ })
+            if ($rawFields.Count -lt 27) { throw "Aggressive returned only $($rawFields.Count) result fields" }
+            $fields = @($rawFields[0..15] | ForEach-Object { [int64]$_ })
             $trimOperations = $fields[1]
             $workingSetReduction = $fields[2]
             $nativeStages = $fields[3]
@@ -239,16 +249,25 @@ jobs:
             $rebound = $fields[8]
             $recoveryPasses = $fields[9]
             $recoveryFaults = $fields[10]
+            $measuredTargets = $fields[11]
+            $unmeasuredTargets = $fields[12]
+            $availableKnown = $fields[13]
+            $peakKnown = $fields[14]
+            $stableKnown = $fields[15]
             if ($trimOperations -lt 1) { throw 'Aggressive did not trim an eligible process' }
             if ($workingSetReduction -lt 64MB) { throw "Aggressive measured only $workingSetReduction bytes of working-set reduction" }
             if ($nativeStages -lt 4) { throw "Aggressive completed only $nativeStages of 6 native stages" }
             if ($processPasses -lt 2 -or $processPasses -gt 3) { throw "Aggressive completed unexpected process pass count: $processPasses" }
             if ($recoveryPasses -lt 0 -or $recoveryPasses -gt 1) { throw "Aggressive returned invalid recovery pass count: $recoveryPasses" }
             if ($recoveryFaults -lt 0) { throw "Aggressive returned invalid recovery page faults: $recoveryFaults" }
-            foreach ($metric in @('seen','protected','filtered','foreground','open_failed','path_failed','windows_process','query_failed','below_minimum','trim_failed','no_reduction')) {
+            if ($measuredTargets -lt 1 -or $unmeasuredTargets -lt 0) { throw 'Aggressive returned invalid target measurement counts' }
+            foreach ($known in @($availableKnown,$peakKnown,$stableKnown)) {
+              if ($known -notin @(0,1)) { throw 'Aggressive returned an invalid snapshot-known flag' }
+            }
+            foreach ($metric in @('seen','protected','filtered','foreground','open_failed','path_failed','windows_process','query_failed','below_minimum','trim_failed','no_reduction','measured','unmeasured')) {
               if (-not ($rawFields -match "^$metric=\d+$")) { throw "Aggressive omitted native taxonomy metric $metric" }
             }
-            if ($stableGain -lt 0 -or $peakGain -lt 0 -or $rebound -lt 0) { throw 'Aggressive returned invalid stabilization metrics' }
+            if ($rebound -lt 0) { throw 'Aggressive returned an invalid rebound metric' }
             Write-Output "Aggressive: $trimOperations trims, $([math]::Round($workingSetReduction / 1MB, 1)) MB working set, $nativeStages native stages, $processPasses passes, recovery=$recoveryPasses, rebound=$([math]::Round($rebound / 1MB, 1)) MB"
           } catch {
             $failure = $_.Exception.Message -replace '[\r\n]+', ' '
@@ -267,24 +286,25 @@ jobs:
           bash -n linux/ReduceMemory_Linux.sh
           bash -n linux/desktop/Install_Desktop.sh
           bash -n linux/server/Install_Server.sh
+          bash -n tests/linux/capture_baseline.sh
+          bash -n tests/linux/test_fixture_isolation.sh
+           bash -n tests/linux/test_failure_adapter.sh
+           bash -n tests/linux/test_session_accounting.sh
+           bash -n tests/linux/test_installers.sh
           python3 -m py_compile linux/native/reduce-memory-native
-          python3 - <<'PY'
-          import importlib.machinery
-          import importlib.util
-          import pathlib
-          import sys
-
-          path = pathlib.Path('linux/native/reduce-memory-native')
-          loader = importlib.machinery.SourceFileLoader('reduce_memory_native', str(path))
-          spec = importlib.util.spec_from_loader(loader.name, loader)
-          module = importlib.util.module_from_spec(spec)
-          sys.modules[loader.name] = module
-          loader.exec_module(module)
-          ranges = [(0, 1000, 100), (1, 2000, 200), (2, 3000, 300)]
-          remaining, touched = module.remaining_ranges(ranges, 150)
-          assert touched == {0, 1}
-          assert remaining == [(1, 2050, 150), (2, 3000, 300)]
-          PY
+          python3 tests/linux/test_native_unit.py
+          bash tests/linux/test_fixture_isolation.sh
+           bash tests/linux/test_failure_adapter.sh
+           bash tests/linux/test_session_accounting.sh
+           bash tests/linux/test_installers.sh
+      - name: Capture Linux M0 provenance
+        run: bash tests/linux/capture_baseline.sh "${RUNNER_TEMP}/linux-m0-baseline.txt"
+      - name: Upload Linux M0 provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-m0-provenance
+          path: ${{ runner.temp }}/linux-m0-baseline.txt
+          if-no-files-found: error
       - name: Verify native Linux process page-out
         run: |
           native_check="$(linux/native/reduce-memory-native check)"
@@ -367,10 +387,32 @@ jobs:
           : > "${mock_root}/cgroup/memory.reclaim"
           cat > "${mock_root}/reduce-memory-native" <<'EOF'
           #!/usr/bin/env bash
+          if [[ "${1:-}" == "reclaim" ]]; then
+            session=""; path=""; bytes=""; swappiness="default"; previous=""
+            for argument in "$@"; do
+              [[ "${previous}" == "--session" ]] && session="${argument}"
+              [[ "${previous}" == "--path" ]] && path="${argument}"
+              [[ "${previous}" == "--bytes" ]] && bytes="${argument}"
+              [[ "${previous}" == "--swappiness" ]] && swappiness="${argument}"
+              previous="${argument}"
+            done
+            payload="${bytes}"
+            [[ "${swappiness}" != "default" ]] && payload+=" swappiness=${swappiness}"
+            printf '%s' "${payload}" > "${path}"
+            printf 'protocol=2\nsession=%s\nnative_status=done\n' "${session}"
+            exit 0
+          fi
           if [[ "${1:-}" == "check" ]]; then
             printf 'native_status=supported\n'
             exit 0
           fi
+          session=""
+          previous=""
+          for argument in "$@"; do
+            [[ "${previous}" == "--session" ]] && session="${argument}"
+            previous="${argument}"
+          done
+          printf 'protocol=2\nsession=%s\n' "${session}"
           if [[ -n "${REDUCE_MEMORY_TEST_ARGS_FILE:-}" ]]; then
             printf '%s\n' "$@" > "${REDUCE_MEMORY_TEST_ARGS_FILE}"
           fi
@@ -384,17 +426,34 @@ jobs:
           mappings_advised=28
           bytes_advised=536870912
           rss_reduced_kb=393216
+          rss_delta_kb=393216
+          rss_measured_targets=1
+          rss_unmeasured_targets=0
+          rss_exited_targets=0
+          rss_identity_mismatch_targets=0
+          rss_permission_denied_targets=0
+          rss_target=4242|524288|131072|measured
           batch_calls=3
           fallback_calls=0
           RESULT
           EOF
           chmod +x "${mock_root}/reduce-memory-native"
+          cat > "${mock_root}/fake-sync" <<'EOF'
+          #!/usr/bin/env bash
+          printf 'sync\n' >> "${REDUCE_MEMORY_TEST_SYNC_LOG:?}"
+          EOF
+          chmod +x "${mock_root}/fake-sync"
 
           common_env=(
+            "REDUCE_MEMORY_TEST_MODE=1"
+            "REDUCE_MEMORY_TEST_ROOT=${mock_root}"
+            "REDUCE_MEMORY_TEST_EFFECTIVE_UID=0"
             "REDUCE_MEMORY_MEMINFO_FILE=${mock_root}/meminfo"
             "REDUCE_MEMORY_VM_ROOT=${mock_root}/vm"
             "REDUCE_MEMORY_TARGET_CGROUP=${mock_root}/cgroup"
             "REDUCE_MEMORY_NATIVE_HELPER=${mock_root}/reduce-memory-native"
+            "REDUCE_MEMORY_SYNC_COMMAND=${mock_root}/fake-sync"
+            "REDUCE_MEMORY_TEST_SYNC_LOG=${mock_root}/sync.log"
             "REDUCE_MEMORY_TARGET_UID=1000"
             "REDUCE_MEMORY_SETTLE_SECONDS=0"
             "REDUCE_MEMORY_AGGRESSIVE_STABILIZE_SECONDS=1"
@@ -432,14 +491,15 @@ jobs:
 
           aggressive_output="$(sudo env "${common_env[@]}" REDUCE_MEMORY_RECLAIM_MB=1024 ./linux/ReduceMemory_Linux.sh aggressive)"
           test "$(tr -d '\n' < "${mock_root}/vm/drop_caches")" = '3'
-          test "$(tr -d '\n' < "${mock_root}/cgroup/memory.reclaim")" = '1024M swappiness=max'
+          test "$(tr -d '\n' < "${mock_root}/cgroup/memory.reclaim")" = '1073741824'
           grep -F 'drop_caches             : done (level 3)' <<< "${aggressive_output}"
           grep -F 'Native process page-out : pass1=done; pass2=done' <<< "${aggressive_output}"
           grep -F 'Native page-out passes  : 2' <<< "${aggressive_output}"
-          grep -F 'Process RSS reduced     : 768 MB' <<< "${aggressive_output}"
+          grep -F 'Process RSS change      : +384 MB' <<< "${aggressive_output}"
+          grep -F 'Measured RSS targets    : 1' <<< "${aggressive_output}"
           grep -F 'Batched native calls    : 6' <<< "${aggressive_output}"
           grep -F 'Scalar fallback calls   : 0' <<< "${aggressive_output}"
-          grep -F 'cgroup memory.reclaim   : done (1024 MB requested) | swappiness=max' <<< "${aggressive_output}"
+          grep -F 'cgroup memory.reclaim   : done (1024 MB requested) | swappiness=default' <<< "${aggressive_output}"
           grep -F "Reclaim scope           : ${mock_root}/cgroup" <<< "${aggressive_output}"
           grep -Fx -- '--all-users' "${mock_root}/native-args"
           grep -Fx -- '32' "${mock_root}/native-args"
@@ -452,7 +512,7 @@ jobs:
           sudo env "${common_env[@]}" REDUCE_MEMORY_RECLAIM_MB=1024 \
             REDUCE_MEMORY_RECLAIM_SWAPPINESS=default \
             ./linux/ReduceMemory_Linux.sh aggressive >/dev/null
-          test "$(tr -d '\n' < "${mock_root}/cgroup/memory.reclaim")" = '1024M'
+          test "$(tr -d '\n' < "${mock_root}/cgroup/memory.reclaim")" = '1073741824'
 
           cp ./linux/ReduceMemory_Linux.sh "${mock_root}/reduce-memory-server"
           chmod +x "${mock_root}/reduce-memory-server"
@@ -474,7 +534,7 @@ jobs:
           "${install_root}/bin/reduce-memory" check
           "${install_root}/bin/reduce-memory-native" check
           menu_output="$(printf '0\n' | "${install_root}/bin/reduce-memory" --menu)"
-          grep -F 'Reduce Memory 2.8 - Linux' <<< "${menu_output}"
+          grep -F 'Reduce Memory 3.0 - Linux' <<< "${menu_output}"
           ! grep -F 'Linux Server' <<< "${menu_output}"
           grep -F '3. AI Shield' <<< "${menu_output}"
           grep -F '4. Aggressive' <<< "${menu_output}"
@@ -491,6 +551,6 @@ jobs:
           grep -F 'Mode                    : status' <<< "${status_output}"
           grep -F 'Native process page-out : supported' <<< "${status_output}"
           server_menu="$(printf '0\n' | "${server_bin}/reduce-memory-server" --menu)"
-          grep -F 'Reduce Memory 2.8 - Linux Server' <<< "${server_menu}"
+          grep -F 'Reduce Memory 3.0 - Linux Server' <<< "${server_menu}"
           grep -F '3. AI Shield' <<< "${server_menu}"
           grep -F '4. Aggressive' <<< "${server_menu}"

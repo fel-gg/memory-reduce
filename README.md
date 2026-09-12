@@ -1,11 +1,14 @@
-# Reduce Memory 2.8
+# Reduce Memory 3.0
 
 Reduce Memory adalah tool kecil buat membantu RAM terasa lebih lega di Windows
 dan Linux. Keduanya punya engine terpisah karena cara Windows dan Linux
 mengelola memori memang berbeda.
 
-Proyek ini adalah **Reduce Memory 2.8**, terinspirasi dari Reduce Memory v1.7
-buatan Sordum Team.
+Proyek ini adalah **Reduce Memory 3.0**, terinspirasi dari Reduce Memory v1.7
+buatan Sordum Team (BlueLife). Ini bukan klaim bahwa proyek ini adalah binary
+resmi Sordum; source AutoIt dan native engine di sini adalah pengembangan
+terpisah yang mempertahankan ide dasar working-set trimming dengan provenance
+dan lisensi upstream yang harus tetap diperiksa sebelum redistribusi.
 Di repo ini, alur tersebut kita kembangkan lagi: pilihan mode diperjelas,
 Aggressive dibuat lebih kuat, ada versi Smooth supaya tidak gampang bikin lag,
 dan ada pilihan untuk membersihkan file Temp.
@@ -30,8 +33,8 @@ Jadi software baru tetap ikut scan tanpa harus menunggu daftar nama diperbarui.
   background yang idle tanpa menjalankan purge memory-list global.
 - **Aggressive Smooth** — process trim konservatif biasa dan elevated ditambah
   pelepasan standby prioritas rendah, tanpa full cache/list purge.
-- **Aggressive Release** — satu pass awal lalu dua pass elevated untuk kandidat
-  background mulai 4 MB. Di antaranya Windows menjalankan pelepasan working
+- **Aggressive Release** — dua pass elevated dalam satu sesi terukur untuk
+  kandidat background mulai 4 MB. Di antaranya Windows menjalankan pelepasan working
   set, modified list, standby list, dan system file cache; setelah pass proses
   terakhir, empty-working-set dan purge-standby dijalankan lagi. Worker kemudian
   memberi aplikasi hidup waktu 3 detik untuk melakukan refault normal. Kalau
@@ -60,12 +63,17 @@ dropdown tidak diubah; startup sengaja tidak menjalankan Emergency/Aggressive
 supaya login tidak tersendat.
 
 Setelah Optimize, hasil langsung tampil di jendela utama. Angka **working set**
-berasal dari pengukuran tiap proses sebelum/sesudah trim, sedangkan angka
-**available** berasal dari statistik RAM Windows; keduanya sengaja tidak
-dicampur. Worker Administrator juga mengembalikan jumlah pass, operasi trim,
+berasal hanya dari pasangan pengukuran proses yang valid sebelum/sesudah trim,
+sedangkan angka **available** berasal dari statistik RAM Windows; keduanya
+sengaja tidak dicampur. Kalau pembacaan sesudah trim gagal, operasinya tetap
+dicatat tetapi hasil memorinya ditulis `unknown`, bukan menganggap seluruh
+angka sebelumnya sudah lepas. Pertumbuhan memori juga tetap terlihat sebagai
+`increased`, bukan diubah menjadi keberhasilan 0 MB. Worker Administrator juga
+mengembalikan jumlah pass, operasi trim,
 perubahan available RAM di dalam worker, dan tahap native yang benar-benar
 berhasil. Worker juga memisahkan peak gain, stable gain, jumlah rebound, dan
-recovery pass sehingga halaman yang dilepas dua kali tidak disamakan dengan
+recovery pass. Semua pass memakai baseline sesi pertama dan snapshot akhir per
+target, sehingga halaman yang diproses dua kali tidak disamakan dengan
 RAM bersih yang benar-benar tersedia. Lima belas detik kemudian hasil stabil
 dihitung ulang sekali lagi. Kalau memori masih langsung diambil kembali,
 rebound protection menahan operasi berat selama 60 detik. Ringkasan setiap
@@ -133,7 +141,27 @@ logika trigger 95%/re-arm
 .\windows\ReduceMemory.exe /RMSELFTEST
 .\windows\ReduceMemory_x64.exe /RMMONITORSELFTEST
 .\windows\ReduceMemory.exe /RMMONITORSELFTEST
+.\windows\ReduceMemory_x64.exe /RMMEASUREMENTSELFTEST
+.\windows\ReduceMemory.exe /RMMEASUREMENTSELFTEST
 ```
+
+## Build Windows dari source
+
+Sejak versi 2.9 proyek ini punya jalur build yang bisa diulang. Siapkan AutoIt 3.3.18.0
+portable dan Zig 0.16.0, lalu arahkan keduanya ke satu perintah ini:
+
+```powershell
+.\windows\build.ps1 `
+  -AutoItRoot C:\toolchains\AutoIt3 `
+  -ZigPath C:\toolchains\zig\zig.exe `
+  -OutputDirectory C:\temp\ReduceMemory-build
+```
+
+Output berisi frontend dan worker x86/x64 serta `BUILD-MANIFEST.json`. Build
+tidak menyentuh `windows/ReduceMemory.ini` dan tidak otomatis mengganti program
+yang sedang dipakai. CI mengunduh dua toolchain dengan checksum terpin,
+menjalankan self-test pada hasil build, lalu menguji trim hanya ke proses target
+yang sengaja dibuat untuk pengujian.
 
 ## Versi Linux native
 
@@ -193,3 +221,9 @@ Kalau yang dicari adalah pemakaian rutin tanpa banyak gangguan, gunakan Smooth.
 Memory reclaim tidak menghapus virus dan tidak menghapus data aplikasi yang
 sedang aktif; Windows maupun Linux bisa memakai kembali memori itu ketika
 dibutuhkan.
+# Dukungan platform
+
+Rincian platform yang benar-benar sudah diuji dan batas klaim kompatibilitas
+ada di [docs/SUPPORT-MATRIX.md](docs/SUPPORT-MATRIX.md). Dokumen itu sengaja
+membedakan bukti Windows/Linux yang tersedia dari dukungan desain untuk
+software atau distro yang belum dijalankan di runner.
