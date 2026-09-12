@@ -1,0 +1,1000 @@
+#!/usr/bin/env python3
+"""Native Linux process page-out helper for Reduce Memory.
+
+Uses pidfd_open(2) and process_madvise(2) with MADV_PAGEOUT. The helper never
+kills a process and never changes the contents or layout of a mapping.
+"""
+
+from __future__ import annotations
+
+import argparse
+import ctypes
+import errno
+import os
+import platform
+import re
+import sys
+import time
+from dataclasses import dataclass
+from pathlib import Path
+
+
+MADV_PAGEOUT = 21
+SYS_PIDFD_OPEN = 434
+SYS_PROCESS_MADVISE = 440
+MAX_PROCESS_MADVISE_IOVECS = 64
+SUPPORTED_ARCHITECTURES = {
+    "x86_64",
+    "amd64",
+    "aarch64",
+    "arm64",
+    "i386",
+    "i486",
+    "i586",
+    "i686",
+    "armv7l",
+    "riscv64",
+    "ppc64le",
+    "s390x",
+}
+
+SYSTEM_PROTECTED_NAMES = {
+    "accounts-daemon",
+    "avahi-daemon",
+    "chronyd",
+    "colord",
+    "cron",
+    "crond",
+    "systemd",
+    "init",
+    "sshd",
+    "dbus-broker",
+    "systemd-journald",
+    "systemd-udevd",
+    "systemd-logind",
+    "systemd-network",
+    "systemd-resolve",
+    "systemd-timesyncd",
+    "dbus-daemon",
+    "networkmanager",
+    "polkitd",
+    "rsyslogd",
+    "rtkit-daemon",
+    "wpa_supplicant",
+    "containerd",
+    "dockerd",
+}
+
+MAP_HEADER = re.compile(
+    r"^([0-9a-fA-F]+)-([0-9a-fA-F]+)\s+([rwxps-]{4})\s+"
+    r"[0-9a-fA-F]+\s+\S+\s+\d+(?:\s+(.*))?$"
+)
+
+
+class IOVec(ctypes.Structure):
+    _fields_ = [("iov_base", ctypes.c_void_p), ("iov_len", ctypes.c_size_t)]
+
+
+LIBC = ctypes.CDLL(None, use_errno=True) if platform.system() == "Linux" else None
+if LIBC is not None:
+    LIBC.syscall.restype = ctypes.c_long
+
+
+@dataclass
+class ProcessSnapshot:
+    pid: int
+    uid: int
+    rss_kb: int
+    cpu_ticks: int
+    ppid: int
+    name: str
+    command_line: str
+    starttime: int = 0
+
+
+@dataclass
+class Mapping:
+    start: int
+    end: int
+    perms: str
+    path: str
+    rss_kb: int = 0
+    locked_kb: int = 0
+    vm_flags: frozenset[str] = frozenset()
+
+
+@dataclass
+class Result:
+    processes_seen: int = 0
+    processes_eligible: int = 0
+    processes_advised: int = 0
+    processes_failed: int = 0
+    processes_active_skipped: int = 0
+    processes_protected: int = 0
+    workloads_protected: int = 0
+    mappings_advised: int = 0
+    mappings_failed: int = 0
+    bytes_advised: int = 0
+    rss_before_kb: int = 0
+    rss_after_kb: int = 0
+    rss_delta_kb: int = 0
+    rss_measured_targets: int = 0
+    rss_unmeasured_targets: int = 0
+    rss_exited_targets: int = 0
+    rss_identity_mismatch_targets: int = 0
+    rss_permission_denied_targets: int = 0
+    rss_mapping_changed_targets: int = 0
+    batch_calls: int = 0
+    fallback_calls: int = 0
+    last_errno: int = 0
+    rss_measurements: list["RssMeasurement"] | None = None
+
+
+@dataclass(frozen=True)
+class RssMeasurement:
+    pid: int
+    before_kb: int | None
+    after_kb: int | None
+    status: str
+    advised: bool
+    starttime: int = 0
+
+
+@dataclass(frozen=True)
+class RssSummary:
+    before_kb: int = 0
+    after_kb: int = 0
+    delta_kb: int = 0
+    measured_targets: int = 0
+    unmeasured_targets: int = 0
+    exited_targets: int = 0
+    identity_mismatch_targets: int = 0
+    permission_denied_targets: int = 0
+    mapping_changed_targets: int = 0
+
+
+def emit(key: str, value: object) -> None:
+    print(f"{key}={value}")
+
+
+def syscall_supported() -> tuple[bool, int]:
+    if platform.system() != "Linux":
+        return False, errno.ENOSYS
+    if platform.machine().lower() not in SUPPORTED_ARCHITECTURES:
+        return False, errno.ENOSYS
+    assert LIBC is not None
+
+    ctypes.set_errno(0)
+    result = LIBC.syscall(
+        ctypes.c_long(SYS_PROCESS_MADVISE),
+        ctypes.c_int(-1),
+        ctypes.c_void_p(),
+        ctypes.c_size_t(0),
+        ctypes.c_int(MADV_PAGEOUT),
+        ctypes.c_uint(0),
+    )
+    error_number = ctypes.get_errno()
+    if result == -1 and error_number == errno.ENOSYS:
+        return False, error_number
+    return True, error_number
+
+
+def pidfd_open(pid: int) -> int:
+    if hasattr(os, "pidfd_open"):
+        return os.pidfd_open(pid, 0)
+
+    assert LIBC is not None
+    ctypes.set_errno(0)
+    result = LIBC.syscall(
+        ctypes.c_long(SYS_PIDFD_OPEN), ctypes.c_int(pid), ctypes.c_uint(0)
+    )
+    if result == -1:
+        error_number = ctypes.get_errno()
+        raise OSError(error_number, os.strerror(error_number))
+    return int(result)
+
+
+def process_madvise_pageout(
+    pidfd: int, ranges: list[tuple[int, int, int]]
+) -> int:
+    """Apply MADV_PAGEOUT to an ordered iovec batch.
+
+    Each tuple is (mapping_id, start, length). The id is used by the caller for
+    accounting; only start and length are passed to the kernel.
+    """
+    if not ranges:
+        return 0
+    assert LIBC is not None
+    vector_type = IOVec * len(ranges)
+    vector = vector_type(
+        *(IOVec(ctypes.c_void_p(start), ctypes.c_size_t(length)) for _, start, length in ranges)
+    )
+    ctypes.set_errno(0)
+    result = LIBC.syscall(
+        ctypes.c_long(SYS_PROCESS_MADVISE),
+        ctypes.c_int(pidfd),
+        ctypes.cast(vector, ctypes.POINTER(IOVec)),
+        ctypes.c_size_t(len(ranges)),
+        ctypes.c_int(MADV_PAGEOUT),
+        ctypes.c_uint(0),
+    )
+    if result == -1:
+        error_number = ctypes.get_errno()
+        raise OSError(error_number, os.strerror(error_number))
+    return int(result)
+
+
+def remaining_ranges(
+    ranges: list[tuple[int, int, int]], advised_bytes: int
+) -> tuple[list[tuple[int, int, int]], set[int]]:
+    """Return the unprocessed suffix after a possibly partial syscall result."""
+    remaining: list[tuple[int, int, int]] = []
+    touched: set[int] = set()
+    consumed = max(0, advised_bytes)
+    for mapping_id, start, length in ranges:
+        if consumed >= length:
+            touched.add(mapping_id)
+            consumed -= length
+        elif consumed > 0:
+            touched.add(mapping_id)
+            remaining.append((mapping_id, start + consumed, length - consumed))
+            consumed = 0
+        else:
+            remaining.append((mapping_id, start, length))
+    return remaining, touched
+
+
+def parse_status_detail(pid: int) -> tuple[tuple[int, int, int, str] | None, str]:
+    uid = -1
+    rss_kb = 0
+    ppid = 0
+    name = str(pid)
+    try:
+        with open(f"/proc/{pid}/status", "r", encoding="utf-8") as status_file:
+            for line in status_file:
+                if line.startswith("Uid:"):
+                    uid = int(line.split()[1])
+                elif line.startswith("VmRSS:"):
+                    rss_kb = int(line.split()[1])
+                elif line.startswith("PPid:"):
+                    ppid = int(line.split()[1])
+                elif line.startswith("Name:"):
+                    name = line.split(":", 1)[1].strip()
+                elif line.startswith("State:") and "Z" in line.split()[1]:
+                    return None, "exited"
+    except PermissionError:
+        return None, "permission_denied"
+    except (FileNotFoundError, ProcessLookupError):
+        return None, "exited"
+    except ValueError:
+        return None, "after_unavailable"
+    if uid < 0:
+        return None, "after_unavailable"
+    return (uid, rss_kb, ppid, name), "measured"
+
+
+def parse_status(pid: int) -> tuple[int, int, int, str] | None:
+    parsed, _status = parse_status_detail(pid)
+    return parsed
+
+
+def cpu_ticks(pid: int) -> int | None:
+    try:
+        stat_line = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        closing_parenthesis = stat_line.rfind(")")
+        if closing_parenthesis < 0:
+            return None
+        fields = stat_line[closing_parenthesis + 2 :].split()
+        return int(fields[11]) + int(fields[12])
+    except (FileNotFoundError, PermissionError, ProcessLookupError, ValueError, IndexError):
+        return None
+
+
+def process_starttime(pid: int) -> int | None:
+    """Return the kernel birth identity from /proc/PID/stat field 22."""
+    try:
+        stat_line = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        closing_parenthesis = stat_line.rfind(")")
+        if closing_parenthesis < 0:
+            return None
+        fields = stat_line[closing_parenthesis + 2 :].split()
+        return int(fields[19])
+    except (FileNotFoundError, PermissionError, ProcessLookupError, ValueError, IndexError):
+        return None
+
+
+def mapping_identity(pid: int) -> tuple[tuple[int, int], ...] | None:
+    """Snapshot mapping address ranges without treating the map as frozen."""
+    ranges: list[tuple[int, int]] = []
+    try:
+        with open(f"/proc/{pid}/maps", "r", encoding="utf-8") as maps_file:
+            for line in maps_file:
+                address = line.split(None, 1)[0]
+                start_text, end_text = address.split("-", 1)
+                ranges.append((int(start_text, 16), int(end_text, 16)))
+    except (FileNotFoundError, PermissionError, ProcessLookupError, ValueError):
+        return None
+    return tuple(ranges)
+
+
+def process_has_executable(pid: int) -> bool:
+    try:
+        os.readlink(f"/proc/{pid}/exe")
+        return True
+    except (FileNotFoundError, PermissionError, ProcessLookupError, OSError):
+        return False
+
+
+def process_command_line(pid: int) -> str:
+    """Return a searchable, bounded command line without failing the scan."""
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()[:65536]
+        return raw.replace(b"\0", b" ").decode("utf-8", errors="replace").strip()
+    except (FileNotFoundError, PermissionError, ProcessLookupError, OSError):
+        return ""
+
+
+def process_uses_gpu(pid: int) -> bool:
+    """Detect open NVIDIA/DRM render devices without vendor-specific tools."""
+    try:
+        with os.scandir(f"/proc/{pid}/fd") as descriptors:
+            for descriptor in descriptors:
+                try:
+                    target = os.readlink(descriptor.path)
+                except (FileNotFoundError, PermissionError, ProcessLookupError, OSError):
+                    continue
+                if target.startswith("/dev/nvidia") or target.startswith("/dev/dri/renderD"):
+                    return True
+    except (FileNotFoundError, PermissionError, ProcessLookupError, OSError):
+        return False
+    return False
+
+
+def matches_workload(snapshot: ProcessSnapshot, patterns: list[str]) -> bool:
+    searchable = f"{snapshot.name} {snapshot.command_line}".casefold()
+    return any(pattern.casefold() in searchable for pattern in patterns if pattern)
+
+
+def is_system_protected(snapshot: ProcessSnapshot) -> bool:
+    process_name = snapshot.name.casefold()
+    return process_name in SYSTEM_PROTECTED_NAMES or process_name.startswith("systemd-")
+
+
+def snapshot_processes(
+    target_uid: int | None, all_users: bool, include_service_users: bool = False
+) -> list[ProcessSnapshot]:
+    snapshots: list[ProcessSnapshot] = []
+    for entry in os.scandir("/proc"):
+        if not entry.name.isdigit():
+            continue
+        pid = int(entry.name)
+        if pid <= 2 or pid == os.getpid():
+            continue
+        parsed = parse_status(pid)
+        ticks = cpu_ticks(pid)
+        starttime = process_starttime(pid)
+        if parsed is None or ticks is None or starttime is None or not process_has_executable(pid):
+            continue
+        uid, rss_kb, ppid, name = parsed
+        if not all_users and target_uid is not None and uid != target_uid:
+            continue
+        if all_users:
+            if uid == 0:
+                continue
+            if uid < 1000 and not include_service_users:
+                continue
+        snapshots.append(
+            ProcessSnapshot(
+                pid, uid, rss_kb, ticks, ppid, name, process_command_line(pid), starttime
+            )
+        )
+    return snapshots
+
+
+def ancestor_pids(start_pid: int) -> set[int]:
+    ancestors: set[int] = set()
+    current = start_pid
+    while current > 1 and current not in ancestors:
+        ancestors.add(current)
+        parsed = parse_status(current)
+        if parsed is None:
+            break
+        current = parsed[2]
+    return ancestors
+
+
+def descendant_pids(root_pids: set[int], snapshots: list[ProcessSnapshot]) -> set[int]:
+    protected = set(root_pids)
+    changed = True
+    while changed:
+        changed = False
+        for snapshot in snapshots:
+            if snapshot.pid not in protected and snapshot.ppid in protected:
+                protected.add(snapshot.pid)
+                changed = True
+    return protected
+
+
+def parse_smaps(pid: int, minimum_mapping_kb: int) -> list[Mapping]:
+    mappings: list[Mapping] = []
+    current: Mapping | None = None
+
+    def finish(mapping: Mapping | None) -> None:
+        if mapping is None or mapping.rss_kb < minimum_mapping_kb:
+            return
+        if mapping.locked_kb > 0:
+            return
+        if {"lo", "io", "pf", "ht"}.intersection(mapping.vm_flags):
+            return
+        if mapping.path.startswith("/dev/"):
+            return
+        if mapping.path.startswith(("[stack", "[vdso", "[vvar", "[vsyscall")):
+            return
+        if "r" not in mapping.perms:
+            return
+        mappings.append(mapping)
+
+    try:
+        with open(f"/proc/{pid}/smaps", "r", encoding="utf-8") as smaps_file:
+            for line in smaps_file:
+                header = MAP_HEADER.match(line.rstrip("\n"))
+                if header:
+                    finish(current)
+                    current = Mapping(
+                        start=int(header.group(1), 16),
+                        end=int(header.group(2), 16),
+                        perms=header.group(3),
+                        path=(header.group(4) or "").strip(),
+                    )
+                elif current is not None:
+                    if line.startswith("Rss:"):
+                        current.rss_kb = int(line.split()[1])
+                    elif line.startswith("Locked:"):
+                        current.locked_kb = int(line.split()[1])
+                    elif line.startswith("VmFlags:"):
+                        current.vm_flags = frozenset(line.split()[1:])
+        finish(current)
+    except (FileNotFoundError, PermissionError, ProcessLookupError, ValueError):
+        return []
+    # Large resident mappings first reduces syscall churn early in the pass and
+    # stays application-agnostic, so new software needs no name-list update.
+    mappings.sort(key=lambda mapping: mapping.rss_kb, reverse=True)
+    return mappings
+
+
+def read_rss_kb(pid: int) -> int | None:
+    parsed = parse_status(pid)
+    return None if parsed is None else parsed[1]
+
+
+def summarize_rss_measurements(samples: list[RssMeasurement]) -> RssSummary:
+    before_kb = 0
+    after_kb = 0
+    measured_targets = 0
+    unmeasured_targets = 0
+    exited_targets = 0
+    identity_mismatch_targets = 0
+    permission_denied_targets = 0
+    mapping_changed_targets = 0
+
+    for sample in samples:
+        if not sample.advised:
+            continue
+        if (
+            sample.status == "measured"
+            and sample.before_kb is not None
+            and sample.after_kb is not None
+        ):
+            before_kb += sample.before_kb
+            after_kb += sample.after_kb
+            measured_targets += 1
+            continue
+        unmeasured_targets += 1
+        if sample.status == "exited":
+            exited_targets += 1
+        elif sample.status == "identity_mismatch":
+            identity_mismatch_targets += 1
+        elif sample.status == "permission_denied":
+            permission_denied_targets += 1
+        elif sample.status == "mapping_changed":
+            mapping_changed_targets += 1
+
+    return RssSummary(
+        before_kb=before_kb,
+        after_kb=after_kb,
+        delta_kb=before_kb - after_kb,
+        measured_targets=measured_targets,
+        unmeasured_targets=unmeasured_targets,
+        exited_targets=exited_targets,
+        identity_mismatch_targets=identity_mismatch_targets,
+        permission_denied_targets=permission_denied_targets,
+        mapping_changed_targets=mapping_changed_targets,
+    )
+
+
+def pageout_process(
+    pid: int, minimum_mapping_kb: int, expected_starttime: int
+) -> tuple[int, int, int, int, int, int, str]:
+    advised_mapping_ids: set[int] = set()
+    failed_count = 0
+    advised_bytes = 0
+    batch_calls = 0
+    fallback_calls = 0
+    last_errno = 0
+    map_before: tuple[tuple[int, int], ...] | None = None
+    terminal_status = "failed"
+    pidfd = pidfd_open(pid)
+    try:
+        if process_starttime(pid) != expected_starttime:
+            return 0, 0, 0, 0, 0, 0, "identity_changed"
+        map_before = mapping_identity(pid)
+        mappings = parse_smaps(pid, minimum_mapping_kb)
+        if process_starttime(pid) != expected_starttime:
+            return 0, 0, 0, 0, 0, 0, "identity_changed"
+        if map_before is None or mapping_identity(pid) != map_before:
+            return 0, 0, 0, 0, 0, 0, "mapping_changed"
+        if not mappings:
+            return 0, failed_count, advised_bytes, batch_calls, fallback_calls, 0, "no_mappings"
+        ranges = [
+            (index, mapping.start, mapping.end - mapping.start)
+            for index, mapping in enumerate(mappings)
+        ]
+        for offset in range(0, len(ranges), MAX_PROCESS_MADVISE_IOVECS):
+            batch = ranges[offset : offset + MAX_PROCESS_MADVISE_IOVECS]
+            batch_calls += 1
+            try:
+                batch_advised = process_madvise_pageout(pidfd, batch)
+            except OSError as error:
+                last_errno = error.errno or 0
+                if error.errno in (errno.ESRCH, errno.EPERM):
+                    failed_count += len(batch)
+                    break
+                pending = batch
+            else:
+                advised_bytes += batch_advised
+                pending, touched = remaining_ranges(batch, batch_advised)
+                advised_mapping_ids.update(touched)
+
+            # A short process_madvise result or a kernel that rejects a larger
+            # vector falls back only for the unprocessed ranges. This keeps the
+            # fast batched path while preserving compatibility and accounting.
+            stop_process = False
+            for item in pending:
+                current = item
+                while current[2] > 0:
+                    fallback_calls += 1
+                    try:
+                        scalar_advised = process_madvise_pageout(pidfd, [current])
+                    except OSError as error:
+                        last_errno = error.errno or 0
+                        failed_count += 1
+                        if error.errno in (errno.ESRCH, errno.EPERM):
+                            stop_process = True
+                        break
+                    if scalar_advised <= 0:
+                        failed_count += 1
+                        break
+                    scalar_advised = min(scalar_advised, current[2])
+                    advised_bytes += scalar_advised
+                    advised_mapping_ids.add(current[0])
+                    current = (
+                        current[0],
+                        current[1] + scalar_advised,
+                        current[2] - scalar_advised,
+                    )
+                if stop_process:
+                    break
+            if stop_process:
+                break
+    finally:
+        # Keep cleanup unconditional, but only perform final identity reads while
+        # the pidfd is still valid. Early identity/stat failures must not inspect
+        # an uninitialised mapping snapshot or hide the original status.
+        if map_before is not None:
+            final_starttime = process_starttime(pid)
+            final_mapping = mapping_identity(pid)
+            if final_starttime != expected_starttime:
+                terminal_status = "identity_changed"
+            elif final_mapping != map_before:
+                terminal_status = "mapping_changed"
+            elif terminal_status == "failed":
+                terminal_status = "done"
+        os.close(pidfd)
+    return (
+        len(advised_mapping_ids),
+        failed_count,
+        advised_bytes,
+        batch_calls,
+        fallback_calls,
+        last_errno,
+        terminal_status,
+    )
+
+
+def command_check() -> int:
+    supported, probe_errno = syscall_supported()
+    emit("native_status", "supported" if supported else "unsupported")
+    emit("kernel", platform.release())
+    emit("architecture", platform.machine())
+    emit("process_madvise_syscall", SYS_PROCESS_MADVISE)
+    emit("probe_errno", probe_errno)
+    effective_uid = getattr(os, "geteuid", lambda: -1)()
+    emit("root", 1 if effective_uid == 0 else 0)
+    emit("python", platform.python_version())
+    return 0 if supported else 3
+
+
+def command_reclaim(arguments: argparse.Namespace) -> int:
+    if arguments.protocol != 2 or not arguments.session or not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", arguments.session):
+        emit("native_status", "invalid_arguments")
+        return 2
+    valid_swappiness = arguments.swappiness in ("default", "max") or (
+        arguments.swappiness.isdigit() and 0 <= int(arguments.swappiness) <= 200
+    )
+    if arguments.bytes < 0 or arguments.bytes > (1 << 63) - 1 or not valid_swappiness:
+        emit("native_status", "invalid_arguments")
+        return 2
+    # The writer is intentionally limited to a cgroup-v2 reclaim control file.
+    # Do not turn the native helper into an arbitrary filesystem writer, and
+    # reject symlink indirection so validation cannot be bypassed by swapping a
+    # path between check and open.
+    if os.path.basename(arguments.path) != "memory.reclaim" or os.path.realpath(arguments.path) != os.path.abspath(arguments.path):
+        emit("native_status", "invalid_target")
+        return 2
+    emit("protocol", 2)
+    emit("session", arguments.session)
+    payload = str(arguments.bytes)
+    if arguments.swappiness != "default":
+        payload += f" swappiness={arguments.swappiness}"
+    try:
+        descriptor = os.open(arguments.path, os.O_WRONLY | getattr(os, "O_CLOEXEC", 0))
+        try:
+            written = os.write(descriptor, payload.encode("ascii"))
+        finally:
+            os.close(descriptor)
+    except OSError as error:
+        status_by_errno = {
+            errno.EAGAIN: "partial",
+            errno.EPERM: "permission_denied",
+            errno.EACCES: "permission_denied",
+            errno.EROFS: "read_only",
+            errno.ENOENT: "missing",
+            errno.EOPNOTSUPP: "unsupported",
+            errno.EINVAL: "unsupported_key",
+        }
+        emit("native_status", status_by_errno.get(error.errno, "failed"))
+        emit("errno", error.errno)
+        emit("bytes_requested", arguments.bytes)
+        return 0 if error.errno == errno.EAGAIN else 5
+    emit("native_status", "done" if written == len(payload) else "partial")
+    emit("errno", 0)
+    emit("bytes_requested", arguments.bytes)
+    emit("payload_bytes", written)
+    return 0
+
+
+def command_pageout(arguments: argparse.Namespace) -> int:
+    if arguments.protocol != 2 or not arguments.session or len(arguments.session) > 128 or not re.fullmatch(r"[A-Za-z0-9._-]+", arguments.session):
+        emit("native_status", "invalid_arguments")
+        return 2
+    emit("protocol", 2)
+    emit("session", arguments.session)
+    supported, _ = syscall_supported()
+    if not supported:
+        emit("native_status", "unsupported")
+        return 3
+    if os.geteuid() != 0:
+        emit("native_status", "root_required")
+        return 4
+
+    if (
+        arguments.min_rss_mb < 1
+        or arguments.min_mapping_kb < 4
+        or arguments.activity_ms < 0
+        or arguments.active_ticks < 0
+        or arguments.settle_ms < 0
+    ):
+        emit("native_status", "invalid_arguments")
+        return 2
+
+    target_uid = arguments.uid
+    if arguments.pid is None and not arguments.all_users and target_uid is None:
+        emit("native_status", "target_required")
+        return 2
+    if arguments.include_service_users and not arguments.all_users:
+        emit("native_status", "invalid_arguments")
+        return 2
+
+    initial = snapshot_processes(
+        target_uid, arguments.all_users, arguments.include_service_users
+    )
+    by_pid = {snapshot.pid: snapshot for snapshot in initial}
+    if arguments.pid is not None:
+        by_pid = {
+            pid: snapshot
+            for pid, snapshot in by_pid.items()
+            if pid == arguments.pid
+        }
+        if arguments.pid not in by_pid:
+            parsed = parse_status(arguments.pid)
+            ticks = cpu_ticks(arguments.pid)
+            if parsed is not None and ticks is not None:
+                uid, rss_kb, ppid, name = parsed
+                starttime = process_starttime(arguments.pid)
+                if starttime is not None:
+                    by_pid[arguments.pid] = ProcessSnapshot(
+                    arguments.pid,
+                    uid,
+                    rss_kb,
+                    ticks,
+                    ppid,
+                    name,
+                    process_command_line(arguments.pid),
+                    starttime,
+                    )
+
+    result = Result(processes_seen=len(by_pid))
+    protected_roots = set(arguments.exclude_pid)
+    workload_roots = {
+        snapshot.pid
+        for snapshot in by_pid.values()
+        if matches_workload(snapshot, arguments.protect_pattern)
+        or (arguments.protect_gpu and process_uses_gpu(snapshot.pid))
+    }
+    protected_roots.update(workload_roots)
+    # Automatic scans protect the terminal/sudo/helper ancestry and everything
+    # launched underneath it. An explicit --pid is an intentional manual/test
+    # target and must not be silently excluded merely because it is a sibling
+    # process under the same shell.
+    if arguments.pid is None:
+        protected_roots.update(ancestor_pids(os.getpid()))
+    protected = descendant_pids(protected_roots, list(by_pid.values()))
+    protected.update(
+        snapshot.pid
+        for snapshot in by_pid.values()
+        if is_system_protected(snapshot)
+    )
+    workload_tree = descendant_pids(workload_roots, list(by_pid.values()))
+    result.workloads_protected = len(workload_tree)
+
+    if arguments.activity_ms > 0 and arguments.pid is None:
+        time.sleep(arguments.activity_ms / 1000.0)
+
+    eligible: list[ProcessSnapshot] = []
+    for snapshot in by_pid.values():
+        if snapshot.pid in protected:
+            result.processes_protected += 1
+            continue
+        if snapshot.rss_kb < arguments.min_rss_mb * 1024:
+            continue
+        if arguments.pid is None:
+            current_ticks = cpu_ticks(snapshot.pid)
+            if current_ticks is None:
+                continue
+            if current_ticks - snapshot.cpu_ticks > arguments.active_ticks:
+                result.processes_active_skipped += 1
+                continue
+        eligible.append(snapshot)
+
+    # Work from the largest resident applications down. Every eligible process
+    # is still visited; this is ordering for efficiency, not a stop condition.
+    eligible.sort(key=lambda snapshot: snapshot.rss_kb, reverse=True)
+    result.processes_eligible = len(eligible)
+    before_by_pid = {item.pid: read_rss_kb(item.pid) for item in eligible}
+    advised_targets: list[ProcessSnapshot] = []
+    target_action_status: dict[int, str] = {}
+
+    permission_denied = False
+    for snapshot in eligible:
+        try:
+            advised, failed, advised_bytes, batch_calls, fallback_calls, last_errno, pageout_status = pageout_process(
+                snapshot.pid, arguments.min_mapping_kb, snapshot.starttime
+            )
+            result.mappings_advised += advised
+            result.mappings_failed += failed
+            result.bytes_advised += advised_bytes
+            result.batch_calls += batch_calls
+            result.fallback_calls += fallback_calls
+            if last_errno:
+                result.last_errno = last_errno
+            target_action_status[snapshot.pid] = pageout_status
+            if advised > 0:
+                result.processes_advised += 1
+                advised_targets.append(snapshot)
+                if pageout_status != "done":
+                    result.processes_failed += 1
+            elif failed > 0:
+                result.processes_failed += 1
+            elif pageout_status in ("identity_changed", "mapping_changed"):
+                result.processes_failed += 1
+        except OSError as error:
+            result.processes_failed += 1
+            if error.errno == errno.EPERM:
+                permission_denied = True
+
+    if arguments.settle_ms > 0:
+        time.sleep(arguments.settle_ms / 1000.0)
+
+    measurements: list[RssMeasurement] = []
+    for snapshot in advised_targets:
+        before_kb = before_by_pid.get(snapshot.pid)
+        action_status = target_action_status.get(snapshot.pid, "done")
+        current, after_status = parse_status_detail(snapshot.pid)
+        if before_kb is None:
+            measurements.append(
+                RssMeasurement(snapshot.pid, None, None, "before_unavailable", True, snapshot.starttime)
+            )
+        elif current is None:
+            measurements.append(
+                RssMeasurement(snapshot.pid, before_kb, None, after_status, True, snapshot.starttime)
+            )
+        elif action_status in ("identity_changed", "mapping_changed"):
+            measurements.append(
+                RssMeasurement(snapshot.pid, before_kb, None, action_status, True)
+            )
+        else:
+            current_uid, current_rss_kb, _current_ppid, current_name = current
+            if current_uid != snapshot.uid or current_name != snapshot.name or process_starttime(snapshot.pid) != snapshot.starttime:
+                measurements.append(
+                    RssMeasurement(
+                        snapshot.pid,
+                        before_kb,
+                        current_rss_kb,
+                        "identity_mismatch",
+                        True, snapshot.starttime,
+                    )
+                )
+            else:
+                measurements.append(
+                    RssMeasurement(
+                        snapshot.pid, before_kb, current_rss_kb, "measured", True, snapshot.starttime
+                    )
+                )
+
+    rss_summary = summarize_rss_measurements(measurements)
+    result.rss_before_kb = rss_summary.before_kb
+    result.rss_after_kb = rss_summary.after_kb
+    result.rss_delta_kb = rss_summary.delta_kb
+    result.rss_measured_targets = rss_summary.measured_targets
+    result.rss_unmeasured_targets = rss_summary.unmeasured_targets
+    result.rss_exited_targets = rss_summary.exited_targets
+    result.rss_identity_mismatch_targets = rss_summary.identity_mismatch_targets
+    result.rss_permission_denied_targets = rss_summary.permission_denied_targets
+    result.rss_mapping_changed_targets = rss_summary.mapping_changed_targets
+    result.rss_measurements = measurements
+
+    if permission_denied and result.processes_advised == 0:
+        status = "permission_denied"
+        exit_code = 5
+    elif result.processes_eligible == 0:
+        status = "no_candidates"
+        exit_code = 0
+    elif result.processes_advised == 0:
+        status = "no_pages_advised"
+        exit_code = 0
+    elif result.processes_failed or result.mappings_failed:
+        status = "partial"
+        exit_code = 0
+    else:
+        status = "done"
+        exit_code = 0
+
+    emit("native_status", status)
+    emit("processes_seen", result.processes_seen)
+    emit("processes_eligible", result.processes_eligible)
+    emit("processes_advised", result.processes_advised)
+    emit("processes_failed", result.processes_failed)
+    emit("processes_active_skipped", result.processes_active_skipped)
+    emit("processes_protected", result.processes_protected)
+    emit("workloads_protected", result.workloads_protected)
+    emit("mappings_advised", result.mappings_advised)
+    emit("mappings_failed", result.mappings_failed)
+    emit("bytes_advised", result.bytes_advised)
+    emit("rss_before_kb", result.rss_before_kb)
+    emit("rss_after_kb", result.rss_after_kb)
+    emit("rss_delta_kb", result.rss_delta_kb)
+    emit("rss_reduced_kb", max(0, result.rss_delta_kb))
+    emit("rss_measured_targets", result.rss_measured_targets)
+    emit("rss_unmeasured_targets", result.rss_unmeasured_targets)
+    emit("rss_exited_targets", result.rss_exited_targets)
+    emit("rss_identity_mismatch_targets", result.rss_identity_mismatch_targets)
+    emit("rss_permission_denied_targets", result.rss_permission_denied_targets)
+    emit("rss_mapping_changed_targets", result.rss_mapping_changed_targets)
+    for measurement in result.rss_measurements or []:
+        after_value = "unknown" if measurement.after_kb is None else measurement.after_kb
+        before_value = "unknown" if measurement.before_kb is None else measurement.before_kb
+        emit(
+            "rss_target",
+            f"{measurement.pid}|{measurement.starttime}|{before_value}|{after_value}|{measurement.status}",
+        )
+    emit("batch_calls", result.batch_calls)
+    emit("fallback_calls", result.fallback_calls)
+    emit("last_errno", result.last_errno)
+    return exit_code
+
+
+def build_parser() -> argparse.ArgumentParser:
+    def positive_int(value: str) -> int:
+        parsed = int(value, 10)
+        if parsed < 1:
+            raise argparse.ArgumentTypeError("must be a positive integer")
+        return parsed
+
+    class RejectDuplicateAction(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string=None):
+            marker = f"_{self.dest}_seen"
+            if getattr(namespace, marker, False):
+                parser.error(f"argument {option_string}: may only be specified once")
+            setattr(namespace, self.dest, values)
+            setattr(namespace, marker, True)
+
+    parser = argparse.ArgumentParser(
+        description="Reduce Memory native Linux process page-out helper",
+        allow_abbrev=False,
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers.add_parser("check", help="probe kernel syscall support")
+
+    pageout = subparsers.add_parser("pageout", help="page out eligible processes")
+    pageout.add_argument("--protocol", type=positive_int, default=2, action=RejectDuplicateAction)
+    pageout.add_argument("--session", default=f"standalone-{os.getpid()}", action=RejectDuplicateAction)
+    target = pageout.add_mutually_exclusive_group()
+    target.add_argument("--pid", type=positive_int, help="target one PID (test/manual)", action=RejectDuplicateAction)
+    target.add_argument("--uid", type=positive_int, help="target processes owned by UID", action=RejectDuplicateAction)
+    target.add_argument(
+        "--all-users",
+        action="store_true",
+        help="target non-system UIDs (1000 and above)",
+    )
+    pageout.add_argument(
+        "--include-service-users",
+        action="store_true",
+        help="with --all-users, include non-root service UIDs below 1000",
+    )
+
+    reclaim = subparsers.add_parser("reclaim", help="write one bounded cgroup v2 memory.reclaim request")
+    reclaim.add_argument("--protocol", type=positive_int, default=2, action=RejectDuplicateAction)
+    reclaim.add_argument("--session", default=f"standalone-{os.getpid()}", action=RejectDuplicateAction)
+    reclaim.add_argument("--path", required=True, action=RejectDuplicateAction)
+    reclaim.add_argument("--bytes", type=int, required=True, action=RejectDuplicateAction)
+    reclaim.add_argument("--swappiness", default="default", action=RejectDuplicateAction)
+    pageout.add_argument("--exclude-pid", type=int, action="append", default=[])
+    pageout.add_argument(
+        "--protect-pattern",
+        action="append",
+        default=[],
+        help="protect matching process name/command line and its descendants",
+    )
+    pageout.add_argument(
+        "--protect-gpu",
+        action="store_true",
+        help="protect processes holding NVIDIA or DRM render-device handles",
+    )
+    pageout.add_argument("--min-rss-mb", type=positive_int, default=64, action=RejectDuplicateAction)
+    pageout.add_argument("--min-mapping-kb", type=positive_int, default=1024, action=RejectDuplicateAction)
+    pageout.add_argument("--activity-ms", type=positive_int, default=300, action=RejectDuplicateAction)
+    pageout.add_argument("--active-ticks", type=int, default=0, action=RejectDuplicateAction)
+    pageout.add_argument("--settle-ms", type=positive_int, default=500, action=RejectDuplicateAction)
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
+    arguments = parser.parse_args()
+    try:
+        if arguments.command == "check":
+            return command_check()
+        if arguments.command == "reclaim":
+            return command_reclaim(arguments)
+        return command_pageout(arguments)
+    except KeyboardInterrupt:
+        emit("native_status", "interrupted")
+        return 130
+    except Exception as error:  # Last-resort structured failure for Bash UI.
+        emit("native_status", "internal_error")
+        emit("error", f"{type(error).__name__}:{error}")
+        return 10
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

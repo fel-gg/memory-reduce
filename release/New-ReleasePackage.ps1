@@ -7,6 +7,14 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
+function Get-Sha256Hex([string] $Path) {
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [System.IO.File]::OpenRead($Path)
+        try { return ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '').ToLowerInvariant() }
+        finally { $stream.Dispose() }
+    } finally { $sha.Dispose() }
+}
 if ($RequireClean -or ([string]$env:GITHUB_REF -like 'refs/tags/v*')) {
     $dirty = @(& git -C $repositoryRoot status --porcelain)
     if ($LASTEXITCODE -ne 0) { throw 'Unable to inspect repository cleanliness' }
@@ -47,18 +55,18 @@ $metadataNames = @('SHA256SUMS', 'RELEASE-MANIFEST.json')
 $files = Get-ChildItem -LiteralPath $root -File -Recurse |
     Where-Object { $_.Name -notin $metadataNames } |
     Sort-Object FullName
-$checks = $files | ForEach-Object { "{0}  {1}" -f (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), ($_.FullName.Substring($root.Length + 1)) }
+$checks = $files | ForEach-Object { "{0}  {1}" -f (Get-Sha256Hex $_.FullName), ($_.FullName.Substring($root.Length + 1)) }
 $checks | Set-Content -LiteralPath (Join-Path $root 'SHA256SUMS') -Encoding ASCII
 $sourceCommit = (& git -C $repositoryRoot rev-parse HEAD 2>$null).Trim()
 $sourceDirty = @(& git -C $repositoryRoot status --porcelain).Count -gt 0
 $releaseFiles = $files | ForEach-Object {
     $relative = $_.FullName.Substring($root.Length + 1)
     $architecture = if ($relative -match 'ReduceMemory(?:Worker)?_x64\.exe$') { 'x86_64' } elseif ($relative -match '\.exe$') { 'x86' } else { 'any' }
-    [ordered]@{ file = $relative; bytes = $_.Length; sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(); architecture = $architecture }
+    [ordered]@{ file = $relative; bytes = $_.Length; sha256 = (Get-Sha256Hex $_.FullName); architecture = $architecture }
 }
 [ordered]@{ schemaVersion = 1; version = $Version; sourceCommit = $sourceCommit; sourceDirty = $sourceDirty; windowsManifest = (Get-Content -LiteralPath (Join-Path $root 'windows\BUILD-MANIFEST.json') -Raw | ConvertFrom-Json); files = $releaseFiles } |
     ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $root 'RELEASE-MANIFEST.json') -Encoding UTF8
 $zip = Join-Path $OutputDirectory ("ReduceMemory-$Version.zip")
 Compress-Archive -LiteralPath $root -DestinationPath $zip -Force
-Get-FileHash -LiteralPath $zip -Algorithm SHA256 | Select-Object Hash,Path | Format-Table -AutoSize
+Write-Output ("SHA256 {0}  {1}" -f (Get-Sha256Hex $zip), $zip)
 Write-Output "Release package created: $zip"

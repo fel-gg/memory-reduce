@@ -32,7 +32,7 @@ class ReleaseWorkflowContractTests(unittest.TestCase):
         self.assertIn('"v*"', text)
 
     def test_windows_workflows_use_portable_hashing(self):
-        for workflow in (WORKFLOW, VERIFY_WORKFLOW):
+        for workflow in (WORKFLOW, VERIFY_WORKFLOW, ROOT / "release" / "New-ReleasePackage.ps1", ROOT / "release" / "Verify-ReleasePackage.ps1"):
             text = workflow.read_text(encoding="utf-8")
             self.assertIn("function Get-Sha256Hex", text)
             self.assertNotIn("Get-FileHash", text)
