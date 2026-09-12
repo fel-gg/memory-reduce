@@ -100,6 +100,12 @@ Checkpoint dibuat saat L00 mulai. Ini bukan tanda Phase 1 atau M0 selesai.
 - Workflow verification kini dapat dijalankan ulang dengan `workflow_dispatch`,
   selain trigger push/pull request. Job Windows memiliki timeout 20 menit dan
   download toolchain memiliki timeout 120 detik.
+- Run `34684823652` menyelesaikan job Windows dan Linux dengan status `success`.
+  Windows membangun frontend/worker x86 dan x64 dari source, menjalankan
+  self-test, real working-set trim, refault recovery, dan Aggressive integration;
+  Linux menjalankan targeted launcher reclaim serta seluruh installer/native
+  gates. Ini menjadi bukti remote cross-platform terbaru untuk source commit
+  `3c33822`.
 - Full Windows staged build rerun terbaru lulus tanpa `-SkipFrontendExecution`; frontend runtime, worker x86/x64, manifest, dan baseline selesai dalam satu staging directory.
 - Jalur `RM_RunAggressiveWorker` elevated diperbaiki agar parent Administrator tetap membuat child worker terukur dengan session envelope dan Job Object; validasi sintaks/build lulus, sedangkan close/timeout live masih menunggu harness GUI.
 - `RM_ReadEffectiveness` kini memakai dictionary cache satu-sesi untuk seluruh section `Process`; write menginvalidasi snapshot sebelum replace, sehingga hot path tidak melakukan I/O INI per-target.
