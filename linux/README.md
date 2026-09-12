@@ -207,7 +207,13 @@ sudo REDUCE_MEMORY_RECLAIM_SWAPPINESS=max ./ReduceMemory_Linux.sh aggressive
 sudo REDUCE_MEMORY_AGGRESSIVE_MIN_RSS_MB=64 ./ReduceMemory_Linux.sh aggressive
 sudo REDUCE_MEMORY_INCLUDE_SERVICE_USERS=1 ./ReduceMemory_Linux.sh aggressive
 sudo REDUCE_MEMORY_AI_PATTERNS='my-ai-worker|future-model-server' ./ReduceMemory_Linux.sh ai-shield
+REDUCE_MEMORY_TARGET_PID=1234 ./ReduceMemory_Linux.sh aggressive
 ```
+
+`REDUCE_MEMORY_TARGET_PID` digunakan oleh benchmark atau supervisor yang sudah
+memiliki satu PID terverifikasi. Saat diisi, native page-out dibatasi ke instance
+itu dan nilai diteruskan melewati `sudo`; launcher tidak melakukan scan luas
+sebagai fallback.
 
 ## Dukungan dan batas nyata
 

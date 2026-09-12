@@ -624,7 +624,9 @@ run_drop_caches() {
 
 run_native_pageout() {
   local profile="${1:-default}"
-  local target_pid="${2:-}"
+  # A benchmark or supervised caller may provide one explicit target without
+  # broadening the scan. Recovery passes still supply the positional PID.
+  local target_pid="${2:-${REDUCE_MEMORY_TARGET_PID:-}}"
   local native_helper
   local target_uid="${REDUCE_MEMORY_TARGET_UID:-${SUDO_UID:-}}"
   local native_output=""
@@ -1131,7 +1133,11 @@ run_privileged_mode() {
   fi
 
   if command -v sudo >/dev/null 2>&1; then
-    sudo -- "${script_path}" "${selected_mode}" "${extra_arguments[@]}"
+    if [[ "${REDUCE_MEMORY_TARGET_PID:-}" =~ ^[1-9][0-9]*$ ]]; then
+      sudo env "REDUCE_MEMORY_TARGET_PID=${REDUCE_MEMORY_TARGET_PID}" -- "${script_path}" "${selected_mode}" "${extra_arguments[@]}"
+    else
+      sudo -- "${script_path}" "${selected_mode}" "${extra_arguments[@]}"
+    fi
     return
   fi
 
