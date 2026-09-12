@@ -3029,10 +3029,10 @@ Func RM_RunOwnedNativeWorker ( $RM_Command , $RM_TimeoutMs , ByRef $RM_TimedOut 
 	EndIf
 	Local $RM_JobHandle = $RM_Job [ 0 ]
 	; JOBOBJECT_EXTENDED_LIMIT_INFORMATION is BASIC_LIMIT_INFORMATION,
-	; followed by IO_COUNTERS, followed by four SIZE_T values. Keep the
-	; documented order so the kill-on-close flag is read at the correct offset
-	; on both x86 and x64.
-	Local $RM_JobLimits = DllStructCreate ( "dword limit_flags;ptr min_working_set;ptr max_working_set;dword active_process;ptr affinity;dword priority;dword scheduling_class;uint64 read_ops;uint64 write_ops;uint64 other_ops;uint64 read_bytes;uint64 write_bytes;uint64 other_bytes;ptr process_memory_limit;ptr job_memory_limit;ptr peak_process_memory_used;ptr peak_job_memory_used" )
+	; followed by IO_COUNTERS, followed by four SIZE_T values. Include the two
+	; leading LARGE_INTEGER time limits; omitting them shifts LimitFlags and
+	; causes SetInformationJobObject to reject the structure on x86/x64.
+	Local $RM_JobLimits = DllStructCreate ( "uint64 process_user_time;uint64 job_user_time;dword limit_flags;ptr min_working_set;ptr max_working_set;dword active_process;ptr affinity;dword priority;dword scheduling_class;uint64 read_ops;uint64 write_ops;uint64 other_ops;uint64 read_bytes;uint64 write_bytes;uint64 other_bytes;ptr process_memory_limit;ptr job_memory_limit;ptr peak_process_memory_used;ptr peak_job_memory_used" )
 	DllStructSetData ( $RM_JobLimits , "limit_flags" , 0x2000 ) ; JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
 	Local $RM_JobSet = DllCall ( "kernel32.dll" , "bool" , "SetInformationJobObject" , "handle" , $RM_JobHandle , "int" , 9 , "ptr" , DllStructGetPtr ( $RM_JobLimits ) , "dword" , DllStructGetSize ( $RM_JobLimits ) )
 	If @error Or Not IsArray ( $RM_JobSet ) Or $RM_JobSet [ 0 ] = 0 Then
