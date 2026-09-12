@@ -13,6 +13,8 @@ Run pengulangan pada commit 2e4fa94 (34681780458) juga selesai success untuk job
 
 Release provenance update: commit 6cbdd13 mengubah release workflow agar job tag membangun empat EXE Windows dari source tag menggunakan toolchain yang checksum-nya dipin, mengunggah hasil build sebagai artifact immutable, lalu job publish memakai artifact tersebut. Workflow tidak lagi mengambil EXE lama dari tree repository untuk paket Windows.
 
+UI x86 follow-up: smoke test interaktif lokal kini lulus untuk ReduceMemory.exe dengan enam mode (exit 0), setelah cleanup instance lifecycle ditambahkan. Smoke x64 juga lulus dengan enam mode. Bukti ini menutup gap binary/ComboBox x86 pada host interaktif; screenshot visual belum diarsipkan.
+
 Checkpoint dibuat saat L00 mulai. Ini bukan tanda Phase 1 atau M0 selesai.
 
 | Task | Status | Source/hash | Tes dan exit code | Belum terbukti | Langkah berikutnya |
