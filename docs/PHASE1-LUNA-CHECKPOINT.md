@@ -221,3 +221,17 @@ Checkpoint dibuat saat L00 mulai. Ini bukan tanda Phase 1 atau M0 selesai.
   perubahan timeout bounded dan rerun `34688217261` menutup gate yang sama
   dengan hasil success. Kegagalan transient tersebut tetap dicatat, bukan
   dihapus dari riwayat.
+
+### Verification rerun 2026-09-12 (latest source tip)
+
+- Workflow `Verify builds` run `34697256263` pada commit `45bbf8a`
+  selesai `success` untuk ketiga job: Windows, Ubuntu 22.04, dan Ubuntu
+  24.04. Job Windows kembali melewati build frontend/worker x86 dan x64,
+  self-test, real working-set trim, bounded refault recovery, dan full
+  Aggressive engine. Kedua job Linux kembali melewati native reclaim,
+  targeted launcher reclaim, Smooth/Aggressive, serta installer desktop dan
+  server.
+- Run ini hanya mengonfirmasi ulang gate yang memang dijalankan workflow.
+  Ia tidak mengubah status bukti yang memerlukan desktop interaktif,
+  concurrent Temp path-swap runtime, atau benchmark apples-to-apples; gap
+  tersebut tetap pending sampai ada artefak runtime yang sesuai.
