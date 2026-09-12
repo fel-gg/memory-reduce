@@ -4,6 +4,7 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "release.yml"
+VERIFY_WORKFLOW = ROOT / ".github" / "workflows" / "verify.yml"
 
 
 class ReleaseWorkflowContractTests(unittest.TestCase):
@@ -29,6 +30,12 @@ class ReleaseWorkflowContractTests(unittest.TestCase):
         self.assertGreaterEqual(text.count("-TimeoutSec 120"), 2)
         self.assertIn('tags:', text)
         self.assertIn('"v*"', text)
+
+    def test_windows_workflows_use_portable_hashing(self):
+        for workflow in (WORKFLOW, VERIFY_WORKFLOW):
+            text = workflow.read_text(encoding="utf-8")
+            self.assertIn("function Get-Sha256Hex", text)
+            self.assertNotIn("Get-FileHash", text)
 
 
 if __name__ == "__main__":

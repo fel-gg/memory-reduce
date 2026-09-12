@@ -19,12 +19,20 @@ jobs:
       - name: Build tagged Windows artifacts from source
         shell: pwsh
         run: |
+          function Get-Sha256Hex([string] $Path) {
+            $sha = [System.Security.Cryptography.SHA256]::Create()
+            try {
+              $stream = [System.IO.File]::OpenRead($Path)
+              try { return ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '').ToLowerInvariant() }
+              finally { $stream.Dispose() }
+            } finally { $sha.Dispose() }
+          }
           $zigVersion = '0.16.0'
           $zigExpected = '68659eb5f1e4eb1437a722f1dd889c5a322c9954607f5edcf337bc3684a75a7e'
           $zigArchive = Join-Path $env:RUNNER_TEMP "zig-$zigVersion.zip"
           $zigRoot = Join-Path $env:RUNNER_TEMP 'zig-toolchain'
           Invoke-WebRequest -Uri "https://ziglang.org/download/$zigVersion/zig-x86_64-windows-$zigVersion.zip" -OutFile $zigArchive -TimeoutSec 120
-          if ((Get-FileHash -LiteralPath $zigArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $zigExpected) { throw 'Zig checksum mismatch' }
+          if ((Get-Sha256Hex $zigArchive) -ne $zigExpected) { throw 'Zig checksum mismatch' }
           Expand-Archive -LiteralPath $zigArchive -DestinationPath $zigRoot -Force
           $zig = Join-Path $zigRoot "zig-x86_64-windows-$zigVersion\zig.exe"
           $autoItVersion = '3.3.18.0'
@@ -32,7 +40,7 @@ jobs:
           $autoItArchive = Join-Path $env:RUNNER_TEMP "autoit-v$autoItVersion.zip"
           $autoItRoot = Join-Path $env:RUNNER_TEMP 'autoit-toolchain'
           Invoke-WebRequest -Uri "https://www.autoitscript.com/autoit3/files/archive/autoit/autoit-v$autoItVersion.zip" -OutFile $autoItArchive -TimeoutSec 120
-          if ((Get-FileHash -LiteralPath $autoItArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $autoItExpected) { throw 'AutoIt checksum mismatch' }
+          if ((Get-Sha256Hex $autoItArchive) -ne $autoItExpected) { throw 'AutoIt checksum mismatch' }
           Expand-Archive -LiteralPath $autoItArchive -DestinationPath $autoItRoot -Force
           $autoIt = Join-Path $autoItRoot 'install'
           $buildLog = Join-Path $env:RUNNER_TEMP 'reduce-memory-release-build.log'
