@@ -227,7 +227,7 @@ distribution_name() {
   local os_release_file="${REDUCE_MEMORY_OS_RELEASE_FILE:-/etc/os-release}"
   local pretty_name="Linux"
   if [[ -r "${os_release_file}" ]]; then
-    pretty_name="$(awk -F= '$1 == "PRETTY_NAME" { value=substr($0, index($0, "=") + 1); gsub(/^\"|\"$/, "", value); print value; exit }' "${os_release_file}")"
+    pretty_name="$(awk -F= '$1 == "PRETTY_NAME" { value=substr($0, index($0, "=") + 1); gsub(/^"|"$/, "", value); print value; exit }' "${os_release_file}")"
   fi
   printf '%s\n' "${pretty_name:-Linux}"
 }
