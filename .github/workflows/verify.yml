@@ -375,6 +375,26 @@ jobs:
           kill "${target_pid}"
           wait "${target_pid}" || true
           trap - EXIT
+      - name: Verify targeted Linux launcher reclaim
+        run: |
+          target_log="${RUNNER_TEMP}/reduce-memory-target.log"
+          python3 tests/benchmark/workload_memory.py --megabytes 96 --seconds 30 --pattern private >"${target_log}" 2>&1 &
+          target_pid=$!
+          trap 'kill "${target_pid}" 2>/dev/null || true; wait "${target_pid}" 2>/dev/null || true' EXIT
+          for attempt in {1..50}; do
+            grep -q '^pid=' "${target_log}" && break
+            sleep 0.1
+          done
+          test -s "${target_log}"
+          output="$(timeout 30s sudo env REDUCE_MEMORY_TARGET_PID="${target_pid}" REDUCE_MEMORY_RECLAIM_MB=64 ./linux/ReduceMemory_Linux.sh aggressive 2>&1)"
+          printf '%s\n' "${output}"
+          grep -F 'Mode                    : aggressive' <<< "${output}"
+          grep -E '^Native process page-out : pass[0-9]+=' <<< "${output}"
+          grep -E 'Processes scanned       : [1-9][0-9]*' <<< "${output}"
+          grep -E 'Mappings advised        : [1-9][0-9]*' <<< "${output}"
+          kill "${target_pid}" 2>/dev/null || true
+          wait "${target_pid}" 2>/dev/null || true
+          trap - EXIT
       - name: Run safe Linux self-check
         run: |
           check_output="$(./linux/ReduceMemory_Linux.sh check)"
