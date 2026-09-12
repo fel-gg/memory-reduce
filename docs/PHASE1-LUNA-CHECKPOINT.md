@@ -106,6 +106,10 @@ Checkpoint dibuat saat L00 mulai. Ini bukan tanda Phase 1 atau M0 selesai.
   Linux menjalankan targeted launcher reclaim serta seluruh installer/native
   gates. Ini menjadi bukti remote cross-platform terbaru untuk source commit
   `3c33822`.
+- Release workflow juga kini memiliki timeout eksplisit: 30 menit untuk build
+  Windows dan 15 menit untuk packaging/publish Linux, dengan timeout 120 detik
+  untuk setiap download toolchain. Kontrak release tetap lulus pada
+  `tests/release/test_release_workflow_contract.py`.
 - Full Windows staged build rerun terbaru lulus tanpa `-SkipFrontendExecution`; frontend runtime, worker x86/x64, manifest, dan baseline selesai dalam satu staging directory.
 - Jalur `RM_RunAggressiveWorker` elevated diperbaiki agar parent Administrator tetap membuat child worker terukur dengan session envelope dan Job Object; validasi sintaks/build lulus, sedangkan close/timeout live masih menunggu harness GUI.
 - `RM_ReadEffectiveness` kini memakai dictionary cache satu-sesi untuk seluruh section `Process`; write menginvalidasi snapshot sebelum replace, sehingga hot path tidak melakukan I/O INI per-target.
