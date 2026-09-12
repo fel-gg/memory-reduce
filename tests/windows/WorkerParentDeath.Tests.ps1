@@ -5,14 +5,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $resolved = (Resolve-Path -LiteralPath $FrontendPath).Path
-$workerName = [IO.Path]::GetFileNameWithoutExtension($resolved) -replace '^ReduceMemory$', 'ReduceMemoryWorker'
-$before = @(Get-Process -Name 'ReduceMemoryWorker*' -ErrorAction SilentlyContinue | ForEach-Object Id)
 $parent = Start-Process -FilePath $resolved -ArgumentList '/RMWORKERLIFECYCLESELFTEST' -PassThru -WindowStyle Hidden
 try {
     Start-Sleep -Milliseconds 500
     if ($parent.HasExited) { throw "Lifecycle parent exited before parent-death probe: $($parent.ExitCode)" }
-    $children = @(Get-Process -Name 'ReduceMemoryWorker*' -ErrorAction SilentlyContinue |
-        Where-Object { $before -notcontains $_.Id } | ForEach-Object Id)
+    $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($parent.Id)" |
+        Where-Object { $_.Name -like 'ReduceMemoryWorker*.exe' } | ForEach-Object ProcessId)
     if ($children.Count -eq 0) { throw 'No lifecycle worker was observed before parent termination' }
     Stop-Process -Id $parent.Id -Force
     Start-Sleep -Milliseconds 750
