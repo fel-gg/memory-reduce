@@ -44,3 +44,10 @@ Summary SHA-256:
 499E5A923B87BCF049BB0CD7FC7048535F53FFB448EFFE3C73D73EC6D46A37BE.
 This validates delayed collection only; baseline and candidate were identical
 disposable commands, so it is not an optimization claim.
+
+Harness correctness follow-up (2026-09-12): the Linux `cpu_seconds()` parser now
+reads `/proc/<pid>/stat` in the correct function path; previously that parser was
+unreachable after the `swap_bytes()` return, which made Linux CPU fields always
+unknown. `python -m py_compile` and a live-process CPU probe are now CI gates.
+Remote Linux verification passed in run `34684277905`; the Windows job was still
+running when this note was written.
