@@ -294,6 +294,8 @@ jobs:
           bash -n linux/ReduceMemory_Linux.sh
           bash -n linux/desktop/Install_Desktop.sh
           bash -n linux/server/Install_Server.sh
+      - name: Verify release workflow contract
+        run: python3 -m unittest tests/release/test_release_workflow_contract.py
           bash -n tests/linux/capture_baseline.sh
           bash -n tests/linux/test_fixture_isolation.sh
            bash -n tests/linux/test_failure_adapter.sh
