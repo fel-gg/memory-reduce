@@ -859,10 +859,31 @@ Func RM_ReadEffectiveness ( $RM_ProcessName )
 	Return $RM_Values
 EndFunc
 
+Func RM_AcquireHistoryLock ( )
+	Local $RM_UserScope = StringRegExpReplace ( StringLower ( @LogonDomain & "_" & @UserName ) , "[^a-z0-9._-]" , "_" )
+	If StringLen ( $RM_UserScope ) = 0 Then $RM_UserScope = "unknown-user"
+	Local $RM_Mutex = DllCall ( "kernel32.dll" , "handle" , "CreateMutexW" , "ptr" , 0 , "bool" , False , "wstr" , "Local\\ReduceMemory.History.v3." & $RM_UserScope )
+	If @error Or Not IsArray ( $RM_Mutex ) Or $RM_Mutex [ 0 ] = 0 Then Return 0
+	Local $RM_LastError = DllCall ( "kernel32.dll" , "dword" , "GetLastError" )
+	If IsArray ( $RM_LastError ) And $RM_LastError [ 0 ] = 183 Then
+		DllCall ( "kernel32.dll" , "bool" , "CloseHandle" , "handle" , $RM_Mutex [ 0 ] )
+		Return 0
+	EndIf
+	Return $RM_Mutex [ 0 ]
+EndFunc
+
 Func RM_WriteEffectiveness ( $RM_ProcessName , $RM_Values )
+	Local $RM_HistoryLock = RM_AcquireHistoryLock ( )
+	If $RM_HistoryLock = 0 Then Return 0
 	Local $RM_Key = RM_EffectivenessKey ( $RM_ProcessName )
-	If StringLen ( $RM_Key ) = 0 Then Return 0
-	If Not RM_EffectivenessFileUsable ( ) Then Return 0
+	If StringLen ( $RM_Key ) = 0 Then
+		RM_ReleaseOptimizationLock ( $RM_HistoryLock )
+		Return 0
+	EndIf
+	If Not RM_EffectivenessFileUsable ( ) Then
+		RM_ReleaseOptimizationLock ( $RM_HistoryLock )
+		Return 0
+	EndIf
 	$RM_EffectivenessCachePath = ""
 	$RM_EffectivenessCacheKey = ""
 	$RM_EffectivenessCacheRaw = ""
@@ -894,18 +915,24 @@ Func RM_WriteEffectiveness ( $RM_ProcessName , $RM_Values )
 	Local $RM_TempPath = $RM_EffectivenessPath & ".tmp-" & @AutoItPID & "-" & Int ( Random ( 1000 , 999999 , 1 ) )
 	FileDelete ( $RM_TempPath )
 	If FileExists ( $RM_EffectivenessPath ) Then
-		If FileCopy ( $RM_EffectivenessPath , $RM_TempPath , 1 ) = 0 Then Return 0
+		If FileCopy ( $RM_EffectivenessPath , $RM_TempPath , 1 ) = 0 Then
+			RM_ReleaseOptimizationLock ( $RM_HistoryLock )
+			Return 0
+		EndIf
 	EndIf
 	Local $RM_LegacyKey = RM_LegacyEffectivenessKey ( $RM_ProcessName )
 	If $RM_LegacyKey <> $RM_Key Then IniDelete ( $RM_TempPath , "Process" , $RM_LegacyKey )
 	If IniWrite ( $RM_TempPath , "Process" , $RM_Key , $RM_Values [ 1 ] & "|" & $RM_Values [ 2 ] & "|" & $RM_Values [ 3 ] & "|" & $RM_Values [ 4 ] & "|" & $RM_Values [ 5 ] ) = 0 Then
 		FileDelete ( $RM_TempPath )
+		RM_ReleaseOptimizationLock ( $RM_HistoryLock )
 		Return 0
 	EndIf
 	If FileMove ( $RM_TempPath , $RM_EffectivenessPath , 1 ) = 0 Then
 		FileDelete ( $RM_TempPath )
+		RM_ReleaseOptimizationLock ( $RM_HistoryLock )
 		Return 0
 	EndIf
+	RM_ReleaseOptimizationLock ( $RM_HistoryLock )
 	Return 1
 EndFunc
 
