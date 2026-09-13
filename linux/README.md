@@ -4,7 +4,7 @@ Versi Linux memakai jalur yang dibuat khusus untuk kernel Linux. Ia tidak
 menyalin `EmptyWorkingSet` Windows karena Linux tidak mempunyai API global yang
 sama.
 
-Engine Linux 3.0 menggabungkan tiga mekanisme native yang berbeda:
+Engine Linux 4.0 menggabungkan tiga mekanisme native yang berbeda:
 
 ```text
 pidfd_open + process_madvise(MADV_PAGEOUT)

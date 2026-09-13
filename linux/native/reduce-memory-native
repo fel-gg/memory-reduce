@@ -13,10 +13,12 @@ import errno
 import os
 import platform
 import re
+import stat
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 
 MADV_PAGEOUT = 21
@@ -100,6 +102,15 @@ class Mapping:
     path: str
     rss_kb: int = 0
     locked_kb: int = 0
+    anonymous_kb: int | None = None
+    private_clean_kb: int | None = None
+    private_dirty_kb: int | None = None
+    shared_clean_kb: int | None = None
+    shared_dirty_kb: int | None = None
+    swap_kb: int | None = None
+    kernel_page_size_kb: int | None = None
+    mmu_page_size_kb: int | None = None
+    anon_huge_pages_kb: int | None = None
     vm_flags: frozenset[str] = frozenset()
 
 
@@ -115,6 +126,7 @@ class Result:
     mappings_advised: int = 0
     mappings_failed: int = 0
     bytes_advised: int = 0
+    bytes_deferred: int = 0
     rss_before_kb: int = 0
     rss_after_kb: int = 0
     rss_delta_kb: int = 0
@@ -124,6 +136,7 @@ class Result:
     rss_identity_mismatch_targets: int = 0
     rss_permission_denied_targets: int = 0
     rss_mapping_changed_targets: int = 0
+    selection_reasons: dict[str, int] = field(default_factory=dict)
     batch_calls: int = 0
     fallback_calls: int = 0
     last_errno: int = 0
@@ -157,12 +170,61 @@ def emit(key: str, value: object) -> None:
     print(f"{key}={value}")
 
 
-def syscall_supported() -> tuple[bool, int]:
+def pidfd_capability() -> tuple[str, int, str]:
+    """Probe pidfd support without opening a live target process."""
     if platform.system() != "Linux":
-        return False, errno.ENOSYS
+        return "unsupported", errno.ENOSYS, "non_linux"
     if platform.machine().lower() not in SUPPORTED_ARCHITECTURES:
-        return False, errno.ENOSYS
-    assert LIBC is not None
+        return "unsupported", errno.ENOSYS, "unknown_architecture"
+    if hasattr(os, "pidfd_open"):
+        try:
+            descriptor = os.pidfd_open(-1, 0)
+        except OSError as error:
+            if error.errno == errno.ENOSYS:
+                return "unsupported", error.errno, "pidfd_syscall_missing"
+            if error.errno in (errno.EPERM, errno.EACCES):
+                return "permission_denied", error.errno, "pidfd_permission_or_seccomp"
+            # EINVAL/ESRCH means the API was reached and rejected only the
+            # deliberately invalid probe PID; that is positive capability
+            # evidence without touching another process.
+            return "supported", error.errno or 0, "pidfd_reached"
+        else:
+            os.close(descriptor)
+            return "supported", 0, "pidfd_reached"
+    if LIBC is None:
+        return "unsupported", errno.ENOSYS, "libc_unavailable"
+    ctypes.set_errno(0)
+    result = LIBC.syscall(
+        ctypes.c_long(SYS_PIDFD_OPEN), ctypes.c_int(-1), ctypes.c_uint(0)
+    )
+    error_number = ctypes.get_errno()
+    if result != -1:
+        os.close(int(result))
+        return "supported", 0, "pidfd_reached"
+    if error_number == errno.ENOSYS:
+        return "unsupported", error_number, "pidfd_syscall_missing"
+    if error_number in (errno.EPERM, errno.EACCES):
+        return "permission_denied", error_number, "pidfd_permission_or_seccomp"
+    return "supported", error_number, "pidfd_reached"
+
+
+def syscall_capability() -> tuple[str, int, str]:
+    """Probe process_madvise without touching a target process.
+
+    The probe deliberately keeps syscall availability, architecture rejection,
+    and permission/seccomp denial distinct. A denied probe means the syscall
+    was reached but this execution domain cannot use it; it must not be
+    reported as a successful capability or silently replaced by a broad scan.
+    """
+    if platform.system() != "Linux":
+        return "unsupported", errno.ENOSYS, "non_linux"
+    if platform.machine().lower() not in SUPPORTED_ARCHITECTURES:
+        return "unsupported", errno.ENOSYS, "unknown_architecture"
+    if LIBC is None:
+        return "unsupported", errno.ENOSYS, "libc_unavailable"
+    pidfd_status, pidfd_errno, pidfd_reason = pidfd_capability()
+    if pidfd_status != "supported":
+        return pidfd_status, pidfd_errno, pidfd_reason
 
     ctypes.set_errno(0)
     result = LIBC.syscall(
@@ -174,9 +236,18 @@ def syscall_supported() -> tuple[bool, int]:
         ctypes.c_uint(0),
     )
     error_number = ctypes.get_errno()
-    if result == -1 and error_number == errno.ENOSYS:
-        return False, error_number
-    return True, error_number
+    if result == -1:
+        if error_number == errno.ENOSYS:
+            return "unsupported", error_number, "syscall_missing"
+        if error_number in (errno.EPERM, errno.EACCES):
+            return "permission_denied", error_number, "permission_or_seccomp"
+    return "supported", error_number, "syscall_reached"
+
+
+def syscall_supported() -> tuple[bool, int]:
+    """Compatibility wrapper for callers that only need a boolean probe."""
+    status, probe_errno, _ = syscall_capability()
+    return status == "supported", probe_errno
 
 
 def pidfd_open(pid: int) -> int:
@@ -242,6 +313,40 @@ def remaining_ranges(
         else:
             remaining.append((mapping_id, start, length))
     return remaining, touched
+
+
+def execution_guard_status(
+    deadline_monotonic: float | None,
+    cancel_check: Callable[[], bool] | None = None,
+) -> str | None:
+    """Return a terminal control status at an execution boundary.
+
+    The guard is deliberately checked only between kernel calls. A call that
+    is already blocking in the kernel cannot be promised to stop immediately;
+    the caller receives the residual range after the call returns. The
+    callback is caller-owned so cancellation does not require a global flag
+    shared by unrelated sessions.
+    """
+    if cancel_check is not None and bool(cancel_check()):
+        return "cancelled"
+    if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+        return "deadline"
+    return None
+
+
+def range_bytes(ranges: list[tuple[int, int, int]]) -> int:
+    """Return virtual bytes represented by ranges without accepting negatives."""
+    return sum(max(0, length) for _mapping_id, _start, length in ranges)
+
+
+def cancel_file_requested(path: str | None) -> bool:
+    """Read a caller-owned cancellation marker without creating or deleting it."""
+    if not path:
+        return False
+    try:
+        return Path(path).is_file()
+    except OSError:
+        return False
 
 
 def parse_status_detail(pid: int) -> tuple[tuple[int, int, int, str] | None, str]:
@@ -415,22 +520,157 @@ def descendant_pids(root_pids: set[int], snapshots: list[ProcessSnapshot]) -> se
     return protected
 
 
+def selection_reason(
+    snapshot: ProcessSnapshot,
+    protected: set[int],
+    minimum_rss_kb: int,
+    enforce_activity: bool,
+    current_ticks: int | None,
+    active_ticks: int,
+) -> str:
+    """Return exactly one terminal selection reason for a snapshot.
+
+    This is selection-only accounting.  Action outcomes such as permission
+    denied, partial, or identity changed are recorded separately after an
+    eligible target is attempted.
+    """
+    if snapshot.pid in protected:
+        return "protected"
+    if snapshot.rss_kb < minimum_rss_kb:
+        return "below_threshold"
+    if enforce_activity:
+        if current_ticks is None:
+            return "invalid_identity"
+        if current_ticks - snapshot.cpu_ticks > active_ticks:
+            return "active"
+    return "eligible"
+
+
+def snapshot_identity_status(
+    expected_starttime: int,
+    observed_starttime: int | None,
+    expected_mapping: tuple[tuple[int, int], ...] | None,
+    observed_mapping: tuple[tuple[int, int], ...] | None,
+) -> str:
+    """Reconcile process birth identity and mapping identity in one decision.
+
+    A missing start-time is an identity failure; a missing or changed mapping
+    is a mapping failure. Neither case is converted into a zero-byte success.
+    """
+    if observed_starttime != expected_starttime:
+        return "identity_changed"
+    if expected_mapping is None or observed_mapping is None:
+        return "mapping_changed"
+    if observed_mapping != expected_mapping:
+        return "mapping_changed"
+    return "stable"
+
+
+def runtime_page_size() -> int | None:
+    """Return the kernel base page size, or None when Linux cannot report it."""
+    try:
+        value = int(os.sysconf("SC_PAGE_SIZE"))
+    except (AttributeError, OSError, ValueError):
+        # The helper exits at command capability probing on non-Linux hosts;
+        # this test-only fallback keeps pure pageout fixtures runnable there.
+        return 4096 if platform.system() != "Linux" else None
+    return value if value > 0 else None
+
+
+def validate_mapping_range(
+    start: int, end: int, page_size: int | None, address_bits: int = 64
+) -> str:
+    """Validate one mapping range before it can reach an iovec/syscall."""
+    if page_size is None or page_size <= 0 or page_size & (page_size - 1):
+        return "invalid_page_size"
+    if address_bits <= 0:
+        return "invalid_address_width"
+    address_limit = 1 << address_bits
+    if start < 0 or end <= start:
+        return "invalid_bounds"
+    if start >= address_limit or end > address_limit:
+        return "address_overflow"
+    if start % page_size or end % page_size:
+        return "unaligned"
+    return "valid"
+
+
+def mapping_exclusion_reason(mapping: Mapping, minimum_mapping_kb: int) -> str | None:
+    """Return the conservative exclusion reason, or None when eligible."""
+    if mapping.rss_kb < minimum_mapping_kb:
+        return "below_threshold"
+    if mapping.locked_kb > 0:
+        return "locked"
+    if {"lo", "io", "pf", "ht"}.intersection(mapping.vm_flags):
+        return "special_vmflags"
+    if mapping.path.startswith("/dev/"):
+        return "device"
+    if mapping.path.startswith(("[stack", "[vdso", "[vvar", "[vsyscall")):
+        return "special_path"
+    if "r" not in mapping.perms:
+        return "not_readable"
+    return None
+
+
+def chunk_mapping_range(
+    mapping_id: int,
+    start: int,
+    length: int,
+    page_size: int,
+    max_bytes: int,
+) -> list[tuple[int, int, int, int]]:
+    """Split one mapping into page-aligned chunks with parent offsets."""
+    if mapping_id < 0 or length <= 0:
+        raise ValueError("mapping id and length must be positive")
+    if validate_mapping_range(start, start + length, page_size) != "valid":
+        raise ValueError("mapping range must be valid and page-aligned")
+    if max_bytes <= 0 or max_bytes % page_size != 0:
+        raise ValueError("chunk budget must be a positive page multiple")
+    chunks: list[tuple[int, int, int, int]] = []
+    offset = 0
+    while offset < length:
+        chunk_length = min(max_bytes, length - offset)
+        chunks.append((mapping_id, start + offset, chunk_length, offset))
+        offset += chunk_length
+    return chunks
+
+
+def build_iovec_batches(
+    chunks: list[tuple[int, int, int, int]], max_bytes: int, max_iovecs: int
+) -> list[list[tuple[int, int, int, int]]]:
+    """Pack planned chunks under per-call byte and iovec limits."""
+    if max_bytes <= 0 or max_iovecs <= 0:
+        raise ValueError("batch limits must be positive")
+    batches: list[list[tuple[int, int, int, int]]] = []
+    current: list[tuple[int, int, int, int]] = []
+    current_bytes = 0
+    for chunk in chunks:
+        if len(chunk) != 4 or chunk[2] <= 0 or chunk[2] > max_bytes:
+            raise ValueError("chunk exceeds batch byte limit")
+        if current and (len(current) >= max_iovecs or current_bytes + chunk[2] > max_bytes):
+            batches.append(current)
+            current = []
+            current_bytes = 0
+        current.append(chunk)
+        current_bytes += chunk[2]
+    if current:
+        batches.append(current)
+    return batches
+
+
 def parse_smaps(pid: int, minimum_mapping_kb: int) -> list[Mapping]:
     mappings: list[Mapping] = []
     current: Mapping | None = None
 
+    def optional_kb(line: str) -> int | None:
+        try:
+            value = int(line.split()[1])
+        except (ValueError, IndexError):
+            return None
+        return value if value >= 0 else None
+
     def finish(mapping: Mapping | None) -> None:
-        if mapping is None or mapping.rss_kb < minimum_mapping_kb:
-            return
-        if mapping.locked_kb > 0:
-            return
-        if {"lo", "io", "pf", "ht"}.intersection(mapping.vm_flags):
-            return
-        if mapping.path.startswith("/dev/"):
-            return
-        if mapping.path.startswith(("[stack", "[vdso", "[vvar", "[vsyscall")):
-            return
-        if "r" not in mapping.perms:
+        if mapping is None or mapping_exclusion_reason(mapping, minimum_mapping_kb) is not None:
             return
         mappings.append(mapping)
 
@@ -451,6 +691,24 @@ def parse_smaps(pid: int, minimum_mapping_kb: int) -> list[Mapping]:
                         current.rss_kb = int(line.split()[1])
                     elif line.startswith("Locked:"):
                         current.locked_kb = int(line.split()[1])
+                    elif line.startswith("Anonymous:"):
+                        current.anonymous_kb = optional_kb(line)
+                    elif line.startswith("Private_Clean:"):
+                        current.private_clean_kb = optional_kb(line)
+                    elif line.startswith("Private_Dirty:"):
+                        current.private_dirty_kb = optional_kb(line)
+                    elif line.startswith("Shared_Clean:"):
+                        current.shared_clean_kb = optional_kb(line)
+                    elif line.startswith("Shared_Dirty:"):
+                        current.shared_dirty_kb = optional_kb(line)
+                    elif line.startswith("Swap:"):
+                        current.swap_kb = optional_kb(line)
+                    elif line.startswith("KernelPageSize:"):
+                        current.kernel_page_size_kb = optional_kb(line)
+                    elif line.startswith("MMUPageSize:"):
+                        current.mmu_page_size_kb = optional_kb(line)
+                    elif line.startswith("AnonHugePages:"):
+                        current.anon_huge_pages_kb = optional_kb(line)
                     elif line.startswith("VmFlags:"):
                         current.vm_flags = frozenset(line.split()[1:])
         finish(current)
@@ -513,34 +771,65 @@ def summarize_rss_measurements(samples: list[RssMeasurement]) -> RssSummary:
 
 
 def pageout_process(
-    pid: int, minimum_mapping_kb: int, expected_starttime: int
-) -> tuple[int, int, int, int, int, int, str]:
+    pid: int,
+    minimum_mapping_kb: int,
+    expected_starttime: int,
+    *,
+    deadline_monotonic: float | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+) -> tuple[int, int, int, int, int, int, int, str]:
     advised_mapping_ids: set[int] = set()
     failed_count = 0
     advised_bytes = 0
     batch_calls = 0
     fallback_calls = 0
     last_errno = 0
+    deferred_bytes = 0
     map_before: tuple[tuple[int, int], ...] | None = None
     terminal_status = "failed"
     pidfd = pidfd_open(pid)
     try:
-        if process_starttime(pid) != expected_starttime:
-            return 0, 0, 0, 0, 0, 0, "identity_changed"
+        start_before = process_starttime(pid)
+        if start_before != expected_starttime:
+            return 0, 0, 0, 0, 0, 0, 0, "identity_changed"
         map_before = mapping_identity(pid)
         mappings = parse_smaps(pid, minimum_mapping_kb)
-        if process_starttime(pid) != expected_starttime:
-            return 0, 0, 0, 0, 0, 0, "identity_changed"
-        if map_before is None or mapping_identity(pid) != map_before:
-            return 0, 0, 0, 0, 0, 0, "mapping_changed"
+        status = snapshot_identity_status(
+            expected_starttime,
+            process_starttime(pid),
+            map_before,
+            mapping_identity(pid),
+        )
+        if status != "stable":
+            return 0, 0, 0, 0, 0, 0, 0, status
         if not mappings:
-            return 0, failed_count, advised_bytes, batch_calls, fallback_calls, 0, "no_mappings"
+            return 0, failed_count, advised_bytes, batch_calls, fallback_calls, 0, 0, "no_mappings"
+        page_size = runtime_page_size()
+        for mapping in mappings:
+            if validate_mapping_range(mapping.start, mapping.end, page_size) != "valid":
+                terminal_status = "invalid_range"
+                return 0, 0, 0, 0, 0, 0, 0, terminal_status
         ranges = [
             (index, mapping.start, mapping.end - mapping.start)
             for index, mapping in enumerate(mappings)
         ]
         for offset in range(0, len(ranges), MAX_PROCESS_MADVISE_IOVECS):
             batch = ranges[offset : offset + MAX_PROCESS_MADVISE_IOVECS]
+            boundary_status = snapshot_identity_status(
+                expected_starttime,
+                process_starttime(pid),
+                map_before,
+                mapping_identity(pid),
+            )
+            if boundary_status != "stable":
+                terminal_status = boundary_status
+                deferred_bytes += range_bytes(ranges[offset:])
+                break
+            control_status = execution_guard_status(deadline_monotonic, cancel_check)
+            if control_status is not None:
+                terminal_status = control_status
+                deferred_bytes += range_bytes(ranges[offset:])
+                break
             batch_calls += 1
             try:
                 batch_advised = process_madvise_pageout(pidfd, batch)
@@ -559,9 +848,30 @@ def pageout_process(
             # vector falls back only for the unprocessed ranges. This keeps the
             # fast batched path while preserving compatibility and accounting.
             stop_process = False
-            for item in pending:
+            for pending_index, item in enumerate(pending):
                 current = item
                 while current[2] > 0:
+                    control_status = execution_guard_status(deadline_monotonic, cancel_check)
+                    if control_status is not None:
+                        terminal_status = control_status
+                        deferred_bytes += range_bytes([current])
+                        deferred_bytes += range_bytes(pending[pending_index + 1 :])
+                        deferred_bytes += range_bytes(ranges[offset + len(batch) :])
+                        stop_process = True
+                        break
+                    boundary_status = snapshot_identity_status(
+                        expected_starttime,
+                        process_starttime(pid),
+                        map_before,
+                        mapping_identity(pid),
+                    )
+                    if boundary_status != "stable":
+                        terminal_status = boundary_status
+                        deferred_bytes += range_bytes([current])
+                        deferred_bytes += range_bytes(pending[pending_index + 1 :])
+                        deferred_bytes += range_bytes(ranges[offset + len(batch) :])
+                        stop_process = True
+                        break
                     fallback_calls += 1
                     try:
                         scalar_advised = process_madvise_pageout(pidfd, [current])
@@ -591,12 +901,14 @@ def pageout_process(
         # the pidfd is still valid. Early identity/stat failures must not inspect
         # an uninitialised mapping snapshot or hide the original status.
         if map_before is not None:
-            final_starttime = process_starttime(pid)
-            final_mapping = mapping_identity(pid)
-            if final_starttime != expected_starttime:
-                terminal_status = "identity_changed"
-            elif final_mapping != map_before:
-                terminal_status = "mapping_changed"
+            final_status = snapshot_identity_status(
+                expected_starttime,
+                process_starttime(pid),
+                map_before,
+                mapping_identity(pid),
+            )
+            if final_status != "stable":
+                terminal_status = final_status
             elif terminal_status == "failed":
                 terminal_status = "done"
         os.close(pidfd)
@@ -607,13 +919,16 @@ def pageout_process(
         batch_calls,
         fallback_calls,
         last_errno,
+        deferred_bytes,
         terminal_status,
     )
 
 
 def command_check() -> int:
-    supported, probe_errno = syscall_supported()
-    emit("native_status", "supported" if supported else "unsupported")
+    capability, probe_errno, probe_reason = syscall_capability()
+    emit("native_status", capability)
+    emit("capability_status", capability)
+    emit("capability_reason", probe_reason)
     emit("kernel", platform.release())
     emit("architecture", platform.machine())
     emit("process_madvise_syscall", SYS_PROCESS_MADVISE)
@@ -621,7 +936,71 @@ def command_check() -> int:
     effective_uid = getattr(os, "geteuid", lambda: -1)()
     emit("root", 1 if effective_uid == 0 else 0)
     emit("python", platform.python_version())
-    return 0 if supported else 3
+    return 0 if capability == "supported" else (4 if capability == "permission_denied" else 3)
+
+
+def _mountinfo_unescape(value: str) -> str:
+    return (
+        value.replace(r"\040", " ")
+        .replace(r"\011", "\t")
+        .replace(r"\012", "\n")
+        .replace(r"\134", "\\")
+    )
+
+
+def cgroup2_mountpoints() -> tuple[str, ...]:
+    """Return verified cgroup-v2 mountpoints from this process namespace."""
+    if platform.system() != "Linux":
+        return ()
+    mountpoints: list[str] = []
+    try:
+        with open("/proc/self/mountinfo", "r", encoding="utf-8") as mountinfo:
+            for line in mountinfo:
+                if " - " not in line:
+                    continue
+                before, after = line.rstrip("\n").split(" - ", 1)
+                fields = before.split()
+                post_fields = after.split()
+                if len(fields) < 5 or not post_fields or post_fields[0] != "cgroup2":
+                    continue
+                mountpoints.append(os.path.realpath(_mountinfo_unescape(fields[4])))
+    except (OSError, UnicodeError):
+        return ()
+    return tuple(dict.fromkeys(mountpoints))
+
+
+def reclaim_path_identity(path: str) -> tuple[int, int] | None:
+    """Return device/inode identity without following the final symlink."""
+    try:
+        metadata = os.stat(path, follow_symlinks=False)
+    except (OSError, ValueError):
+        return None
+    return int(metadata.st_dev), int(metadata.st_ino)
+
+
+def valid_reclaim_scope(path: str) -> tuple[bool, str, tuple[int, int] | None]:
+    """Validate a cgroup-v2 reclaim file and return its pre-open identity."""
+    if os.path.basename(path) != "memory.reclaim":
+        return False, "invalid_name", None
+    absolute = os.path.abspath(path)
+    if os.path.realpath(path) != absolute:
+        return False, "symlink_path", None
+    identity = reclaim_path_identity(path)
+    if identity is None:
+        return False, "missing", None
+    try:
+        metadata = os.stat(path, follow_symlinks=False)
+    except OSError:
+        return False, "missing", None
+    if stat.S_ISLNK(metadata.st_mode):
+        return False, "symlink_path", None
+    mountpoints = cgroup2_mountpoints()
+    if not mountpoints:
+        return False, "cgroup2_mount_unknown", None
+    parent = os.path.realpath(os.path.dirname(absolute))
+    if not any(parent == mount or parent.startswith(mount + os.sep) for mount in mountpoints):
+        return False, "outside_cgroup2", None
+    return True, "verified", identity
 
 
 def command_reclaim(arguments: argparse.Namespace) -> int:
@@ -634,12 +1013,13 @@ def command_reclaim(arguments: argparse.Namespace) -> int:
     if arguments.bytes < 0 or arguments.bytes > (1 << 63) - 1 or not valid_swappiness:
         emit("native_status", "invalid_arguments")
         return 2
-    # The writer is intentionally limited to a cgroup-v2 reclaim control file.
-    # Do not turn the native helper into an arbitrary filesystem writer, and
-    # reject symlink indirection so validation cannot be bypassed by swapping a
-    # path between check and open.
-    if os.path.basename(arguments.path) != "memory.reclaim" or os.path.realpath(arguments.path) != os.path.abspath(arguments.path):
+    # The writer is intentionally limited to a verified cgroup-v2 reclaim
+    # control file. Scope and device/inode identity are checked again after
+    # open, so a path replacement between validation and mutation is rejected.
+    scope_valid, scope_reason, expected_identity = valid_reclaim_scope(arguments.path)
+    if not scope_valid:
         emit("native_status", "invalid_target")
+        emit("scope_reason", scope_reason)
         return 2
     emit("protocol", 2)
     emit("session", arguments.session)
@@ -647,8 +1027,15 @@ def command_reclaim(arguments: argparse.Namespace) -> int:
     if arguments.swappiness != "default":
         payload += f" swappiness={arguments.swappiness}"
     try:
-        descriptor = os.open(arguments.path, os.O_WRONLY | getattr(os, "O_CLOEXEC", 0))
+        open_flags = os.O_WRONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(arguments.path, open_flags)
         try:
+            descriptor_stat = os.fstat(descriptor)
+            descriptor_identity = (int(descriptor_stat.st_dev), int(descriptor_stat.st_ino))
+            if expected_identity is None or descriptor_identity != expected_identity:
+                emit("native_status", "scope_changed")
+                emit("scope_reason", "identity_changed_before_write")
+                return 5
             written = os.write(descriptor, payload.encode("ascii"))
         finally:
             os.close(descriptor)
@@ -679,10 +1066,13 @@ def command_pageout(arguments: argparse.Namespace) -> int:
         return 2
     emit("protocol", 2)
     emit("session", arguments.session)
-    supported, _ = syscall_supported()
-    if not supported:
-        emit("native_status", "unsupported")
-        return 3
+    capability, probe_errno, probe_reason = syscall_capability()
+    if capability != "supported":
+        emit("native_status", capability)
+        emit("capability_status", capability)
+        emit("capability_reason", probe_reason)
+        emit("probe_errno", probe_errno)
+        return 4 if capability == "permission_denied" else 3
     if os.geteuid() != 0:
         emit("native_status", "root_required")
         return 4
@@ -693,6 +1083,7 @@ def command_pageout(arguments: argparse.Namespace) -> int:
         or arguments.activity_ms < 0
         or arguments.active_ticks < 0
         or arguments.settle_ms < 0
+        or arguments.deadline_ms < 0
     ):
         emit("native_status", "invalid_arguments")
         return 2
@@ -704,6 +1095,17 @@ def command_pageout(arguments: argparse.Namespace) -> int:
     if arguments.include_service_users and not arguments.all_users:
         emit("native_status", "invalid_arguments")
         return 2
+
+    deadline_monotonic = (
+        time.monotonic() + arguments.deadline_ms / 1000.0
+        if arguments.deadline_ms > 0
+        else None
+    )
+    cancel_check = (
+        (lambda: cancel_file_requested(arguments.cancel_file))
+        if arguments.cancel_file
+        else None
+    )
 
     initial = snapshot_processes(
         target_uid, arguments.all_users, arguments.include_service_users
@@ -761,19 +1163,28 @@ def command_pageout(arguments: argparse.Namespace) -> int:
         time.sleep(arguments.activity_ms / 1000.0)
 
     eligible: list[ProcessSnapshot] = []
+    selection_reasons = {"protected": 0, "below_threshold": 0, "active": 0, "invalid_identity": 0, "eligible": 0}
     for snapshot in by_pid.values():
-        if snapshot.pid in protected:
+        current_ticks = cpu_ticks(snapshot.pid) if arguments.activity_ms > 0 or arguments.pid is None else snapshot.cpu_ticks
+        reason = selection_reason(
+            snapshot,
+            protected,
+            arguments.min_rss_mb * 1024,
+            arguments.pid is None,
+            current_ticks,
+            arguments.active_ticks,
+        )
+        selection_reasons[reason] += 1
+        if reason == "protected":
             result.processes_protected += 1
             continue
-        if snapshot.rss_kb < arguments.min_rss_mb * 1024:
+        if reason == "active":
+            result.processes_active_skipped += 1
             continue
-        if arguments.pid is None:
-            current_ticks = cpu_ticks(snapshot.pid)
-            if current_ticks is None:
-                continue
-            if current_ticks - snapshot.cpu_ticks > arguments.active_ticks:
-                result.processes_active_skipped += 1
-                continue
+        if reason == "invalid_identity":
+            continue
+        if reason != "eligible":
+            continue
         eligible.append(snapshot)
 
     # Work from the largest resident applications down. Every eligible process
@@ -785,19 +1196,27 @@ def command_pageout(arguments: argparse.Namespace) -> int:
     target_action_status: dict[int, str] = {}
 
     permission_denied = False
+    control_status: str | None = None
     for snapshot in eligible:
         try:
-            advised, failed, advised_bytes, batch_calls, fallback_calls, last_errno, pageout_status = pageout_process(
-                snapshot.pid, arguments.min_mapping_kb, snapshot.starttime
+            advised, failed, advised_bytes, batch_calls, fallback_calls, last_errno, deferred_bytes, pageout_status = pageout_process(
+                snapshot.pid,
+                arguments.min_mapping_kb,
+                snapshot.starttime,
+                deadline_monotonic=deadline_monotonic,
+                cancel_check=cancel_check,
             )
             result.mappings_advised += advised
             result.mappings_failed += failed
             result.bytes_advised += advised_bytes
+            result.bytes_deferred += deferred_bytes
             result.batch_calls += batch_calls
             result.fallback_calls += fallback_calls
             if last_errno:
                 result.last_errno = last_errno
             target_action_status[snapshot.pid] = pageout_status
+            if pageout_status in ("deadline", "cancelled"):
+                control_status = pageout_status
             if advised > 0:
                 result.processes_advised += 1
                 advised_targets.append(snapshot)
@@ -805,8 +1224,12 @@ def command_pageout(arguments: argparse.Namespace) -> int:
                     result.processes_failed += 1
             elif failed > 0:
                 result.processes_failed += 1
-            elif pageout_status in ("identity_changed", "mapping_changed"):
+            elif pageout_status in ("identity_changed", "mapping_changed", "invalid_range"):
                 result.processes_failed += 1
+            elif pageout_status in ("deadline", "cancelled"):
+                result.processes_failed += 1
+            if control_status is not None:
+                break
         except OSError as error:
             result.processes_failed += 1
             if error.errno == errno.EPERM:
@@ -862,8 +1285,12 @@ def command_pageout(arguments: argparse.Namespace) -> int:
     result.rss_permission_denied_targets = rss_summary.permission_denied_targets
     result.rss_mapping_changed_targets = rss_summary.mapping_changed_targets
     result.rss_measurements = measurements
+    result.selection_reasons = selection_reasons
 
-    if permission_denied and result.processes_advised == 0:
+    if control_status is not None:
+        status = control_status
+        exit_code = 0
+    elif permission_denied and result.processes_advised == 0:
         status = "permission_denied"
         exit_code = 5
     elif result.processes_eligible == 0:
@@ -880,6 +1307,7 @@ def command_pageout(arguments: argparse.Namespace) -> int:
         exit_code = 0
 
     emit("native_status", status)
+    emit("control_status", control_status or "none")
     emit("processes_seen", result.processes_seen)
     emit("processes_eligible", result.processes_eligible)
     emit("processes_advised", result.processes_advised)
@@ -887,9 +1315,12 @@ def command_pageout(arguments: argparse.Namespace) -> int:
     emit("processes_active_skipped", result.processes_active_skipped)
     emit("processes_protected", result.processes_protected)
     emit("workloads_protected", result.workloads_protected)
+    for reason in ("protected", "below_threshold", "active", "invalid_identity", "eligible"):
+        emit("selection_" + reason, result.selection_reasons.get(reason, 0))
     emit("mappings_advised", result.mappings_advised)
     emit("mappings_failed", result.mappings_failed)
     emit("bytes_advised", result.bytes_advised)
+    emit("bytes_deferred", result.bytes_deferred)
     emit("rss_before_kb", result.rss_before_kb)
     emit("rss_after_kb", result.rss_after_kb)
     emit("rss_delta_kb", result.rss_delta_kb)
@@ -981,6 +1412,19 @@ def build_parser() -> argparse.ArgumentParser:
     pageout.add_argument("--activity-ms", type=nonnegative_int, default=300, action=RejectDuplicateAction)
     pageout.add_argument("--active-ticks", type=int, default=0, action=RejectDuplicateAction)
     pageout.add_argument("--settle-ms", type=nonnegative_int, default=500, action=RejectDuplicateAction)
+    pageout.add_argument(
+        "--deadline-ms",
+        type=nonnegative_int,
+        default=0,
+        action=RejectDuplicateAction,
+        help="bound page-out execution; zero disables the deadline",
+    )
+    pageout.add_argument(
+        "--cancel-file",
+        default=None,
+        action=RejectDuplicateAction,
+        help="stop at the next execution boundary when this caller-owned file exists",
+    )
     return parser
 
 

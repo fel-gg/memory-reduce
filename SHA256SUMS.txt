@@ -1,0 +1,3 @@
+a452344b1c56189fe7309fb4feaab787bdbaf93632161fa56ee93ac3edf32fac  ./ReduceMemory-Windows-v4.0.zip
+9f166aeebd6dd3673411f72e94b846fb6455d792a6f2c24ce232ce894e8a7471  ./ReduceMemory-Linux-Desktop-v4.0.tar.gz
+6a1bcabe790696036474c40db2638282f750b998d3183360b594d2945ea780ce  ./ReduceMemory-Linux-Server-v4.0.tar.gz
