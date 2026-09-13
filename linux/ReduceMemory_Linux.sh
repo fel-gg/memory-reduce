@@ -408,7 +408,7 @@ safe_bytes_value() {
   [[ -n "${normalized}" ]] || normalized="0"
   if (( ${#normalized} > 19 )); then return 1; fi
   if (( ${#normalized} == 19 )) && [[ "${normalized}" > "9223372036854775807" ]]; then return 1; fi
-  printf '%s\n' "${value}"
+  printf '%s\n' "${normalized}"
 }
 
 record_native_rss_targets() {
@@ -549,13 +549,24 @@ reset_stage_state() {
   stage_native_pageout="not requested"
   reclaim_scope="-"
   reclaim_request_mb=0
+  reclaim_scope_delta_bytes="unknown"
+  reclaim_duration_ms=0
+  reclaim_scope_before_bytes="unknown"
+  reclaim_scope_after_bytes="unknown"
   native_processes_seen=0
   native_processes_advised=0
   native_processes_active_skipped=0
   native_processes_protected=0
   native_workloads_protected=0
+  native_selection_protected=0
+  native_selection_below_threshold=0
+  native_selection_active=0
+  native_selection_invalid_identity=0
+  native_selection_eligible=0
   native_mappings_advised=0
   native_bytes_advised=0
+  native_bytes_deferred=0
+  native_control_status="none"
   native_rss_reduced_kb=0
   native_rss_delta_kb=0
   native_rss_measured_targets=0
@@ -637,14 +648,22 @@ run_native_pageout() {
   local activity_ms
   local active_ticks
   local native_settle_ms
+  local native_deadline_ms
   local pass_status
   local pass_processes_seen
   local pass_processes_advised
   local pass_processes_active_skipped
   local pass_processes_protected
   local pass_workloads_protected
+  local pass_selection_protected
+  local pass_selection_below_threshold
+  local pass_selection_active
+  local pass_selection_invalid_identity
+  local pass_selection_eligible
   local pass_mappings_advised
   local pass_bytes_advised
+  local pass_bytes_deferred
+  local pass_control_status
   local pass_batch_calls
   local pass_fallback_calls
 
@@ -708,13 +727,23 @@ run_native_pageout() {
       ;;
   esac
 
+  native_deadline_ms="${REDUCE_MEMORY_NATIVE_DEADLINE_MS:-0}"
+  if [[ ! "${native_deadline_ms}" =~ ^[0-9]+$ ]]; then
+    stage_native_pageout="invalid deadline configuration"
+    return 0
+  fi
+
   arguments+=(
     --min-rss-mb "${minimum_rss_mb}"
     --min-mapping-kb "${minimum_mapping_kb}"
     --activity-ms "${activity_ms}"
     --active-ticks "${active_ticks}"
     --settle-ms "${native_settle_ms}"
+    --deadline-ms "${native_deadline_ms}"
   )
+  if [[ -n "${REDUCE_MEMORY_NATIVE_CANCEL_FILE:-}" ]]; then
+    arguments+=(--cancel-file "${REDUCE_MEMORY_NATIVE_CANCEL_FILE}")
+  fi
 
   # AI/GPU recognition belongs only to AI Shield. Normal, Smooth and
   # Aggressive remain application-agnostic so present and future software is
@@ -759,8 +788,15 @@ run_native_pageout() {
   pass_processes_active_skipped="$(native_value "${native_output}" processes_active_skipped)"
   pass_processes_protected="$(native_value "${native_output}" processes_protected)"
   pass_workloads_protected="$(native_value "${native_output}" workloads_protected)"
+  pass_selection_protected="$(native_value "${native_output}" selection_protected)"
+  pass_selection_below_threshold="$(native_value "${native_output}" selection_below_threshold)"
+  pass_selection_active="$(native_value "${native_output}" selection_active)"
+  pass_selection_invalid_identity="$(native_value "${native_output}" selection_invalid_identity)"
+  pass_selection_eligible="$(native_value "${native_output}" selection_eligible)"
   pass_mappings_advised="$(native_value "${native_output}" mappings_advised)"
   pass_bytes_advised="$(native_value "${native_output}" bytes_advised)"
+  pass_bytes_deferred="$(native_value "${native_output}" bytes_deferred)"
+  pass_control_status="$(native_value "${native_output}" control_status)"
   pass_batch_calls="$(native_value "${native_output}" batch_calls)"
   pass_fallback_calls="$(native_value "${native_output}" fallback_calls)"
 
@@ -769,8 +805,15 @@ run_native_pageout() {
   pass_processes_active_skipped="$(numeric_or_zero "${pass_processes_active_skipped}")"
   pass_processes_protected="$(numeric_or_zero "${pass_processes_protected}")"
   pass_workloads_protected="$(numeric_or_zero "${pass_workloads_protected}")"
+  pass_selection_protected="$(numeric_or_zero "${pass_selection_protected}")"
+  pass_selection_below_threshold="$(numeric_or_zero "${pass_selection_below_threshold}")"
+  pass_selection_active="$(numeric_or_zero "${pass_selection_active}")"
+  pass_selection_invalid_identity="$(numeric_or_zero "${pass_selection_invalid_identity}")"
+  pass_selection_eligible="$(numeric_or_zero "${pass_selection_eligible}")"
   pass_mappings_advised="$(numeric_or_zero "${pass_mappings_advised}")"
   pass_bytes_advised="$(numeric_or_zero "${pass_bytes_advised}")"
+  pass_bytes_deferred="$(numeric_or_zero "${pass_bytes_deferred}")"
+  [[ -n "${pass_control_status}" ]] || pass_control_status="none"
   pass_batch_calls="$(numeric_or_zero "${pass_batch_calls}")"
   pass_fallback_calls="$(numeric_or_zero "${pass_fallback_calls}")"
 
@@ -779,12 +822,39 @@ run_native_pageout() {
   native_processes_active_skipped=$((native_processes_active_skipped + pass_processes_active_skipped))
   native_processes_protected=$((native_processes_protected + pass_processes_protected))
   native_workloads_protected=$((native_workloads_protected + pass_workloads_protected))
+  native_selection_protected=$((native_selection_protected + pass_selection_protected))
+  native_selection_below_threshold=$((native_selection_below_threshold + pass_selection_below_threshold))
+  native_selection_active=$((native_selection_active + pass_selection_active))
+  native_selection_invalid_identity=$((native_selection_invalid_identity + pass_selection_invalid_identity))
+  native_selection_eligible=$((native_selection_eligible + pass_selection_eligible))
   native_mappings_advised=$((native_mappings_advised + pass_mappings_advised))
   native_bytes_advised=$((native_bytes_advised + pass_bytes_advised))
+  native_bytes_deferred=$((native_bytes_deferred + pass_bytes_deferred))
+  if [[ "${pass_control_status}" != "none" ]]; then
+    if [[ "${native_control_status}" == "none" ]]; then
+      native_control_status="${pass_control_status}"
+    elif [[ "${native_control_status}" != "${pass_control_status}" ]]; then
+      native_control_status="mixed"
+    fi
+  fi
   record_native_rss_targets "${native_output}"
   native_rss_reduced_kb=$((native_rss_delta_kb > 0 ? native_rss_delta_kb : 0))
   native_batch_calls=$((native_batch_calls + pass_batch_calls))
   native_fallback_calls=$((native_fallback_calls + pass_fallback_calls))
+}
+
+record_reclaim_scope_after() {
+  local current_file="${reclaim_scope}/memory.current"
+  local current_value
+  [[ -r "${current_file}" ]] || return 0
+  current_value="$(<"${current_file}")"
+  if reclaim_scope_after_bytes="$(safe_bytes_value "${current_value}")"; then
+    if [[ "${reclaim_scope_before_bytes}" =~ ^[0-9]+$ ]]; then
+      reclaim_scope_delta_bytes=$((reclaim_scope_before_bytes - reclaim_scope_after_bytes))
+    fi
+  else
+    reclaim_scope_after_bytes="unknown"
+  fi
 }
 
 run_cgroup_reclaim() {
@@ -796,6 +866,8 @@ run_cgroup_reclaim() {
   local reclaim_output=""
   local reclaim_exit=0
   local reclaim_status=""
+  local reclaim_started reclaim_finished
+  local current_file current_value
   reclaim_request_mb="$(reclaim_target_mb)"
 
   if ! reclaim_file="$(find_reclaim_file)"; then
@@ -834,14 +906,27 @@ run_cgroup_reclaim() {
     stage_cgroup_reclaim="unavailable; native helper missing"
     return 0
   fi
+  current_file="${reclaim_scope}/memory.current"
+  if [[ -r "${current_file}" ]]; then
+    current_value="$(<"${current_file}")"
+    if ! reclaim_scope_before_bytes="$(safe_bytes_value "${current_value}")"; then
+      reclaim_scope_before_bytes="unknown"
+    fi
+  fi
+  reclaim_started="$(date +%s%3N 2>/dev/null || printf '0')"
   reclaim_output="$("${native_helper}" reclaim --protocol 2 --session "${optimization_session_id}" --path "${reclaim_file}" --bytes "$((reclaim_request_mb * 1048576))" --swappiness "${requested_swappiness}" 2>&1)" || reclaim_exit=$?
+  reclaim_finished="$(date +%s%3N 2>/dev/null || printf '0')"
+  if [[ "${reclaim_started}" =~ ^[0-9]+$ && "${reclaim_finished}" =~ ^[0-9]+$ && ${reclaim_finished} -ge ${reclaim_started} ]]; then
+    reclaim_duration_ms=$((reclaim_finished - reclaim_started))
+  fi
+  record_reclaim_scope_after
   if [[ "$(native_value "${reclaim_output}" protocol)" != "2" || "$(native_value "${reclaim_output}" session)" != "${optimization_session_id}" ]]; then
     stage_cgroup_reclaim="protocol_error"
     return 0
   fi
   reclaim_status="$(native_value "${reclaim_output}" native_status)"
   [[ -n "${reclaim_status}" ]] || reclaim_status="failed (exit ${reclaim_exit})"
-  stage_cgroup_reclaim="${reclaim_status} (${reclaim_request_mb} MB requested) | swappiness=${requested_swappiness}"
+  stage_cgroup_reclaim="${reclaim_status} (${reclaim_request_mb} MB requested; scope_delta=${reclaim_scope_delta_bytes} bytes; ${reclaim_duration_ms} ms) | swappiness=${requested_swappiness}"
 }
 
 should_recover_rebound() {
@@ -943,8 +1028,15 @@ print_result() {
     printf 'Active processes skipped: %s\n' "${native_processes_active_skipped}"
     printf 'Protected processes     : %s\n' "${native_processes_protected}"
     printf 'AI/GPU workloads safe   : %s\n' "${native_workloads_protected}"
+    printf 'Selection protected     : %s\n' "${native_selection_protected}"
+    printf 'Selection below floor   : %s\n' "${native_selection_below_threshold}"
+    printf 'Selection active        : %s\n' "${native_selection_active}"
+    printf 'Selection invalid ID    : %s\n' "${native_selection_invalid_identity}"
+    printf 'Selection eligible      : %s\n' "${native_selection_eligible}"
     printf 'Mappings advised        : %s\n' "${native_mappings_advised}"
     printf 'Bytes advised           : %d MB\n' "$((native_bytes_advised / 1024 / 1024))"
+    printf 'Bytes deferred          : %d MB\n' "$((native_bytes_deferred / 1024 / 1024))"
+    printf 'Native control status   : %s\n' "${native_control_status}"
     printf 'Process RSS change      : %s\n' "${process_rss_change_text}"
     printf 'Measured RSS targets    : %s\n' "${native_rss_measured_targets}"
     printf 'Unmeasured advised      : %s\n' "${native_rss_unmeasured_targets}"
@@ -959,6 +1051,9 @@ print_result() {
   printf 'cgroup memory.reclaim   : %s\n' "${stage_cgroup_reclaim}"
   if [[ "${reclaim_scope}" != "-" ]]; then
     printf 'Reclaim scope           : %s\n' "${reclaim_scope}"
+    printf 'Reclaim request         : %d MB\n' "${reclaim_request_mb}"
+    printf 'Reclaim scope delta     : %s bytes\n' "${reclaim_scope_delta_bytes}"
+    printf 'Reclaim write cost      : %d ms\n' "${reclaim_duration_ms}"
   fi
 
   if [[ "${selected_mode}" == "aggressive" && "${current_swap_total_kb}" =~ ^[0-9]+$ ]] && (( current_swap_total_kb == 0 )); then

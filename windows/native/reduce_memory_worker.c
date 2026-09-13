@@ -63,6 +63,17 @@ static int filter_contains_name(const WCHAR *filter, const WCHAR *name) {
     return 0;
 }
 
+static int selection_filter_selftest(void) {
+    const WCHAR *filter = L"|Fixture Alpha.exe|工具.exe|";
+    if (!filter_contains_name(filter, L"fixture alpha.exe")) return 1;
+    if (!filter_contains_name(filter, L"工具.exe")) return 2;
+    if (filter_contains_name(filter, L"fixture.exe")) return 3;
+    if (filter_contains_name(filter, L"Fixture Alpha.exe.bak")) return 4;
+    if (filter_contains_name(L"|fixture alpha.exe", L"fixture alpha.exe")) return 5;
+    if (filter_contains_name(NULL, L"fixture alpha.exe")) return 6;
+    return 0;
+}
+
 static int path_location(HANDLE process) {
     WCHAR path[32768];
     WCHAR windows_path[MAX_PATH];
@@ -412,6 +423,9 @@ int wmain(int argc, WCHAR **argv) {
         if (!memory_snapshot(current, &ws, &faults) || !ws) { CloseHandle(current); return 21; }
         CloseHandle(current);
         return 0;
+    }
+    if (argc == 2 && equals_ignore_case(argv[1], L"/selection-selftest")) {
+        return selection_filter_selftest();
     }
     if (argc >= 2 && equals_ignore_case(argv[1], L"/measurement-selftest")) {
         DWORD sleep_ms = 0;

@@ -173,9 +173,24 @@ try {
         }
     }
 
+    $artifactByName = @{}
+    foreach ($artifact in $manifest.artifacts) { $artifactByName[$artifact.file] = $artifact }
+    foreach ($pair in @(
+        @{ Frontend = 'ReduceMemory.exe'; Worker = 'ReduceMemoryWorker.exe'; Architecture = 'x86' },
+        @{ Frontend = 'ReduceMemory_x64.exe'; Worker = 'ReduceMemoryWorker_x64.exe'; Architecture = 'x86_64' }
+    )) {
+        if (-not $artifactByName.ContainsKey($pair.Frontend) -or -not $artifactByName.ContainsKey($pair.Worker)) {
+            throw "Manifest is missing the frontend/worker pair for $($pair.Architecture)"
+        }
+        if ($artifactByName[$pair.Frontend].architecture -ne $pair.Architecture -or
+            $artifactByName[$pair.Worker].architecture -ne $pair.Architecture) {
+            throw "Frontend/worker architecture pair mismatch for $($pair.Architecture)"
+        }
+    }
+
     if (-not $SkipFrontendExecution) {
         foreach ($frontend in @('ReduceMemory.exe', 'ReduceMemory_x64.exe')) {
-            foreach ($selfTest in @('/RMSELFTEST', '/RMMONITORSELFTEST', '/RMMEASUREMENTSELFTEST', '/RMWORKERLIFECYCLESELFTEST')) {
+            foreach ($selfTest in @('/RMSELFTEST', '/RMMONITORSELFTEST', '/RMMEASUREMENTSELFTEST', '/RMWIRESELFTEST', '/RMPLANSELFTEST', '/RMWORKERLIFECYCLESELFTEST')) {
                 $frontendPath = Join-Path $outputRoot $frontend
                 if (-not (Test-Path -LiteralPath $frontendPath -PathType Leaf)) {
                     throw "$frontend disappeared before $selfTest. Check endpoint-security quarantine history for the staged build."
@@ -198,7 +213,7 @@ try {
     }
 
     foreach ($worker in @('ReduceMemoryWorker.exe', 'ReduceMemoryWorker_x64.exe')) {
-        foreach ($selfTest in @('/selftest', '/measurement-selftest')) {
+        foreach ($selfTest in @('/selftest', '/selection-selftest', '/measurement-selftest')) {
             $processExit = Invoke-BoundedProcess -FilePath (Join-Path $outputRoot $worker) -Arguments @($selfTest)
             if ($processExit -ne 0) { throw "$worker $selfTest failed with $processExit" }
         }

@@ -235,3 +235,186 @@ Checkpoint dibuat saat L00 mulai. Ini bukan tanda Phase 1 atau M0 selesai.
   Ia tidak mengubah status bukti yang memerlukan desktop interaktif,
   concurrent Temp path-swap runtime, atau benchmark apples-to-apples; gap
   tersebut tetap pending sampai ada artefak runtime yang sesuai.
+
+### Eksekusi cepat Phase 1 — 2026-09-13
+
+Batch ini tetap berada di Phase 1; Phase 2 tidak disentuh.
+
+- Rebuild staging dari source tip `46cffd4` berhasil ke
+  `build/phase1-luna-rerun-20260913-a`. `BUILD-MANIFEST.json` cocok dengan
+  source commit dan hash `src/ReduceMemory.au3`; artefak x86/x64 dan worker
+  terbuat. Staging dipakai agar `windows/*.exe` aktif dan konfigurasi pengguna
+  tidak tertimpa.
+- Gate lokal yang lulus pada staging/source terbaru: worker protocol v2 x64,
+  optimization-lock contention x64, Temp containment + locked-file behavior,
+  frontend self-test/monitor/measurement/lifecycle x86 dan x64, parent-death
+  Job Object cleanup x86 dan x64,
+  targeted real-trim fixture x64 `371.5 MB` dan x86 `371.3 MB` dengan target
+  disposable tetap hidup,
+  PowerShell parse untuk test Windows yang diubah, `git diff --check`, Python
+  benchmark syntax, 20 unit test `tests/linux/test_native_unit.py`, dan dua
+  benchmark unit test. Linux fixture-isolation serta fake-syscall failure
+  adapter juga lulus; installer/session-accounting live tidak dapat dijalankan
+  penuh dari host Windows ini.
+- `tests/windows/WorkerParentDeath.Tests.ps1` kini memakai polling bounded
+  sampai 15 detik untuk menemukan worker yang benar-benar ber-parent pada
+  frontend, menggantikan asumsi fixed 500 ms. Ini menghilangkan race startup
+  tanpa melemahkan syarat bahwa parent masih hidup saat child diamati.
+- `tests/windows/UiSmoke.Tests.ps1` kini mengikuti handoff AutoIt berdasarkan
+  exact executable path, mencari kontrol pada seluruh descendant tree, menunggu
+  ComboBox semantik, dan membersihkan hanya proses staging tersebut. Pada
+  desktop saat ini kontrol ditemukan tetapi `CB_GETCOUNT` tetap 0; karena itu
+  gate UI belum lulus dan tidak dipromosikan menjadi bukti Phase 1.
+- `tests/benchmark/run_benchmark.py` kini memisahkan `elapsed_ms` dan
+  `available_bytes_after` pada akhir tindakan dari
+  `observation_elapsed_ms`/`available_bytes_after_delay`. Retained sample tidak
+  lagi menggelembungkan durasi action atau delta immediate. Ini memperbaiki
+  validitas harness, tetapi belum menjadi benchmark apples-to-apples baru.
+
+Status saat batch ditutup: implementasi dan regression gates lokal yang dapat
+dijalankan sudah diperketat; sign-off Phase 1 masih pending untuk live
+parent-death/UI interactive, Linux-native/session/installer pada Linux, Temp
+path-swap runtime, dan benchmark apples-to-apples. Tidak ada global trim,
+purge, penghapusan file pengguna, atau perubahan konfigurasi pengguna.
+
+### Verification rerun 2026-09-13 (staging evidence)
+
+- `WorkerParentDeath.Tests.ps1` terhadap staged frontend x86 dan x64 kembali
+  lulus, masing-masing `workers=1`, exit `0`; worker benar-benar teramati
+  sebagai child sebelum parent dihentikan dan tidak bertahan sesudahnya.
+- `WorkerProtocol.Tests.ps1` terhadap staged worker x86 dan x64 kembali
+  lulus, exit `0`, termasuk handshake/session, record count, dan negative
+  protocol cases.
+- `TempContainment.Tests.ps1` terhadap AutoIt toolchain lokal lulus, exit `0`,
+  termasuk broad-root rejection, junction sentinel, locked-file, dan cleanup.
+- UI smoke tetap tidak dipromosikan: pada staging yang dapat diobservasi,
+  kontrol `ComboBox` ditemukan tetapi `CB_GETCOUNT=0`; percobaan handoff
+  `SystemUser` tidak menghasilkan owner staging yang stabil pada desktop ini.
+  Tidak ada klaim UI x86/x64 baru dari percobaan tersebut.
+
+Catatan urutan terbaru: setelah batch Phase 1 ini, persiapan Phase 2 G00/G02
+mulai dicatat terpisah di `docs/PHASE2-LUNA-CHECKPOINT.md`. Ini belum merupakan
+sign-off Phase 1 atau tuning engine Phase 2; gap di atas tetap menjadi
+`BLOCKED_DEPENDENCY` untuk klaim candidate.
+
+### Verifikasi UI semantik in-process — 2026-09-13
+
+- Source `src/ReduceMemory.au3` sekarang melakukan rekonsiliasi defensif pada
+  ComboBox mode melalui HWND native: bila `CB_GETCOUNT` kosong setelah
+  `GUICtrlSetData`, enam mode dipulihkan dengan `CB_ADDSTRING` dan default
+  dipilih kembali. Ini tidak mengubah mode, proses target, atau konfigurasi
+  pengguna di luar kontrol yang sedang dibuat.
+- Ditambahkan `/RMUISMOKETEST` sebagai probe deterministik yang membuat kontrol
+  yang sama, memeriksa jumlah item native sebelum dan sesudah window ditampilkan,
+  lalu menghapus window dan keluar. Build staging x64 terbaru lulus dengan
+  `EXIT=0`; `Au3Check` juga lulus `0 error(s), 0 warning(s)`.
+- Probe ini sengaja dipisahkan dari `UiSmoke.Tests.ps1`: probe in-process
+  membuktikan state kontrol produk, sedangkan probe eksternal lintas-integritas
+  tetap tidak boleh dipakai sebagai klaim isi ComboBox karena Windows UIPI dapat
+  memblokir `CB_GETCOUNT`. Gate UI visual/interaktif masih pending sampai ada
+  observasi pada desktop dengan integritas yang sesuai.
+
+Rerun lokal sesudah perubahan source: Phase 2 discovery `33/33 OK`, benchmark
+discovery `10/10 OK`, PowerShell parse untuk test Windows yang diubah, dan
+`git diff --check` lulus. Tidak ada proses pengguna aktif yang dihentikan.
+
+### Audit lokal lanjutan — 2026-09-13
+
+- Build staging terbaru dari source tip `46cffd4` berhasil ke
+  `build/phase1-ui-reconcile-20260913`; `BUILD-MANIFEST.json` dan verifier
+  lulus. Probe frontend x64 `/RMUISMOKETEST`, `/RMWIRESELFTEST`,
+  `/RMPLANSELFTEST`, `/RMMEASUREMENTSELFTEST`, `/RMMONITORSELFTEST`, dan
+  `/RMWORKERLIFECYCLESELFTEST` masing-masing exit `0`.
+- Worker protocol x86/x64, parent-death x64, dan Temp containment pada staging
+  audit masing-masing exit `0`. PID aplikasi pengguna `19840` tetap berjalan.
+- UI smoke eksternal tetap tidak dipromosikan: percobaan baru mengembalikan
+  `ComboBox has 0 items`, sementara probe in-process yang memakai kontrol
+  produk yang sama tetap exit `0`. Penyebab lingkungan yang terverifikasi:
+  staging tidak dapat mengambil instance window mandiri ketika executable
+  pengguna `19840` memegang single-instance mutex; menghentikan proses itu
+  tidak diizinkan dalam audit ini. Ini bukan bukti bahwa label UI atau callback
+  visual telah terverifikasi eksternal.
+- O4.1 Phase 2 menambah metadata `smaps` sebagai observasi eksplisit tanpa
+  mengubah eligibility; Linux native unit kini `29/29`. Metadata malformed atau
+  negatif tetap unknown, bukan nol.
+
+### Benchmark apples-to-apples terbaru — 2026-09-13
+
+- Wrapper disposable `tests/benchmark/Windows-TrimTrial.ps1` menjalankan target
+  private 256 MiB identik untuk baseline/candidate/no-op. Baseline dan
+  candidate memakai targeted `/RMTRIMTEST`; no-op mempertahankan lifecycle yang
+  sama tanpa mutator. Smoke trim/no-op lulus dan target tetap hidup selama
+  probe.
+- Collector awal sengaja ditolak setelah audit menemukan satu delta CPU tree
+  negatif akibat pembacaan PID sesudah proses terminal. `run_benchmark.py`
+  sekarang hanya memakai sample terakhir saat proses masih hidup; regression
+  `test_terminal_sample_never_reads_reused_pid` dan benchmark discovery lulus.
+- Rerun valid tersimpan di `build/benchmark-phase1-audit-20260913-r2.json` dan
+  summary `...-r2-summary.json`: 15/15 trial completed, 15/15 exit 0, lima
+  repeat per arm, observer +3/+15/+60, `negative_cpu_trials=0`.
+- Raw SHA-256:
+  `6F047D722036F6A589CC9DB89D72AF32C1B3574FCC62572F5E1D62BB906C2FB4`;
+  summary SHA-256:
+  `03E877D41B63FD0754BE8F7E099593B86ED849EED695202542F268A9697F55BC`.
+  Hasil tidak menunjukkan candidate unggul secara konklusif; kedua binary
+  hanya berbeda seam/UI, jadi tidak dipakai untuk memilih tuning Phase 2.
+
+### UI interactive staging rerun - 2026-09-13
+
+- Untuk memisahkan desktop UI gate dari instance pengguna aktif, source staging
+  menambahkan `/RMUIINTERACTIVETEST`. Mode ini hanya mengizinkan executable
+  test-owned melewati single-instance check, membuka GUI produksi yang sama,
+  dan tidak menjalankan mutator/optimization command. Jalur normal dan semua
+  command mutating tetap memakai mutex production.
+- `tests/windows/UiSmoke.Tests.ps1` sekarang menjalankan executable staging
+  dengan mode tersebut, melakukan selection melalui focus/keyboard path, dan
+  memverifikasi mapping callback `OptimizeMode` yang benar (`0,5,1,2,3,4`)
+  dengan toleransi CRLF pada INI. Ini memperbaiki dua false negative harness:
+  command smoke lama hanya hidup 100 ms, dan regex INI gagal pada CRLF.
+- Staging baru `build/phase1-ui-interactive-20260913` x64 lulus penuh:
+  `UI smoke passed: ReduceMemory_x64.exe; modes=6; selection-binding=passed`.
+  Au3Check source tetap `0 error(s), 0 warning(s)` dan PowerShell parser lulus.
+- Smoke x86 pada host desktop ini belum terminal dalam batas observasi
+  bounded dan dihentikan sebagai `PENDING_ENV`; tidak ada proses pengguna
+  PID `19840` yang disentuh. Karena itu gate Phase 1 UI sekarang **PASS untuk
+  x64 staging**, tetapi **PARTIAL/PENDING_ENV untuk pasangan x86+x64 penuh**.
+
+### Fresh build-contract rerun — 2026-09-13
+
+- `tests/windows/Build.Tests.ps1 -SkipFrontendExecution` pada
+  `build/phase1-build-contract-20260913` lulus: M0 baseline, Windows build
+  3.0, manifest hash verification, dan worker tests.
+- Worker protocol v2 x86/x64, parent-death x64, dan UI smoke x64 terhadap
+  stage tersebut masing-masing exit `0`; UI x64 kembali melaporkan enam mode
+  dan `selection-binding=passed`.
+- Temp containment/locked-file test kembali exit `0`.
+- Compiled frontend self-test x86 dan interactive UI x86 tetap belum
+  terminal pada desktop ini; `-SkipFrontendExecution` memperkuat
+  build/manifest/worker evidence tetapi tidak menutup x86 frontend runtime
+  gate.
+
+### X86 startup isolation evidence - 2026-09-13
+
+- Diagnostic-only AutoIt x86 compiled probes under `tests/windows/` were run
+  without the ReduceMemory source path, worker, mutex, registry mutation, or
+  memory mutation.
+- The minimal launch probe accepted `/RMUISMOKETEST` and exited `0`; the
+  extended probe also completed resource loading, SID lookup, INI/language
+  operations, and the six-item ComboBox/UI message path with exit `0`.
+- This proves the pinned compiler/runtime and basic x86 GUI path can launch,
+  but does not close the compiled ReduceMemory x86 frontend gate: the product
+  binary still fails to return from its bounded launch path and remains
+  `PENDING_ENV`.
+
+### X86 compiled-product differential check - 2026-09-13
+
+- The same bounded launch was reproduced with the current Phase 2 staging
+  binary and with a fresh x86 compilation of the pre-Phase-2 `HEAD`
+  worktree source. Both compiled product binaries blocked before an observable
+  process completion, while the pinned x86 interpreter running the current
+  source exited `/RMWIRESELFTEST` with `0`.
+- The independent x86 startup probes still exit `0`, so the evidence narrows
+  the issue to the compiled ReduceMemory product/toolchain-host interaction;
+  it is not evidence for changing the reclaim algorithm or weakening the
+  production mutex. The x86 frontend gate remains `PENDING_ENV` until a clean
+  interactive Windows runner can capture loader/startup evidence.

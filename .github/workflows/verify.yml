@@ -342,9 +342,10 @@ jobs:
           bash -n tests/linux/test_session_accounting.sh
           bash -n tests/linux/test_installers.sh
           python3 -m py_compile linux/native/reduce-memory-native
-          python3 -m py_compile tests/benchmark/run_benchmark.py tests/benchmark/summarize_benchmark.py tests/benchmark/workload_memory.py tests/benchmark/latency_probe.py
+          python3 -m py_compile tests/benchmark/run_benchmark.py tests/benchmark/summarize_benchmark.py tests/benchmark/workload_memory.py tests/benchmark/latency_probe.py tests/phase2/contract_harness.py tests/phase2/trial_controller.py tests/phase2/reclaim_plan.py tests/phase2/compatibility_harness.py tests/phase2/baseline_manifest.py tests/phase2/trial_config.py tests/phase2/decision_rules.py tests/phase2/abi_contract.py
           python3 -c 'import os, sys; sys.path.insert(0, "tests/benchmark"); import run_benchmark; assert run_benchmark.cpu_seconds(os.getpid()) is not None'
-          python3 -m unittest tests/benchmark/test_latency_probe.py
+          python3 -m unittest discover -s tests/benchmark -p 'test_*.py'
+          python3 -m unittest discover -s tests/phase2 -p 'test_*.py'
           python3 tests/benchmark/latency_probe.py --command 'python3 tests/benchmark/workload_memory.py --megabytes 1 --seconds 0' --iterations 3 --timeout 5 --output "${RUNNER_TEMP}/latency-smoke.json"
           for pattern in private file-cache retouch hot new-allocation short-lived; do
             python3 tests/benchmark/workload_memory.py --megabytes 1 --seconds 0.05 --pattern "${pattern}"

@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "$(uname -s)" != "Linux" ]]; then
+  printf '%s\n' 'SKIPPED: Linux installer runtime requires a Linux/WSL2 host.'
+  exit 0
+fi
+
 repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 temporary_root="$(mktemp -d "${TMPDIR:-/tmp}/reduce-memory-install.XXXXXX")"
 trap 'rm -rf -- "${temporary_root}"' EXIT

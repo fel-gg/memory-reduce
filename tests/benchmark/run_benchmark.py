@@ -12,6 +12,135 @@ def sha256_file(path: Path) -> str:
             digest.update(chunk)
     return digest.hexdigest()
 
+
+def process_identity(pid: int) -> str | None:
+    """Return a PID-reuse-resistant birth identity when the OS exposes one."""
+    try:
+        if os.name == "nt":
+            class FileTime(ctypes.Structure):
+                _fields_ = [("low", ctypes.c_ulong), ("high", ctypes.c_ulong)]
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+            kernel32.OpenProcess.restype = ctypes.c_void_p
+            kernel32.GetProcessTimes.argtypes = [ctypes.c_void_p, ctypes.POINTER(FileTime),
+                                                  ctypes.POINTER(FileTime), ctypes.POINTER(FileTime), ctypes.POINTER(FileTime)]
+            kernel32.GetProcessTimes.restype = ctypes.c_int
+            kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+            kernel32.CloseHandle.restype = ctypes.c_int
+            handle = kernel32.OpenProcess(0x1000, False, pid)
+            if not handle:
+                return None
+            creation, exit_time, kernel_time, user_time = (FileTime(), FileTime(), FileTime(), FileTime())
+            try:
+                if not kernel32.GetProcessTimes(handle, ctypes.byref(creation), ctypes.byref(exit_time),
+                                                ctypes.byref(kernel_time), ctypes.byref(user_time)):
+                    return None
+                value = (int(creation.high) << 32) | int(creation.low)
+                return f"win:{value:016X}"
+            finally:
+                kernel32.CloseHandle(handle)
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
+        fields = stat[stat.rfind(")") + 2 :].split()
+        return f"linux:{fields[19]}" if len(fields) > 19 else None
+    except (OSError, ValueError, IndexError, AttributeError):
+        return None
+
+
+def _linux_parent_map() -> dict[int, int]:
+    parents: dict[int, int] = {}
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            stat = (entry / "stat").read_text(encoding="ascii")
+            fields = stat[stat.rfind(")") + 2 :].split()
+            if len(fields) > 1:
+                parents[int(entry.name)] = int(fields[1])
+        except (OSError, ValueError, IndexError):
+            continue
+    return parents
+
+
+def _windows_parent_map() -> dict[int, int]:
+    class ProcessEntry32W(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", ctypes.c_ulong), ("cntUsage", ctypes.c_ulong),
+            ("th32ProcessID", ctypes.c_ulong), ("th32DefaultHeapID", ctypes.c_void_p),
+            ("th32ModuleID", ctypes.c_ulong), ("cntThreads", ctypes.c_ulong),
+            ("th32ParentProcessID", ctypes.c_ulong), ("pcPriClassBase", ctypes.c_long),
+            ("dwFlags", ctypes.c_ulong), ("szExeFile", ctypes.c_wchar * 260),
+        ]
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateToolhelp32Snapshot.argtypes = [ctypes.c_ulong, ctypes.c_ulong]
+    kernel32.CreateToolhelp32Snapshot.restype = ctypes.c_void_p
+    kernel32.Process32FirstW.argtypes = [ctypes.c_void_p, ctypes.POINTER(ProcessEntry32W)]
+    kernel32.Process32FirstW.restype = ctypes.c_int
+    kernel32.Process32NextW.argtypes = [ctypes.c_void_p, ctypes.POINTER(ProcessEntry32W)]
+    kernel32.Process32NextW.restype = ctypes.c_int
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel32.CloseHandle.restype = ctypes.c_int
+    invalid = ctypes.c_void_p(-1).value
+    snapshot = kernel32.CreateToolhelp32Snapshot(0x00000002, 0)
+    if not snapshot or snapshot == invalid:
+        return {}
+    parents: dict[int, int] = {}
+    entry = ProcessEntry32W(); entry.dwSize = ctypes.sizeof(entry)
+    try:
+        if not kernel32.Process32FirstW(snapshot, ctypes.byref(entry)):
+            return parents
+        while True:
+            parents[int(entry.th32ProcessID)] = int(entry.th32ParentProcessID)
+            if not kernel32.Process32NextW(snapshot, ctypes.byref(entry)):
+                break
+    finally:
+        kernel32.CloseHandle(snapshot)
+    return parents
+
+
+def process_tree_pids(root_pid: int) -> tuple[list[int], str]:
+    """Return the root and currently observable descendants, with scope status."""
+    try:
+        parents = _windows_parent_map() if os.name == "nt" else _linux_parent_map()
+    except (OSError, ValueError, AttributeError):
+        return [root_pid], "direct_only:parent_map_unavailable"
+    if root_pid not in parents:
+        return [root_pid], "direct_only:root_unavailable"
+    children: dict[int, list[int]] = {}
+    for child, parent in parents.items():
+        children.setdefault(parent, []).append(child)
+    result = [root_pid]
+    pending = [root_pid]
+    while pending:
+        parent = pending.pop()
+        for child in children.get(parent, []):
+            if child not in result:
+                result.append(child)
+                pending.append(child)
+    return result, "complete"
+
+
+def process_tree_snapshot(root_pid: int) -> dict[str, object]:
+    pids, status = process_tree_pids(root_pid)
+    rss_total = 0
+    cpu_total = 0.0
+    rss_known = 0
+    cpu_known = 0
+    identities: dict[int, str] = {}
+    for pid in pids:
+        identity = process_identity(pid)
+        if identity is not None:
+            identities[pid] = identity
+        rss = rss_bytes(pid)
+        if rss is not None:
+            rss_total += rss
+            rss_known += 1
+        cpu = cpu_seconds(pid)
+        if cpu is not None:
+            cpu_total += cpu
+            cpu_known += 1
+    return {"pids": pids, "status": status, "rss_bytes": rss_total if rss_known else None,
+            "cpu_seconds": cpu_total if cpu_known else None, "identities": identities}
+
 def rss_bytes(pid: int) -> int | None:
     """Best-effort resident-size sample; unavailable is recorded as null."""
     try:
@@ -144,6 +273,11 @@ def swap_bytes(pid: int) -> int | None:
 def run_trial(label: str, command: str, timeout: float, after_seconds: list[float]) -> dict[str, object]:
     started = time.perf_counter()
     peak_rss = None
+    tree_peak_rss = None
+    tree_before: dict[str, object] | None = None
+    tree_last: dict[str, object] | None = None
+    tree_identities: dict[int, str] = {}
+    tree_status = "unavailable"
     before_available = available_bytes()
     faults_before = None
     faults_after = None
@@ -160,6 +294,10 @@ def run_trial(label: str, command: str, timeout: float, after_seconds: list[floa
     try:
         process = subprocess.Popen(shlex.split(command, posix=(os.name != "nt")),
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        tree_before = process_tree_snapshot(process.pid)
+        tree_last = tree_before
+        tree_status = str(tree_before["status"])
+        tree_identities.update(tree_before["identities"])
         faults_before = fault_counts(process.pid)
         cpu_before = cpu_seconds(process.pid)
         io_before = io_bytes(process.pid)
@@ -167,6 +305,12 @@ def run_trial(label: str, command: str, timeout: float, after_seconds: list[floa
         while process.poll() is None:
             sample = rss_bytes(process.pid)
             if sample is not None: peak_rss = max(peak_rss or 0, sample)
+            tree_sample = process_tree_snapshot(process.pid)
+            tree_last = tree_sample
+            tree_identities.update(tree_sample["identities"])
+            tree_sample_rss = tree_sample["rss_bytes"]
+            if tree_sample_rss is not None:
+                tree_peak_rss = max(tree_peak_rss or 0, int(tree_sample_rss))
             current_faults = fault_counts(process.pid)
             if current_faults is not None: last_faults = current_faults
             current_cpu = cpu_seconds(process.pid)
@@ -179,19 +323,27 @@ def run_trial(label: str, command: str, timeout: float, after_seconds: list[floa
                 process.kill(); process.communicate(); raise subprocess.TimeoutExpired(command, timeout)
             time.sleep(0.05)
         stdout, stderr = process.communicate()
-        sample = rss_bytes(process.pid)
-        if sample is not None: peak_rss = max(peak_rss or 0, sample)
-        faults_after = fault_counts(process.pid) or last_faults
-        cpu_after = cpu_seconds(process.pid) or last_cpu
-        io_after = io_bytes(process.pid) or last_io
-        swap_after = swap_bytes(process.pid)
-        if swap_after is None: swap_after = last_swap
+        # The PID is no longer owned after communicate() returns. A final
+        # read can observe a reused PID and fabricate negative CPU/fault/RSS
+        # deltas. The last samples captured while the process tree was live
+        # are the only post-action observations admitted to the trial.
+        faults_after = last_faults
+        cpu_after = last_cpu
+        io_after = last_io
+        swap_after = last_swap
         status, exit_code = "completed", process.returncode
     except subprocess.TimeoutExpired as error:
         status, exit_code = "timeout", None
         stdout, stderr = "", ""
+    # Freeze action metrics before any retained-observation sleeps.  The
+    # benchmark's elapsed time and immediate available-memory delta describe
+    # the command under test; +3/+15/+60 observations must not inflate either
+    # value by the time spent waiting for them.
+    action_ended = time.perf_counter()
+    action_elapsed_ms = round((action_ended - started) * 1000, 3)
+    available_after_action = available_bytes()
     delayed_available = {}
-    delayed_started = time.perf_counter()
+    delayed_started = action_ended
     for delay in after_seconds:
         # Delays are offsets from the end of the trial, not cumulative sleeps.
         # With [3, 15, 60] this records the requested +3/+15/+60 samples
@@ -203,11 +355,21 @@ def run_trial(label: str, command: str, timeout: float, after_seconds: list[floa
         delayed_available[str(delay)] = sample
     return {"label": label, "command": command, "status": status,
             "exit_code": exit_code,
-            "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
+            "elapsed_ms": action_elapsed_ms,
+            "observation_elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
             "available_bytes_before": before_available,
-            "available_bytes_after": available_bytes(),
+            "available_bytes_after": available_after_action,
             "available_bytes_after_delay": delayed_available,
             "peak_rss_bytes": peak_rss,
+            "process_tree_peak_rss_bytes": tree_peak_rss,
+            "process_tree_cpu_seconds_delta": (
+                float(tree_last["cpu_seconds"]) - float(tree_before["cpu_seconds"])
+                if tree_before is not None and tree_last is not None
+                and tree_before.get("cpu_seconds") is not None and tree_last.get("cpu_seconds") is not None
+                else None
+            ),
+            "process_tree_pids_seen": len(tree_identities),
+            "process_tree_status": tree_status,
             "faults_before": faults_before,
             "faults_after": faults_after,
             "faults_delta": ({key: faults_after[key] - faults_before[key] for key in faults_before}

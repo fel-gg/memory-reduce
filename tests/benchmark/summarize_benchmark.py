@@ -37,8 +37,21 @@ def main() -> int:
     for label, trials in groups.items():
         durations = [float(t["elapsed_ms"]) for t in trials]
         rss = [int(t["peak_rss_bytes"]) for t in trials if t.get("peak_rss_bytes") is not None]
+        tree_rss = [int(t["process_tree_peak_rss_bytes"]) for t in trials
+                    if t.get("process_tree_peak_rss_bytes") is not None]
+        tree_cpu = [float(t["process_tree_cpu_seconds_delta"]) for t in trials
+                     if t.get("process_tree_cpu_seconds_delta") is not None]
         available = [int(t["available_bytes_after"]) - int(t["available_bytes_before"])
                      for t in trials if t.get("available_bytes_before") is not None and t.get("available_bytes_after") is not None]
+        retained: dict[str, list[int]] = {}
+        for trial in trials:
+            before = trial.get("available_bytes_before")
+            delayed = trial.get("available_bytes_after_delay")
+            if before is None or not isinstance(delayed, dict):
+                continue
+            for offset, value in delayed.items():
+                if value is not None:
+                    retained.setdefault(str(offset), []).append(int(value) - int(before))
         cpu = [float(t["cpu_seconds_delta"]) for t in trials if t.get("cpu_seconds_delta") is not None]
         swap = [float(t["swap_bytes_delta"]) for t in trials if t.get("swap_bytes_delta") is not None]
         minor_faults = [float(t["faults_delta"]["minor"]) for t in trials
@@ -50,8 +63,14 @@ def main() -> int:
                                          "median_ci95": median_ci95(durations, 1009)},
                           "peak_rss_bytes": {"median": statistics.median(rss), "min": min(rss), "max": max(rss),
                                              "median_ci95": median_ci95([float(v) for v in rss], 1011)} if rss else None,
+                          "process_tree_peak_rss_bytes": numeric_summary([float(v) for v in tree_rss], 1022),
+                          "process_tree_cpu_seconds_delta": numeric_summary(tree_cpu, 1024),
                           "available_delta_bytes": {"median": statistics.median(available), "min": min(available), "max": max(available),
                                                      "median_ci95": median_ci95([float(v) for v in available], 1013)} if available else None,
+                          "available_delta_after_delay_bytes": {
+                              offset: numeric_summary(values, 1023 + index)
+                              for index, (offset, values) in enumerate(sorted(retained.items()))
+                          },
                           "cpu_seconds_delta": numeric_summary(cpu, 1015),
                           "swap_bytes_delta": numeric_summary(swap, 1017),
                           "faults_delta": {"minor": numeric_summary(minor_faults, 1019),

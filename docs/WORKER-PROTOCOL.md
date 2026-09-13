@@ -16,6 +16,15 @@ angka di luar rentang, enum yang tidak dikenal, session yang salah, dan record
 identity yang berulang. Hasil invalid tidak boleh mengubah ledger, history,
 atau total UI.
 
+Frontend AutoIt menyimpan metric protocol sebagai angka native yang harus tetap
+exact sebelum masuk ke ledger. Karena representasi numeriknya adalah IEEE-754
+double, nilai desimal metric di atas `9007199254740991` (2^53-1) ditolak
+sebelum konversi; worker tidak boleh mengirim nilai tersebut sebagai telemetry
+yang harus diproses frontend. Creation-time 64-bit tetap dibawa sebagai 16
+digit hexadecimal string dan tidak dikonversi ke floating point. Ini adalah
+batas exactness frontend, bukan izin untuk memotong angka atau mengubahnya
+menjadi nol.
+
 ## Envelope result
 
 Contoh valid (metric dapat bertambah hanya melalui perubahan kontrak producer,

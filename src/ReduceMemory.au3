@@ -233,6 +233,10 @@ Global $RM_StartupMonitorIntervalSeconds = RM_ReadBoundedInt ( "StartupMonitorIn
 Global $RM_StartupMonitorCooldownSeconds = RM_ReadBoundedInt ( "StartupMonitorCooldownSeconds" , 300 , 60 , 3600 )
 Global $RM_StartupDelaySeconds = RM_ReadBoundedInt ( "StartupDelaySeconds" , 10 , 0 , 120 )
 Global $RM_StartupConfirmSamples = RM_ReadBoundedInt ( "StartupConfirmSamples" , 2 , 2 , 10 )
+; Only the disposable UI integration smoke may bypass the normal executable
+; single-instance check. Production startup and every mutating command retain
+; the existing ownership boundary.
+Global $RM_SkipSingleInstance = 0
 Global $A3FF090012D = A5560304940 ( $A25F0A03415 , 1 , 0 , 1 )
 Global $A1DF0B03725 = A1160200452 ( $A45D0C00410 , $A2AF0C0551E , $A2DF0D02906 , $A5580E05E46 )
 $A1DF0B03725 = A5720304C54 ( $A1DF0B03725 , 1 )
@@ -248,7 +252,7 @@ EndIf
 Global $A3201805C5F = $A5101402158
 Local $A2601902115 = 0
 RM_HandleCommandLine ( )
-If $A38E0C03950 = 1 And $A2FA0C0483E = 1 And $A1BA0E00F18 = 1 And $A38D0702849 = 0 Then
+If $RM_SkipSingleInstance = 0 And $A38E0C03950 = 1 And $A2FA0C0483E = 1 And $A1BA0E00F18 = 1 And $A38D0702849 = 0 Then
 	Local $A1401A05743 = A6230A05C33 ( $A5BB0001B63 , $CMDLINERAW , $A4CB0F0301B )
 	If ProcessExists ( $A1401A05743 ) <> 0 Then Exit
 EndIf
@@ -306,6 +310,7 @@ Func RM_RunMainWindow ( )
 	Local $RM_ModeDefault = RM_GetModeName ( )
 	$RM_ModeControl = GUICtrlCreateCombo ( "" , 115 , 165 , 295 , 25 , 3 )
 	GUICtrlSetData ( $RM_ModeControl , $RM_MODE_OPTIONS , $RM_ModeDefault )
+	RM_EnsureModeList ( $RM_ModeControl , $RM_ModeDefault )
 
 	GUICtrlSetOnEvent ( $RM_ModeControl , "RM_ModeChanged" )
 	$A3C21204863 = GUICtrlCreateButton ( $A2F80F00960 , 285 , 15 , 125 , 30 , 1 )
@@ -362,6 +367,11 @@ Func RM_RunMainWindow ( )
 	Else
 		GUISetState ( Execute ( $A0231904840 ) , $A59A0605008 )
 	EndIf
+	; Reconcile once after the native window is visible as well. Some themed
+	; desktop/control-host combinations defer ComboBox item creation until the
+	; first show; this keeps the visible production control authoritative without
+	; changing the selected mode or its callback contract.
+	RM_EnsureModeList ( $RM_ModeControl , $RM_ModeDefault )
 	If $A2601902115 <> 0 Then
 		RM_ShowOptionsWindow ( )
 	EndIf
@@ -1321,6 +1331,14 @@ Func RM_ParseWorkerResult ( $RM_ResultText , $RM_ExpectedSession = "" )
 	For $RM_FieldIndex = 1 To 16
 		If Not StringRegExp ( StringStripWS ( $RM_ResultFields [ $RM_FieldIndex ] , 3 ) , "^-?[0-9]+$" ) Then Return - 1
 	Next
+	If Not RM_IsAutoItExactSignedText ( $RM_ResultFields [ 1 ] ) Or Not RM_IsAutoItExactUnsignedText ( $RM_ResultFields [ 2 ] ) Or Not RM_IsAutoItExactSignedText ( $RM_ResultFields [ 3 ] ) Then Return - 1
+	If Not RM_IsAutoItExactUnsignedText ( $RM_ResultFields [ 4 ] ) Or Not RM_IsAutoItExactUnsignedText ( $RM_ResultFields [ 5 ] ) Then Return - 1
+	For $RM_ExactSignedFieldIndex = 6 To 8
+		If Not RM_IsAutoItExactSignedText ( $RM_ResultFields [ $RM_ExactSignedFieldIndex ] ) Then Return - 1
+	Next
+	For $RM_ExactUnsignedFieldIndex = 9 To 16
+		If Not RM_IsAutoItExactUnsignedText ( $RM_ResultFields [ $RM_ExactUnsignedFieldIndex ] ) Then Return - 1
+	Next
 	Local $RM_ParsedExitCode = Int ( Number ( StringStripWS ( $RM_ResultFields [ 1 ] , 3 ) ) )
 	Local $RM_ParsedTrimmed = Int ( Number ( StringStripWS ( $RM_ResultFields [ 2 ] , 3 ) ) )
 	Local $RM_ParsedReleased = Number ( StringStripWS ( $RM_ResultFields [ 3 ] , 3 ) )
@@ -1466,6 +1484,30 @@ Func RM_ModeChanged ( )
 		EndIf
 	Next
 	IniWrite ( @ScriptDir & "\ReduceMemory.ini" , "Main" , "OptimizeMode" , $RM_OptimizeMode )
+EndFunc
+
+Func RM_EnsureModeList ( $RM_ControlID , $RM_DefaultText = "Normal Optimize" )
+	; AutoIt's selected text can be populated while the native list remains
+	; empty on a themed desktop. Repair the list through the control HWND and
+	; return the authoritative native item count for self-tests/UI consumers.
+	Local $RM_Handle = GUICtrlGetHandle ( $RM_ControlID )
+	If $RM_Handle = 0 Then Return 0
+	Local $RM_Count = DllCall ( "user32.dll" , "int" , "SendMessageW" , "hwnd" , $RM_Handle , "uint" , 326 , "ptr" , 0 , "ptr" , 0 )
+	If @error Or Not IsArray ( $RM_Count ) Then Return 0
+	If $RM_Count [ 0 ] = 0 Then
+		Local $RM_Parts = StringSplit ( $RM_MODE_OPTIONS , "|" , 1 )
+		For $RM_Index = 1 To $RM_Parts [ 0 ]
+			DllCall ( "user32.dll" , "int" , "SendMessageW" , "hwnd" , $RM_Handle , "uint" , 323 , "ptr" , 0 , "wstr" , $RM_Parts [ $RM_Index ] )
+		Next
+		Local $RM_DefaultPosition = StringInStr ( $RM_MODE_OPTIONS , $RM_DefaultText )
+		If $RM_DefaultPosition > 0 Then
+			$RM_DefaultPosition = StringLen ( StringLeft ( $RM_MODE_OPTIONS , $RM_DefaultPosition - 1 ) ) - StringLen ( StringReplace ( StringLeft ( $RM_MODE_OPTIONS , $RM_DefaultPosition - 1 ) , "|" , "" ) )
+			DllCall ( "user32.dll" , "int" , "SendMessageW" , "hwnd" , $RM_Handle , "uint" , 327 , "ptr" , $RM_DefaultPosition , "ptr" , 0 )
+		EndIf
+		$RM_Count = DllCall ( "user32.dll" , "int" , "SendMessageW" , "hwnd" , $RM_Handle , "uint" , 326 , "ptr" , 0 , "ptr" , 0 )
+	EndIf
+	If @error Or Not IsArray ( $RM_Count ) Then Return 0
+	Return $RM_Count [ 0 ]
 EndFunc
 
 Func RM_GetModeName ( $RM_Mode = - 1 )
@@ -2007,6 +2049,52 @@ Func RM_HandleCommandLine ( )
 	If $CMDLINE [ 1 ] = "/RMMEASUREMENTSELFTEST" Then
 		If RM_MeasurementContractSelfTest ( ) <> 1 Then Exit 60
 		Exit 0
+	EndIf
+	If $CMDLINE [ 1 ] = "/RMWIRESELFTEST" Then
+		Local $RM_WireHuge = "protocol=2" & @LF & "session=wiretest" & @LF & "terminal=done" & @LF & "mutated=1" & @LF & "exit_code=0" & @LF & "trimmed=9007199254740992" & @LF & "resident_delta=0" & @LF & "record_count=0" & @LF & "measured=0" & @LF & "unmeasured=0" & @LF
+		If RM_ParseNativeProcessResult ( $RM_WireHuge , "wiretest" ) <> - 1 Then Exit 90
+		Exit 0
+	EndIf
+	If $CMDLINE [ 1 ] = "/RMPLANSELFTEST" Then
+		Local $RM_PlanWorker = RM_GetNativeWorkerPath ( )
+		If StringLen ( $RM_PlanWorker ) = 0 Then Exit 70
+		Local $RM_PlanSession = "PHASE2SELFTEST"
+		Local $RM_PlanStage = RM_BuildWindowsProcessStage ( $RM_PlanWorker , $RM_PROFILE_AGGRESSIVE , 0 , "|selftest.exe|" , $RM_PlanSession , @TempDir & "\phase2-plan.result" , @TempDir & "\phase2-plan.ready" )
+		If Not IsObj ( $RM_PlanStage ) Or RM_ValidateWindowsProcessStage ( $RM_PlanStage ) <> 1 Then Exit 71
+		If StringInStr ( $RM_PlanStage.Item ( "command" ) , "/profile=2" ) = 0 Or StringInStr ( $RM_PlanStage.Item ( "command" ) , "/session=" & $RM_PlanSession ) = 0 Then Exit 72
+		Local $RM_IncludeStage = RM_BuildWindowsProcessStage ( $RM_PlanWorker , $RM_PROFILE_NORMAL , 1 , "|fixture.exe|" , $RM_PlanSession , @TempDir & "\phase2-plan-include.result" , @TempDir & "\phase2-plan-include.ready" )
+		If Not IsObj ( $RM_IncludeStage ) Or RM_ValidateWindowsProcessStage ( $RM_IncludeStage ) <> 1 Then Exit 73
+		If StringInStr ( $RM_IncludeStage.Item ( "command" ) , '/include="|fixture.exe|"' ) = 0 Then Exit 74
+		If IsObj ( RM_BuildWindowsProcessStage ( $RM_PlanWorker , $RM_PROFILE_AI_SHIELD + 1 , 0 , "" , $RM_PlanSession , @TempDir & "\phase2-plan-bad.result" , @TempDir & "\phase2-plan-bad.ready" ) ) Then Exit 75
+		Exit 0
+	EndIf
+	If $CMDLINE [ 1 ] = "/RMUISMOKETEST" Then
+		Local $RM_UiSmokeWindow = GUICreate ( "Reduce Memory UI Smoke" , 420 , 120 )
+		Local $RM_UiSmokeCombo = GUICtrlCreateCombo ( "" , 10 , 20 , 390 , 25 , 3 )
+		GUICtrlSetData ( $RM_UiSmokeCombo , $RM_MODE_OPTIONS , $RM_MODE_NORMAL )
+		If RM_EnsureModeList ( $RM_UiSmokeCombo , "Normal Optimize" ) <> 6 Then
+			GUIDelete ( $RM_UiSmokeWindow )
+			Exit 80
+		EndIf
+		GUISetState ( @SW_SHOW , $RM_UiSmokeWindow )
+		Sleep ( 100 )
+		GUIGetMsg ( )
+		Local $RM_UiSmokeParts = StringSplit ( $RM_MODE_OPTIONS , "|" , 1 )
+		Local $RM_UiSmokeHandle = GUICtrlGetHandle ( $RM_UiSmokeCombo )
+		Local $RM_UiSmokePostShowCount = DllCall ( "user32.dll" , "int" , "SendMessageW" , "hwnd" , $RM_UiSmokeHandle , "uint" , 326 , "ptr" , 0 , "ptr" , 0 )
+		If Not IsArray ( $RM_UiSmokePostShowCount ) Or $RM_UiSmokePostShowCount [ 0 ] <> $RM_UiSmokeParts [ 0 ] Then
+			GUIDelete ( $RM_UiSmokeWindow )
+			Exit 81
+		EndIf
+		GUIDelete ( $RM_UiSmokeWindow )
+		Exit 0
+	EndIf
+	If $CMDLINE [ 1 ] = "/RMUIINTERACTIVETEST" Then
+		; Launch the real production window for the disposable UI harness. The
+		; harness owns this staging executable and closes it after exercising the
+		; actual ComboBox callback; no mutating optimization command is run.
+		$RM_SkipSingleInstance = 1
+		Return 0
 	EndIf
 	If $CMDLINE [ 1 ] = "/RMWORKERLIFECYCLESELFTEST" Then
 		Local $RM_LifecycleWorker = RM_GetNativeWorkerPath ( )
@@ -3034,6 +3122,25 @@ Func RM_IsInt64Text ( $RM_Text )
 	Return StringLeft ( $RM_Text , 1 ) = "-"
 EndFunc
 
+; AutoIt's numeric value is a double. Keep the wire contract honest by
+; rejecting integers that would be rounded before they enter the numeric
+; session ledger. Creation-time identity remains a validated hex string and
+; is never converted to a floating-point number.
+Func RM_IsAutoItExactUnsignedText ( $RM_Text )
+	If Not RM_IsUInt64Text ( $RM_Text ) Then Return 0
+	Local $RM_Normalized = StringRegExpReplace ( $RM_Text , "^0+" , "" )
+	If StringLen ( $RM_Normalized ) = 0 Then Return 1
+	If StringLen ( $RM_Normalized ) < 16 Then Return 1
+	If StringLen ( $RM_Normalized ) > 16 Then Return 0
+	Return StringCompare ( $RM_Normalized , "9007199254740991" , 1 ) <= 0
+EndFunc
+
+Func RM_IsAutoItExactSignedText ( $RM_Text )
+	Local $RM_Unsigned = $RM_Text
+	If StringLeft ( $RM_Unsigned , 1 ) = "-" Then $RM_Unsigned = StringTrimLeft ( $RM_Unsigned , 1 )
+	Return RM_IsAutoItExactUnsignedText ( $RM_Unsigned )
+EndFunc
+
 Func RM_NewSessionID ( )
 	Return Hex ( @AutoItPID , 8 ) & Hex ( Int ( TimerInit ( ) ) , 8 ) & Hex ( Random ( 0 , 0x7FFFFFFF , 1 ) , 8 )
 EndFunc
@@ -3143,7 +3250,7 @@ Func RM_ParseNativeProcessResult ( $RM_ResultText , $RM_ExpectedSession = "" )
 	If StringLen ( $RM_ExpectedSession ) > 0 And $RM_Session <> $RM_ExpectedSession Then Return - 1
 	If $RM_Terminal <> "done" And $RM_Terminal <> "partial" Then Return - 1
 	If Not StringRegExp ( $RM_Mutated , "^[01]$" ) Or Not StringRegExp ( $RM_ExitCode , "^[0-9]+$" ) Or Int ( $RM_ExitCode ) <> 0 Then Return - 1
-	If Not RM_IsUInt64Text ( $RM_TrimmedText ) Or Not RM_IsInt64Text ( $RM_ReleasedText ) Or Not RM_IsUInt64Text ( $RM_CountText ) Then Return - 1
+	If Not RM_IsAutoItExactUnsignedText ( $RM_TrimmedText ) Or Not RM_IsAutoItExactSignedText ( $RM_ReleasedText ) Or Not RM_IsAutoItExactUnsignedText ( $RM_CountText ) Then Return - 1
 	Local $RM_Trimmed = Int ( $RM_TrimmedText )
 	Local $RM_ReleasedBytes = Number ( $RM_ReleasedText )
 	Local $RM_TargetCount = Int ( $RM_CountText )
@@ -3156,7 +3263,7 @@ Func RM_ParseNativeProcessResult ( $RM_ResultText , $RM_ExpectedSession = "" )
 		If @error Then Return - 1
 		Local $RM_TargetFields = StringSplit ( $RM_RecordLine , "|" , 1 )
 		If Not IsArray ( $RM_TargetFields ) Or $RM_TargetFields [ 0 ] <> 7 Then Return - 1
-		If Not RM_IsUInt64Text ( $RM_TargetFields [ 1 ] ) Or Not StringRegExp ( $RM_TargetFields [ 2 ] , "^[0-9A-Fa-f]{16}$" ) Or Not RM_IsUInt64Text ( $RM_TargetFields [ 3 ] ) Or Not RM_IsUInt64Text ( $RM_TargetFields [ 4 ] ) Or Not RM_IsUInt64Text ( $RM_TargetFields [ 5 ] ) Then Return - 1
+		If Not RM_IsAutoItExactUnsignedText ( $RM_TargetFields [ 1 ] ) Or Not StringRegExp ( $RM_TargetFields [ 2 ] , "^[0-9A-Fa-f]{16}$" ) Or Not RM_IsAutoItExactUnsignedText ( $RM_TargetFields [ 3 ] ) Or Not RM_IsAutoItExactUnsignedText ( $RM_TargetFields [ 4 ] ) Or Not RM_IsAutoItExactUnsignedText ( $RM_TargetFields [ 5 ] ) Then Return - 1
 		If $RM_TargetFields [ 6 ] <> "measured" And $RM_TargetFields [ 6 ] <> "after_unknown" And $RM_TargetFields [ 6 ] <> "identity_changed" Then Return - 1
 		If StringLen ( $RM_TargetFields [ 7 ] ) = 0 Then Return - 1
 		If $RM_TargetFields [ 6 ] = "measured" Then
@@ -3181,7 +3288,7 @@ Func RM_ParseNativeProcessResult ( $RM_ResultText , $RM_ExpectedSession = "" )
 	Local $RM_MetricMeasured = - 1 , $RM_MetricUnmeasured = - 1
 	For $RM_MetricIndex = $RM_TargetCount + 9 To $RM_Lines [ 0 ]
 		Local $RM_MetricParts = StringSplit ( $RM_Lines [ $RM_MetricIndex ] , "=" , 1 )
-		If Not IsArray ( $RM_MetricParts ) Or $RM_MetricParts [ 0 ] <> 2 Or StringLen ( $RM_MetricParts [ 1 ] ) = 0 Or Not RM_IsUInt64Text ( $RM_MetricParts [ 2 ] ) Then Return - 1
+		If Not IsArray ( $RM_MetricParts ) Or $RM_MetricParts [ 0 ] <> 2 Or StringLen ( $RM_MetricParts [ 1 ] ) = 0 Or Not RM_IsAutoItExactUnsignedText ( $RM_MetricParts [ 2 ] ) Then Return - 1
 		If StringInStr ( "|seen|protected|filtered|foreground|open_failed|path_failed|windows_process|query_failed|below_minimum|trim_failed|no_reduction|measured|unmeasured|" , "|" & $RM_MetricParts [ 1 ] & "|" ) = 0 Then Return - 1
 		If IsObj ( $RM_MetricSet ) Then
 			If $RM_MetricSet.Exists ( $RM_MetricParts [ 1 ] ) Then Return - 1
@@ -3221,6 +3328,37 @@ Func RM_RunNativeProcessPass ( $RM_Profile , $RM_IncludeOnly , $RM_ProcessFilter
 	Local $RM_ResultPath = @TempDir & "\ReduceMemory-native-" & @AutoItPID & "-" & Int ( Random ( 100000 , 999999 , 1 ) ) & ".result"
 	Local $RM_HandshakePath = $RM_ResultPath & ".ready"
 	Local $RM_SessionID = RM_NewSessionID ( )
+	Local $RM_Stage = RM_BuildWindowsProcessStage ( $RM_WorkerPath , $RM_Profile , $RM_IncludeOnly , $RM_ProcessFilter , $RM_SessionID , $RM_ResultPath , $RM_HandshakePath )
+	If Not IsObj ( $RM_Stage ) Then Return - 1
+	If RM_ValidateWindowsProcessStage ( $RM_Stage ) <> 1 Then Return - 1
+	FileDelete ( $RM_ResultPath )
+	FileDelete ( $RM_HandshakePath )
+	Local $RM_TimedOut = 0
+	Local $RM_ExitCode = RM_RunOwnedNativeWorker ( $RM_Stage.Item ( "command" ) , 45000 , $RM_TimedOut )
+	If $RM_ExitCode <> 0 Or Not FileExists ( $RM_ResultPath ) Then
+		Local $RM_MutationMayHaveStarted = FileExists ( $RM_HandshakePath )
+		FileDelete ( $RM_ResultPath )
+		FileDelete ( $RM_HandshakePath )
+		If $RM_MutationMayHaveStarted Then Return - 2
+		Return - 1
+	EndIf
+	Local $RM_ResultText = FileRead ( $RM_ResultPath )
+	FileDelete ( $RM_ResultPath )
+	FileDelete ( $RM_HandshakePath )
+	Local $RM_Parsed = RM_ParseNativeProcessResult ( $RM_ResultText , $RM_SessionID )
+	If $RM_Parsed < 0 Then Return - 2
+	Return $RM_Parsed
+EndFunc
+
+; Phase 2 H0.4 seam: construct one immutable Windows process stage before
+; launching the existing worker. The adapter keeps OS-specific command details;
+; callers retain the existing profile/filter/foreground policy decisions.
+Func RM_BuildWindowsProcessStage ( $RM_WorkerPath , $RM_Profile , $RM_IncludeOnly , $RM_ProcessFilter , $RM_SessionID , $RM_ResultPath , $RM_HandshakePath )
+	If StringLen ( $RM_WorkerPath ) = 0 Or Not FileExists ( $RM_WorkerPath ) Then Return 0
+	If $RM_Profile < $RM_PROFILE_NORMAL Or $RM_Profile > $RM_PROFILE_AI_SHIELD Then Return 0
+	If $RM_IncludeOnly <> 0 And $RM_IncludeOnly <> 1 Then Return 0
+	If StringLen ( $RM_SessionID ) = 0 Or Not StringRegExp ( $RM_SessionID , "^[A-Za-z0-9_-]{1,128}$" ) Then Return 0
+	If StringLen ( $RM_ResultPath ) = 0 Or StringLen ( $RM_HandshakePath ) = 0 Then Return 0
 	Local $RM_ForegroundPID = 0
 	If $RM_Profile <> $RM_PROFILE_EMERGENCY And $RM_ProtectForeground = 1 Then $RM_ForegroundPID = WinGetProcess ( "[ACTIVE]" )
 	Local $RM_ProtectForegroundFlag = 0
@@ -3236,23 +3374,31 @@ Func RM_RunNativeProcessPass ( $RM_Profile , $RM_IncludeOnly , $RM_ProcessFilter
 	; cooldown. Aggressive protects repeat refaulters for a bounded 30 minutes.
 	If $RM_Profile = $RM_PROFILE_AGGRESSIVE Then $RM_EffectiveExclude &= StringTrimLeft ( RM_GetChurnExclusions ( ) , 1 )
 	If StringLen ( $RM_EffectiveExclude ) > 1 Then $RM_Arguments &= ' /exclude="' & $RM_EffectiveExclude & '"'
-	FileDelete ( $RM_ResultPath )
-	FileDelete ( $RM_HandshakePath )
-	Local $RM_TimedOut = 0
-	Local $RM_ExitCode = RM_RunOwnedNativeWorker ( '"' & $RM_WorkerPath & '" ' & $RM_Arguments , 45000 , $RM_TimedOut )
-	If $RM_ExitCode <> 0 Or Not FileExists ( $RM_ResultPath ) Then
-		Local $RM_MutationMayHaveStarted = FileExists ( $RM_HandshakePath )
-		FileDelete ( $RM_ResultPath )
-		FileDelete ( $RM_HandshakePath )
-		If $RM_MutationMayHaveStarted Then Return - 2
-		Return - 1
-	EndIf
-	Local $RM_ResultText = FileRead ( $RM_ResultPath )
-	FileDelete ( $RM_ResultPath )
-	FileDelete ( $RM_HandshakePath )
-	Local $RM_Parsed = RM_ParseNativeProcessResult ( $RM_ResultText , $RM_SessionID )
-	If $RM_Parsed < 0 Then Return - 2
-	Return $RM_Parsed
+	Local $RM_Stage = ObjCreate ( "Scripting.Dictionary" )
+	If Not IsObj ( $RM_Stage ) Then Return 0
+	$RM_Stage.Add ( "stage_id" , "windows-process-pass-" & $RM_SessionID )
+	$RM_Stage.Add ( "stage_kind" , "process_trim" )
+	$RM_Stage.Add ( "session_id" , $RM_SessionID )
+	$RM_Stage.Add ( "profile" , $RM_Profile )
+	$RM_Stage.Add ( "scope" , "all" )
+	$RM_Stage.Add ( "worker_path" , $RM_WorkerPath )
+	$RM_Stage.Add ( "result_path" , $RM_ResultPath )
+	$RM_Stage.Add ( "handshake_path" , $RM_HandshakePath )
+	$RM_Stage.Add ( "command" , '"' & $RM_WorkerPath & '" ' & $RM_Arguments )
+	Return $RM_Stage
+EndFunc
+
+Func RM_ValidateWindowsProcessStage ( $RM_Stage )
+	If Not IsObj ( $RM_Stage ) Then Return 0
+	Local $RM_StageKeys [ 9 ] = [ "stage_id" , "stage_kind" , "session_id" , "profile" , "scope" , "worker_path" , "result_path" , "handshake_path" , "command" ]
+	For $RM_StageKeyIndex = 0 To 8
+		Local $RM_StageKey = $RM_StageKeys [ $RM_StageKeyIndex ]
+		If Not $RM_Stage.Exists ( $RM_StageKey ) Or StringLen ( String ( $RM_Stage.Item ( $RM_StageKey ) ) ) = 0 Then Return 0
+	Next
+	If $RM_Stage.Item ( "stage_kind" ) <> "process_trim" Or $RM_Stage.Item ( "scope" ) <> "all" Then Return 0
+	If Not FileExists ( $RM_Stage.Item ( "worker_path" ) ) Then Return 0
+	If StringInStr ( $RM_Stage.Item ( "command" ) , "/protocol=2" ) = 0 Or StringInStr ( $RM_Stage.Item ( "command" ) , "/session=" & $RM_Stage.Item ( "session_id" ) ) = 0 Then Return 0
+	Return 1
 EndFunc
 
 Func RM_GetWorkingSetBytes ( $RM_ProcessPID )

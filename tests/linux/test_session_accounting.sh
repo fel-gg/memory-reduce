@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "$(uname -s)" != "Linux" ]]; then
+  printf '%s\n' 'SKIPPED: Linux session-accounting runtime requires a Linux/WSL2 host.'
+  exit 0
+fi
+
 script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repository_root="$(cd -- "${script_directory}/../.." && pwd)"
 temporary_root="$(mktemp -d)"
@@ -30,6 +35,18 @@ mkdir -p "${temporary_root}/vm" "${temporary_root}/cgroup"
 : > "${temporary_root}/vm/drop_caches"
 : > "${temporary_root}/cgroup/memory.reclaim"
 write_meminfo 10485760
+
+# The fake helper is shell-only, but the launcher still performs its explicit
+# python3 dependency probe. Provide a bounded test shim so this contract can
+# run under Git Bash on Windows without treating the host's missing Linux
+# interpreter name as a product failure.
+mkdir -p "${temporary_root}/bin"
+cat > "${temporary_root}/bin/python3" <<'EOF'
+#!/usr/bin/env bash
+printf 'Python 3 test shim\n'
+exit 0
+EOF
+chmod +x "${temporary_root}/bin/python3"
 
 cat > "${temporary_root}/fake-sync" <<'EOF'
 #!/usr/bin/env bash
@@ -102,6 +119,7 @@ common_env=(
   "REDUCE_MEMORY_TARGET_UID=1000"
   "REDUCE_MEMORY_SETTLE_SECONDS=0"
   "REDUCE_MEMORY_AGGRESSIVE_STABILIZE_SECONDS=1"
+  "PATH=${temporary_root}/bin:/usr/bin:/bin"
 )
 
 aggressive_output="$(env "${common_env[@]}" REDUCE_MEMORY_RECLAIM_MB=1024 "${repository_root}/linux/ReduceMemory_Linux.sh" aggressive)"
