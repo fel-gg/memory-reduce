@@ -59,10 +59,12 @@ for case_name in "${cases[@]}"; do
     native_exit=0
     native_output="$(sudo "${native}" pageout --protocol 2 --session "phase2-${case_name}-${repeat}" --pid "${active_pid}" --min-rss-mb 1 --min-mapping-kb 4 --activity-ms 0 --settle-ms 100 --deadline-ms 5000 2>&1)" || native_exit=$?
     rss_after="$(awk '/^VmRSS:/ { print $2; exit }' "/proc/${active_pid}/status" 2>/dev/null || printf unknown)"
+    fixture_exit=0
+    wait "${active_pid}" 2>/dev/null || fixture_exit=$?
     initial_checksum="$(awk -F= '$1 == "initial_checksum" { print $2; exit }' "${ready}")"
     final_checksum="$(awk -F= '$1 == "final_checksum" { print $2; exit }' "${log}" || true)"
-    printf 'case=%s repeat=%s pid=%s fixture_status=ready native_exit=%s rss_before_kib=%s rss_after_kib=%s checksum_initial=%s checksum_final=%s\n' \
-      "${case_name}" "${repeat}" "${active_pid}" "${native_exit}" "${rss_before}" "${rss_after}" "${initial_checksum:-unknown}" "${final_checksum:-pending}" >>"${output_path}"
+    printf 'case=%s repeat=%s pid=%s fixture_status=ready fixture_exit=%s native_exit=%s rss_before_kib=%s rss_after_kib=%s checksum_initial=%s checksum_final=%s\n' \
+      "${case_name}" "${repeat}" "${active_pid}" "${fixture_exit}" "${native_exit}" "${rss_before}" "${rss_after}" "${initial_checksum:-unknown}" "${final_checksum:-pending}" >>"${output_path}"
     while IFS= read -r line; do printf 'case=%s repeat=%s native_%s\n' "${case_name}" "${repeat}" "${line}"; done <<<"${native_output}" >>"${output_path}"
     kill "${active_pid}" 2>/dev/null || true
     wait "${active_pid}" 2>/dev/null || true
