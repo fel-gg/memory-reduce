@@ -23,7 +23,8 @@ Status: `PASS` untuk inventaris awal.
 
 - Repo: `C:\Users\user\OneDrive\Dokumen\Desktop\ReduceMemory\ReduceMemory`
 - Branch: `codex/phase2-luna-20260913`
-- Current continuation HEAD: `ae39e7c916f288ca9342449e023a97dc7df31d8f`
+- Current continuation HEAD: `77b0c87` (docs); runtime evidence run uses
+  source commit `ae39e7c916f288ca9342449e023a97dc7df31d8f`.
 - Working tree memiliki perubahan terarah pada checkpoint, benchmark harness,
   dan test Windows; file untracked `x` dipertahankan dan tidak dihapus.
 - Baseline staging yang dapat dirujuk:
