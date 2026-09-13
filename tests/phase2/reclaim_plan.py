@@ -7,7 +7,10 @@ gate and adapter acceptance are closed.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import StrEnum
+try:
+    from .enum_compat import StrEnum
+except ImportError:
+    from enum_compat import StrEnum
 
 
 class PlanError(ValueError):

@@ -8,7 +8,10 @@ unsupported stage is reported independently from another usable stage.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
+try:
+    from .enum_compat import StrEnum
+except ImportError:
+    from enum_compat import StrEnum
 
 
 class InterfaceError(ValueError):

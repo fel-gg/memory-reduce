@@ -7,7 +7,10 @@ module is a contract/fixture layer; it does not read or write cgroups.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
+try:
+    from .enum_compat import StrEnum
+except ImportError:
+    from enum_compat import StrEnum
 
 
 class ScopeStatus(StrEnum):

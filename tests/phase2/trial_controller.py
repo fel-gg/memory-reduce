@@ -14,7 +14,10 @@ import subprocess
 import tempfile
 import time
 from dataclasses import dataclass, field
-from enum import StrEnum
+try:
+    from .enum_compat import StrEnum
+except ImportError:
+    from enum_compat import StrEnum
 from pathlib import Path
 from typing import Sequence
 
