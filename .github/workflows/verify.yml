@@ -341,6 +341,7 @@ jobs:
           bash -n tests/linux/test_failure_adapter.sh
           bash -n tests/linux/test_session_accounting.sh
           bash -n tests/linux/test_installers.sh
+          bash -n tests/linux/capture_hardware.sh
           python3 -m py_compile linux/native/reduce-memory-native
           python3 -m py_compile tests/benchmark/run_benchmark.py tests/benchmark/summarize_benchmark.py tests/benchmark/workload_memory.py tests/benchmark/latency_probe.py tests/phase2/contract_harness.py tests/phase2/trial_controller.py tests/phase2/reclaim_plan.py tests/phase2/compatibility_harness.py tests/phase2/baseline_manifest.py tests/phase2/trial_config.py tests/phase2/decision_rules.py tests/phase2/abi_contract.py
           python3 -c 'import os, sys; sys.path.insert(0, "tests/benchmark"); import run_benchmark; assert run_benchmark.cpu_seconds(os.getpid()) is not None'
@@ -364,6 +365,14 @@ jobs:
         with:
           name: linux-m0-provenance
           path: ${{ runner.temp }}/linux-m0-baseline.txt
+          if-no-files-found: error
+      - name: Capture Phase 2 hardware provenance
+        run: bash tests/linux/capture_hardware.sh "${RUNNER_TEMP}/phase2-hardware.txt"
+      - name: Upload Phase 2 hardware provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase2-hardware-${{ matrix.os }}
+          path: ${{ runner.temp }}/phase2-hardware.txt
           if-no-files-found: error
       - name: Verify native Linux process page-out
         run: |
