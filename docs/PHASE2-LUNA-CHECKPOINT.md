@@ -308,7 +308,8 @@ implementasi akan otomatis lulus.
 - Regression suite Linux native lulus `27/27`; `py_compile`, Bash syntax, dan
   `git diff --check` juga lulus. Karena host ini Windows tanpa WSL2, hasil ini
   tetap `PARTIAL_PREP_BLOCKED_DEPENDENCY`, bukan bukti runtime Linux atau
-  efektivitas reclaim.
+  efektivitas reclaim pada saat catatan ini dibuat; remote CI kemudian menutup
+  gate Linux yang tercantum pada bagian verifikasi terkini.
 - O1.3 mendapat helper produksi `snapshot_identity_status()` yang menyatukan
   pemeriksaan start-time dan mapping sebelum serta sesudah mutasi. Perubahan
   identitas/mapping tetap menjadi hasil unknown/failed yang terpisah, bukan
@@ -481,8 +482,9 @@ dan tree Linux yang sedang diuji:
   `FA6B079FD8EA2334F26EC670A86E62B7DAD2B6CDB4FD2ABE461836BA7A9B3CDA`
 
 Ini menutup verifikasi mekanis paket lokal, bukan pemilihan candidate final:
-manifest masih menandai `sourceDirty=true`, frontend x86 runtime tetap
-`PENDING_ENV`, dan Linux live gates belum tersedia.
+manifest masih menandai `sourceDirty=true`, frontend x86 runtime desktop tetap
+`PENDING_ENV`. Linux live gates pada catatan paket ini kemudian dibuktikan oleh
+remote CI run `34743359103`; hal itu tidak menggantikan candidate benchmark.
 
 ## H3.1/H3.4 interface evolution contract — 2026-09-13
 

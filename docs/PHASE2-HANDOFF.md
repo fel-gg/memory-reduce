@@ -59,6 +59,17 @@ Windows staging evidence:
   dibuat dari staging bersih + Linux tree; verifier ekstraksi/hash lulus;
   ZIP SHA-256 `F0AD15C91973E1DF3BD5B57E4B293D8FAEA7BF75E2CEFAF423C9E9B7A12D9F32`.
 
+Remote CI runtime evidence:
+
+- Run `34743359103` pada commit `ae39e7c916f288ca9342449e023a97dc7df31d8f`
+  lulus pada Windows build, x64/x86 self-test, real working-set trim,
+  bounded refault recovery, dan full Windows Aggressive engine.
+- Run yang sama lulus pada Ubuntu 22.04 dan 24.04 untuk native page-out,
+  targeted launcher reclaim, cgroup telemetry, safe self-check, Smooth/
+  Aggressive paths, user-local installation, dan server installation.
+- CI result ini menutup runner gate yang dijalankan; tidak memilih candidate
+  Phase 2 atau menutup desktop x86 interactive launch.
+
 Profile/experiment preparation:
 
 - `tests/phase2/profile_contract.py` and `test_profile_contract.py` freeze the
