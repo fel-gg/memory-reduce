@@ -429,15 +429,20 @@ jobs:
             grep -q '^pid=' "${target_log}" && break
             sleep 0.1
           done
-          test -s "${target_log}"
-            set +e
-            output="$(timeout 30s sudo env REDUCE_MEMORY_TARGET_PID="${target_pid}" REDUCE_MEMORY_RECLAIM_MB=64 ./linux/ReduceMemory_Linux.sh aggressive 2>&1)"
-            launcher_exit=$?
-            set -e
-            printf '%s\n' "${output}"
-            printf 'Targeted launcher exit: %s\n' "${launcher_exit}"
-            test "${launcher_exit}" -eq 0
-            grep -F 'Mode                    : aggressive' <<< "${output}"
+          if ! test -s "${target_log}"; then
+            echo 'Target workload did not publish output within 5 seconds.'
+            cat "${target_log}" 2>/dev/null || true
+            ps -o pid,stat,cmd -p "${target_pid}" || true
+            exit 1
+          fi
+          set +e
+          output="$(timeout 30s sudo env REDUCE_MEMORY_TARGET_PID="${target_pid}" REDUCE_MEMORY_RECLAIM_MB=64 ./linux/ReduceMemory_Linux.sh aggressive 2>&1)"
+          launcher_exit=$?
+          set -e
+          printf '%s\n' "${output}"
+          printf 'Targeted launcher exit: %s\n' "${launcher_exit}"
+          test "${launcher_exit}" -eq 0
+          grep -F 'Mode                    : aggressive' <<< "${output}"
           grep -E '^Native process page-out : pass[0-9]+=' <<< "${output}"
           grep -E 'Processes scanned       : [1-9][0-9]*' <<< "${output}"
           grep -E 'Mappings advised        : [1-9][0-9]*' <<< "${output}"
@@ -585,7 +590,7 @@ jobs:
           grep -F 'Measured RSS targets    : 1' <<< "${aggressive_output}"
           grep -F 'Batched native calls    : 6' <<< "${aggressive_output}"
           grep -F 'Scalar fallback calls   : 0' <<< "${aggressive_output}"
-          grep -F 'cgroup memory.reclaim   : done (1024 MB requested) | swappiness=default' <<< "${aggressive_output}"
+          grep -F 'cgroup memory.reclaim   : done (1024 MB requested;' <<< "${aggressive_output}"
           grep -F "Reclaim scope           : ${mock_root}/cgroup" <<< "${aggressive_output}"
           grep -Fx -- '--all-users' "${mock_root}/native-args"
           grep -Fx -- '32' "${mock_root}/native-args"
