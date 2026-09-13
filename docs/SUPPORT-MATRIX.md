@@ -1,5 +1,13 @@
 # ReduceMemory support matrix
 
+## 4.0 final audit overlay - 2026-09-13
+
+Run `34744977411` confirms Windows x86/x64 binary gates and Linux Ubuntu
+22.04/24.04 native, launcher, mode, installer, hardware, and mapping-grid
+paths. Linux mapping coverage is 10 mapping classes x 5 repeats per runner
+image. Delegated cgroup, namespace/swap forcing, alternate ISA, and physical
+hardware variation remain explicitly unexercised.
+
 Dokumen ini memisahkan jalur yang sudah memiliki bukti lokal/CI dari jalur yang
 baru didukung secara desain. Tidak ada klaim bahwa setiap distro Linux atau
 software masa depan identik perilakunya.

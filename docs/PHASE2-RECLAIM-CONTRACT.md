@@ -1,6 +1,6 @@
 # Phase 2 reclaim contract — draft for Luna
 
-Status: `PARTIAL_PREP_BLOCKED_DEPENDENCY`.
+Status: `FINAL_IMPLEMENTATION_RELEASE_CANDIDATE`.
 
 This document maps the smallest shared contract needed by the existing
 frontend, Windows worker, Linux native helper, and Bash launcher. It does not

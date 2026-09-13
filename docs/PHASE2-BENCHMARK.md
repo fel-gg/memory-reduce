@@ -1,5 +1,23 @@
 # Phase 2 benchmark contract — Luna
 
+## Final binary mapping evidence - 2026-09-13
+
+CI run `34744718786` produced 50/50 fixture invocations per Ubuntu image (10
+mapping labels x 5 repeats), with ready markers and terminal native status.
+The first report exposed a lifecycle ordering bug because checksum was read
+before fixture exit; commit `0d6d8f4` fixes this by waiting for the owned
+fixture and recording `fixture_exit` plus `checksum_final`. CI run
+`34744977411` verifies the correction.
+
+Sources are `tests/linux/phase2_mapping_fixture.py` and
+`tests/linux/phase2_mapping_benchmark.sh`. They invoke the native helper with
+an explicit PID and bounded deadline, record protocol status/advice bytes/RSS
+before-after/fixture exit/checksum, and perform no global purge, sysctl change,
+swap mutation, or out-of-scope process action. Swap-labelled cases record
+availability; they do not claim to force paging state. Candidate optimization
+remains `NO_CHANGE_BASELINE` until valid apples-to-apples, holdout, and
+tail-latency evidence exists.
+
 Dokumen ini adalah kontrak pengukuran awal, bukan klaim bahwa Phase 2 lebih
 cepat atau lebih efektif daripada baseline.
 

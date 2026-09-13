@@ -1,5 +1,15 @@
 # Reduce Memory — Phase 2 Luna checkpoint
 
+## Final implementation pass - 2026-09-13
+
+Status: `FINAL_IMPLEMENTATION_RELEASE_CANDIDATE`; complete evidence is in
+`docs/PHASE1-PHASE2-FINAL-AUDIT.md`.
+
+Current implementation head is `0d6d8f4` and final CI gate is
+`34744977411`. Windows x86/x64 binary gates and Ubuntu 22.04/24.04 native,
+hardware, and mapping-grid gates are covered. Baseline/fallback remains the
+release decision when a candidate comparison is not valid.
+
 Dokumen ini menjadi checkpoint tunggal untuk eksekusi Phase 2 dari
 `C:\Users\user\ReduceMemory-Phase2-Optimal-Reclaim-Plan-for-Luna.md`.
 Phase 2 dimulai sebagai pekerjaan persiapan yang dapat dibuktikan, tetapi

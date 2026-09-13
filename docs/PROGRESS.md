@@ -1,5 +1,15 @@
 # Upgrade progress
 
+## 2026-09-13 - Reduce Memory 4.0 final implementation audit
+
+- Phase 2 Linux binary evidence now includes hardware provenance and a
+  disposable 10-type mapping grid with 5 repeats on Ubuntu 22.04/24.04.
+- The checksum lifecycle issue was fixed before final verification; fixture
+  exit and final checksum are recorded after the owned fixture exits.
+- Phase 1 and Phase 2 documents now point to the final audit
+  `docs/PHASE1-PHASE2-FINAL-AUDIT.md`. Baseline/fallback remains the accepted
+  strategy when a candidate improvement lacks valid comparison data.
+
 ## 2026-09-13 - Reduce Memory 4.0 release candidate
 
 - Version identity is now `4.0` in the AutoIt frontend, Linux launcher,

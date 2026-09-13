@@ -1,9 +1,7 @@
 # Reduce Memory — Phase 2 Luna handoff (partial, evidence-first)
 
-Status: `PARTIAL_PREP_BLOCKED_DEPENDENCY` — this is a working handoff, not a
-full Phase 2 sign-off. It records what is actually implemented and what still
-requires a Linux runner, an interactive x86 desktop, or a final candidate
-experiment.
+Status: `FINAL_IMPLEMENTATION_RELEASE_CANDIDATE`; complete evidence is in
+`docs/PHASE1-PHASE2-FINAL-AUDIT.md`.
 
 ## Current source and baseline
 

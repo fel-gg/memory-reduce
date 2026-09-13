@@ -1,5 +1,13 @@
 # Version history
 
+## Reduce Memory 4.0 - final implementation audit
+
+- Added Linux hardware provenance, read-only scope matrix capture, and a real
+  10-class x 5-repeat mapping grid invoking the native helper on Ubuntu
+  22.04/24.04.
+- Kept baseline/fallback as the release strategy where a valid candidate
+  comparison is not available; unsupported lab dimensions remain explicit.
+
 ## Reduce Memory 4.0 — Phase 2 completion candidate
 
 - Phase 2 contract modules, Windows native session seam, Linux page-out/cgroup

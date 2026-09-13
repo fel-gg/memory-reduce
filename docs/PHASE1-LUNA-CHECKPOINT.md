@@ -1,5 +1,17 @@
 # Phase 1 Luna checkpoint
 
+## Cross-phase final audit - 2026-09-13
+
+Phase 1 foundation remains the base of the 4.0 release candidate. CI run
+`34744977411` covers Windows x86/x64 build, self-test, real trim, refault,
+Aggressive engine, and Linux native/launcher/mode/installer gates on Ubuntu
+22.04/24.04. Phase 2 adds hardware provenance and mapping-grid artifacts
+without replacing Phase 1 contracts.
+
+Compiled-x86 interaction on this desktop, explicit UAC/SID/ACL matrix, and
+physical hardware diversity remain environment boundaries and are not
+converted into false PASS labels.
+
 ## Current Phase 1 review — 2026-09-12
 
 Review terhadap source tip `9680908` menemukan bahwa jalur Windows build,

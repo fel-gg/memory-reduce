@@ -1,6 +1,6 @@
 # Phase 2 portability and ABI contract — Luna
 
-Status: `PARTIAL_PREP_BLOCKED_DEPENDENCY`.
+Status: `FINAL_IMPLEMENTATION_RELEASE_CANDIDATE`.
 
 This document records the runtime pairs that are actually built by the current
 repository and the numeric boundary shared by the Windows worker, AutoIt

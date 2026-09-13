@@ -343,6 +343,7 @@ jobs:
           bash -n tests/linux/test_installers.sh
           bash -n tests/linux/capture_hardware.sh
           bash -n tests/linux/phase2_mapping_benchmark.sh
+          bash -n tests/linux/phase2_scope_matrix.sh
           python3 -m py_compile linux/native/reduce-memory-native
           python3 -m py_compile tests/linux/phase2_mapping_fixture.py
           python3 -m py_compile tests/benchmark/run_benchmark.py tests/benchmark/summarize_benchmark.py tests/benchmark/workload_memory.py tests/benchmark/latency_probe.py tests/phase2/contract_harness.py tests/phase2/trial_controller.py tests/phase2/reclaim_plan.py tests/phase2/compatibility_harness.py tests/phase2/baseline_manifest.py tests/phase2/trial_config.py tests/phase2/decision_rules.py tests/phase2/abi_contract.py
@@ -385,6 +386,14 @@ jobs:
         with:
           name: phase2-mapping-grid-${{ matrix.os }}
           path: ${{ runner.temp }}/phase2-mapping-grid.txt
+          if-no-files-found: error
+      - name: Capture Phase 2 scope matrix
+        run: bash tests/linux/phase2_scope_matrix.sh "${RUNNER_TEMP}/phase2-scope-matrix.txt"
+      - name: Upload Phase 2 scope matrix
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase2-scope-matrix-${{ matrix.os }}
+          path: ${{ runner.temp }}/phase2-scope-matrix.txt
           if-no-files-found: error
       - name: Verify native Linux process page-out
         run: |
