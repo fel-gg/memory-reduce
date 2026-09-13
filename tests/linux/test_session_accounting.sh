@@ -31,6 +31,17 @@ SwapFree:        3145728 kB
 EOF
 }
 
+assert_output_contains() {
+  local output="$1"
+  local expected="$2"
+  if ! grep -F "${expected}" <<< "${output}" >/dev/null; then
+    printf 'Session-accounting assertion failed; expected: %s\n' "${expected}" >&2
+    printf '%s\n' 'Captured launcher output:' >&2
+    printf '%s\n' "${output}" >&2
+    return 1
+  fi
+}
+
 mkdir -p "${temporary_root}/vm" "${temporary_root}/cgroup"
 : > "${temporary_root}/vm/drop_caches"
 : > "${temporary_root}/cgroup/memory.reclaim"
@@ -123,15 +134,15 @@ common_env=(
 )
 
 aggressive_output="$(env "${common_env[@]}" REDUCE_MEMORY_RECLAIM_MB=1024 "${repository_root}/linux/ReduceMemory_Linux.sh" aggressive)"
-grep -F 'Process RSS change      : +128 MB' <<< "${aggressive_output}" >/dev/null
-grep -F 'Measured RSS targets    : 1' <<< "${aggressive_output}" >/dev/null
+assert_output_contains "${aggressive_output}" 'Process RSS change      : +128 MB'
+assert_output_contains "${aggressive_output}" 'Measured RSS targets    : 1'
 
 # Oversized kernel metadata must be ignored before Bash arithmetic. The
 # bounded request remains the explicit 1024 MiB fixture value, not an overflow
 # or negative number derived from memory.current.
 printf '%s\n' '99999999999999999999' > "${temporary_root}/cgroup/memory.current"
 bounded_output="$(env "${common_env[@]}" REDUCE_MEMORY_RECLAIM_MB=1024 "${repository_root}/linux/ReduceMemory_Linux.sh" aggressive)"
-grep -F 'cgroup memory.reclaim   : done (1024 MB requested)' <<< "${bounded_output}" >/dev/null
+assert_output_contains "${bounded_output}" 'cgroup memory.reclaim   : done (1024 MB requested)'
 
 cat > "${temporary_root}/reduce-memory-native" <<'EOF'
 #!/usr/bin/env bash
@@ -181,7 +192,7 @@ RESULT
 EOF
 chmod +x "${temporary_root}/reduce-memory-native"
 normal_output="$(env "${common_env[@]}" "${repository_root}/linux/ReduceMemory_Linux.sh" normal)"
-grep -F 'Process RSS change      : -32 MB' <<< "${normal_output}" >/dev/null
+assert_output_contains "${normal_output}" 'Process RSS change      : -32 MB'
 
 cat > "${temporary_root}/invalidate-available" <<'EOF'
 #!/usr/bin/env bash
@@ -196,7 +207,7 @@ for index in "${!unknown_env[@]}"; do
   fi
 done
 unknown_output="$(env "${unknown_env[@]}" "${repository_root}/linux/ReduceMemory_Linux.sh" normal)"
-grep -F 'Available change        : unknown' <<< "${unknown_output}" >/dev/null
+assert_output_contains "${unknown_output}" 'Available change        : unknown'
 
 cat > "${temporary_root}/reduce-memory-native" <<'EOF'
 #!/usr/bin/env bash
@@ -269,9 +280,9 @@ chmod +x "${temporary_root}/reduce-memory-native"
 rm -f "${temporary_root}/native-pass-count"
 write_meminfo 10485760
 sticky_unknown_output="$(env "${common_env[@]}" REDUCE_MEMORY_RECLAIM_MB=1024 "${repository_root}/linux/ReduceMemory_Linux.sh" aggressive)"
-grep -F 'Process RSS change      : unknown' <<< "${sticky_unknown_output}" >/dev/null
-grep -F 'Measured RSS targets    : 0' <<< "${sticky_unknown_output}" >/dev/null
-grep -F 'Unmeasured advised      : 1' <<< "${sticky_unknown_output}" >/dev/null
+assert_output_contains "${sticky_unknown_output}" 'Process RSS change      : unknown'
+assert_output_contains "${sticky_unknown_output}" 'Measured RSS targets    : 0'
+assert_output_contains "${sticky_unknown_output}" 'Unmeasured advised      : 1'
 if grep -F 'Process RSS change      : +0 MB' <<< "${sticky_unknown_output}" >/dev/null; then
   printf 'An unknown after-read must not be reported as a measured zero change.\n' >&2
   exit 1
