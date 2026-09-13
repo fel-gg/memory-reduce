@@ -342,7 +342,9 @@ jobs:
           bash -n tests/linux/test_session_accounting.sh
           bash -n tests/linux/test_installers.sh
           bash -n tests/linux/capture_hardware.sh
+          bash -n tests/linux/phase2_mapping_benchmark.sh
           python3 -m py_compile linux/native/reduce-memory-native
+          python3 -m py_compile tests/linux/phase2_mapping_fixture.py
           python3 -m py_compile tests/benchmark/run_benchmark.py tests/benchmark/summarize_benchmark.py tests/benchmark/workload_memory.py tests/benchmark/latency_probe.py tests/phase2/contract_harness.py tests/phase2/trial_controller.py tests/phase2/reclaim_plan.py tests/phase2/compatibility_harness.py tests/phase2/baseline_manifest.py tests/phase2/trial_config.py tests/phase2/decision_rules.py tests/phase2/abi_contract.py
           python3 -c 'import os, sys; sys.path.insert(0, "tests/benchmark"); import run_benchmark; assert run_benchmark.cpu_seconds(os.getpid()) is not None'
           python3 -m unittest discover -s tests/benchmark -p 'test_*.py'
@@ -373,6 +375,16 @@ jobs:
         with:
           name: phase2-hardware-${{ matrix.os }}
           path: ${{ runner.temp }}/phase2-hardware.txt
+          if-no-files-found: error
+      - name: Run Phase 2 Linux mapping grid
+        run: |
+          timeout 300s env PHASE2_MAPPING_REPEATS=5 PHASE2_MAPPING_SECONDS=2 \
+            bash tests/linux/phase2_mapping_benchmark.sh "${RUNNER_TEMP}/phase2-mapping-grid.txt"
+      - name: Upload Phase 2 Linux mapping grid
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase2-mapping-grid-${{ matrix.os }}
+          path: ${{ runner.temp }}/phase2-mapping-grid.txt
           if-no-files-found: error
       - name: Verify native Linux process page-out
         run: |
