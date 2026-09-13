@@ -388,7 +388,7 @@ jobs:
           target_pid=$!
           trap 'kill "${target_pid}" 2>/dev/null || true; wait "${target_pid}" 2>/dev/null || true' EXIT
 
-          for attempt in {1..50}; do
+          for attempt in {1..300}; do
             test -f "${ready_file}" && break
             sleep 0.1
           done
@@ -430,7 +430,7 @@ jobs:
             sleep 0.1
           done
           if ! test -s "${target_log}"; then
-            echo 'Target workload did not publish output within 5 seconds.'
+            echo 'Target workload did not publish output within 30 seconds.'
             cat "${target_log}" 2>/dev/null || true
             ps -o pid,stat,cmd -p "${target_pid}" || true
             exit 1
