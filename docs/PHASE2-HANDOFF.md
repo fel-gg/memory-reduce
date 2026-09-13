@@ -14,8 +14,9 @@ experiment.
   `1EE40A19EE09C585BB76261A93BCE24398070CA7EC80CC90268704DDE4236E58`
 - Active user process preserved: PID `19840` (`ReduceMemory_x64.exe`).
 - User untracked file `x` preserved.
-- No commit, push, tag, publish, active executable replacement, global purge,
-  registry/pagefile change, or user-file deletion performed.
+- Continuation commits were pushed on `codex/phase2-luna-20260913`; no tag,
+  publish, active executable replacement, global purge, registry/pagefile
+  change, or user-file deletion was performed.
 
 ## Implemented contract/runtime changes
 
@@ -75,9 +76,11 @@ Profile/experiment preparation:
    bounded self-test path; source interpreted by the pinned x86 AutoIt runtime
    does return. This is recorded as `PENDING_ENV`, not silently converted into
    a product pass.
-2. WSL is not installed (`wsl --status` exit `50`). Linux live syscall,
-   cgroup, swap, installer, capability, namespace, timeout/cancel, and
-   O4.8 benchmark evidence therefore remain pending.
+2. WSL is not installed locally (`wsl --status` exit `50`). Remote CI run
+   `34743359103` now proves the Linux syscall/launcher, cgroup output,
+   timeout-bounded launcher, mode paths, and both installer checks on Ubuntu
+   22.04/24.04. Local namespace/swap/capability exploration and O4.8
+   benchmark-grid evidence remain pending.
 3. Concurrent Windows Temp path-swap runtime evidence is not complete.
 4. O2/O3/O4/O5 candidate selection has not been run. The existing Windows r2
    benchmark changes only seam/UI behavior and must not be called a reclaim

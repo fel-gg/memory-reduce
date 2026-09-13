@@ -156,3 +156,11 @@ overlap, dan membership unknown. Unknown/overlap/protected tidak boleh
 menjadi full-scope success. Kedua file hanya membuktikan bentuk input/output
 dan safety classification; tidak membuktikan syscall Linux, cgroup migration,
 swap, atau retained gain.
+
+## Remote Linux runtime gate — 2026-09-13
+
+Run `34743359103` pada commit `ae39e7c916f288ca9342449e023a97dc7df31d8f`
+lulus untuk Ubuntu 22.04 dan 24.04 pada native process page-out, targeted
+launcher, safe self-check, Smooth/Aggressive mode gate, serta user-local dan
+server installer. Ini menutup bukti runtime gate Linux yang memang dijalankan
+workflow; ini bukan O4.8 benchmark grid dan tidak memilih candidate O4/O5/O7.

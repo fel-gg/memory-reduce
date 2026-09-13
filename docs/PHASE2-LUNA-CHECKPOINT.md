@@ -22,8 +22,8 @@ ditutup.
 Status: `PASS` untuk inventaris awal.
 
 - Repo: `C:\Users\user\OneDrive\Dokumen\Desktop\ReduceMemory\ReduceMemory`
-- Branch: `main`
-- HEAD/source commit baseline staging: `46cffd44db6e92097f2cda85dfce5c79e289539b`
+- Branch: `codex/phase2-luna-20260913`
+- Current continuation HEAD: `ae39e7c916f288ca9342449e023a97dc7df31d8f`
 - Working tree memiliki perubahan terarah pada checkpoint, benchmark harness,
   dan test Windows; file untracked `x` dipertahankan dan tidak dihapus.
 - Baseline staging yang dapat dirujuk:
@@ -54,13 +54,14 @@ Gap yang masih material dan tidak boleh ditutup secara implisit:
    persistence callback melalui `UiSmoke.Tests.ps1`; smoke x86 pada desktop
    ini belum terminal dan pasangan x86+x64 belum boleh dipromosikan sebagai
    gate penuh.
-2. Linux session-accounting dan installer live belum dapat dijalankan penuh
-   pada host Windows ini.
+2. Linux session-accounting, targeted launcher, mode gate, dan installer live
+   sudah lulus remote CI Ubuntu 22.04/24.04 pada run `34743359103`; host
+   Windows ini tetap tidak memiliki WSL sehingga bukti lokal Linux belum ada.
 3. Concurrent Temp path-swap runtime belum memiliki bukti lengkap.
 4. Benchmark apples-to-apples final belum diulang setelah perbaikan harness.
 
-Remote CI lama tetap dicatat sebagai evidence historis, bukan pengganti
-empat gap tersebut pada source/worktree saat ini.
+Remote CI run `34743359103` adalah evidence terkini untuk gate Linux tersebut;
+run ini tidak menutup gap x86 UI, concurrent Temp, atau benchmark candidate.
 
 ## G02 — integritas benchmark
 
@@ -578,3 +579,13 @@ Regression `test_profile_contract.py` lulus `7/7`, dan discovery Phase 2
 terbaru lulus `117/117`. Ini menutup bentuk kontrak O6.1/O6.5/O6.6 secara
 offline; nilai final, candidate confirmation, dan integrasi runtime tetap
 menunggu data live O2/O3/O4/O5.
+
+## Remote Linux runtime verification — 2026-09-13
+
+CI run `34743359103` pada commit `ae39e7c916f288ca9342449e023a97dc7df31d8f`
+lulus penuh pada Ubuntu 22.04 dan 24.04 untuk Bash syntax, release contract,
+native process page-out, targeted launcher reclaim, safe self-check,
+Smooth/Aggressive paths, user-local installation, dan server installation.
+Kesimpulan dibatasi pada gate yang dijalankan workflow; O4.8 full mapping grid,
+O5.2 migration/shared-charge matrix, O6 candidate selection, dan final release
+gate tetap belum ditutup.

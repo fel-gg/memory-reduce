@@ -200,9 +200,11 @@ bounded payload and swappiness validation and does not add a root-cgroup
 fallback.
 
 Unit coverage includes unknown/outside mount rejection and an identity-swap
-mutator spy. Live mount namespace, delegated ownership, ancestor-limit, and
-permission-change evidence remains `PENDING_ENV` until a Linux runner is
-available.
+mutator spy. Remote CI run `34743359103` now provides live Linux runner
+evidence for native page-out, cgroup write/metadata, launcher mode paths, and
+installer checks. Mount-namespace isolation, delegated ownership,
+ancestor-limit, permission-change, and the full O4.8/O5.2 matrix remain
+`PENDING_ENV` because the current workflow does not exercise those cases.
 
 The Bash cgroup stage records the requested amount, write duration, and the
 signed `memory.current` scope delta independently. A missing or malformed

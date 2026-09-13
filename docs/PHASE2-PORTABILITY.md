@@ -13,7 +13,7 @@ listed pair has been live-tested on every OS.
 | --- | ---: | ---: | --- | --- |
 | Windows frontend x86 + worker x86 | 32-bit | 32 / 32 | little | Local pinned AutoIt/Zig staging and worker protocol tests |
 | Windows frontend x64 + worker x64 | 64-bit | 64 / 64 | little | Local pinned AutoIt/Zig staging and worker protocol tests |
-| Linux native helper on x86_64 | 64-bit | 64 / 64 | little | Source ABI declarations and Linux pure/unit fixtures; live kernel gate pending |
+| Linux native helper on x86_64 | 64-bit | 64 / 64 | little | Source ABI declarations plus remote CI Ubuntu 22.04/24.04 native/launcher/installer gates; broader matrix pending |
 
 Unknown architecture/ABI is unsupported and must stop before any syscall or
 mutator. A string containing an architecture name is not runtime evidence.
@@ -62,6 +62,7 @@ python -m unittest discover -s tests/phase2 -p "test_*.py"
 & .\build\toolchains\autoit\install\Au3Check.exe .\src\ReduceMemory.au3
 ```
 
-The current Windows host cannot promote Linux syscall, cgroup, swap, or
-installer claims because WSL is not installed. No automatic WSL installation
-is part of this task.
+The current Windows host cannot reproduce Linux locally because WSL is not
+installed. Remote CI run `34743359103` promotes only the Linux checks it
+actually executed; swap, namespace, delegated capability, and O4.8 matrix
+claims remain unpromoted. No automatic WSL installation is part of this task.
