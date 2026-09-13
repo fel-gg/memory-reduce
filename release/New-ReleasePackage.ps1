@@ -7,6 +7,9 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
+$WindowsStaging = [IO.Path]::GetFullPath($WindowsStaging)
+$LinuxRoot = [IO.Path]::GetFullPath($LinuxRoot)
+$OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
 function Get-Sha256Hex([string] $Path) {
     $sha = [System.Security.Cryptography.SHA256]::Create()
     try {
@@ -48,6 +51,13 @@ if (-not (Test-Path -LiteralPath $config -PathType Leaf)) { $config = Join-Path 
 if (Test-Path -LiteralPath $config -PathType Leaf) { Copy-Item -LiteralPath $config -Destination (Join-Path $root 'windows\ReduceMemory.ini') -Force }
 Copy-Item -LiteralPath (Join-Path $LinuxRoot 'ReduceMemory_Linux.sh'),(Join-Path $LinuxRoot 'native'),(Join-Path $LinuxRoot 'desktop'),(Join-Path $LinuxRoot 'server'),(Join-Path $LinuxRoot 'README.md') -Destination (Join-Path $root 'linux') -Recurse -Force
 Copy-Item -LiteralPath $windowsManifest -Destination (Join-Path $root 'windows\BUILD-MANIFEST.json') -Force
+# Source checkouts can contain interpreter caches from local validation. They
+# are not release payload and must never enter the manifest or ZIP.
+Get-ChildItem -LiteralPath $root -Directory -Recurse -Force -Filter '__pycache__' |
+    Sort-Object FullName -Descending |
+    ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
+Get-ChildItem -LiteralPath $root -File -Recurse -Force -Filter '*.pyc' |
+    ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force }
 # Reusing an output directory must not feed metadata from the previous package
 # back into the next manifest. Both files are generated below from the actual
 # payload and cannot safely contain their own hash.
