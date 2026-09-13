@@ -142,7 +142,7 @@ assert_output_contains "${aggressive_output}" 'Measured RSS targets    : 1'
 # or negative number derived from memory.current.
 printf '%s\n' '99999999999999999999' > "${temporary_root}/cgroup/memory.current"
 bounded_output="$(env "${common_env[@]}" REDUCE_MEMORY_RECLAIM_MB=1024 "${repository_root}/linux/ReduceMemory_Linux.sh" aggressive)"
-assert_output_contains "${bounded_output}" 'cgroup memory.reclaim   : done (1024 MB requested)'
+assert_output_contains "${bounded_output}" 'cgroup memory.reclaim   : done (1024 MB requested;'
 
 cat > "${temporary_root}/reduce-memory-native" <<'EOF'
 #!/usr/bin/env bash
