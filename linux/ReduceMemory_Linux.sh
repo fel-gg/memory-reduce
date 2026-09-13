@@ -46,10 +46,10 @@ fi
 
 script_path="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
 script_directory="$(cd -- "$(dirname -- "${script_path}")" && pwd)"
-program_title="Reduce Memory 3.0 - Linux"
+  program_title="Reduce Memory 4.0 - Linux"
 server_mode=0
 if [[ "${script_path##*/}" == "reduce-memory-server" ]]; then
-  program_title="Reduce Memory 3.0 - Linux Server"
+  program_title="Reduce Memory 4.0 - Linux Server"
   server_mode=1
 fi
 

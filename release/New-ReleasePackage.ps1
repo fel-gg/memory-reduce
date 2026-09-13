@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)] [string]$WindowsStaging,
     [Parameter(Mandatory = $true)] [string]$LinuxRoot,
     [Parameter(Mandatory = $true)] [string]$OutputDirectory,
-    [string]$Version = '3.0',
+    [string]$Version = '4.0',
     [switch]$RequireClean
 )
 $ErrorActionPreference = 'Stop'

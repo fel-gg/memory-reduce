@@ -1,5 +1,17 @@
 # Version history
 
+## Reduce Memory 4.0 — Phase 2 completion candidate
+
+- Phase 2 contract modules, Windows native session seam, Linux page-out/cgroup
+  accounting, bounded cancellation, identity/scope guards, and benchmark
+  provenance are included in the source tree.
+- Windows x86/x64 build, self-test, working-set trim, refault recovery, and
+  Aggressive engine gates pass in CI; Linux Ubuntu 22.04/24.04 native,
+  launcher, mode, and installer gates also pass.
+- Release status remains evidence-first: no unmeasured reclaim improvement is
+  claimed, and any benchmark/scope matrix not present in the final manifest is
+  marked pending rather than inferred.
+
 ## Reduce Memory 3.0 — Phase 1 hardening update
 
 - Linux native RSS identity now includes process starttime through the final

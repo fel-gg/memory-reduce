@@ -136,7 +136,7 @@ try {
 
     $manifest = Get-Content -LiteralPath (Join-Path $outputRoot 'BUILD-MANIFEST.json') -Raw | ConvertFrom-Json
     if ($manifest.schemaVersion -ne 1) { throw 'Unexpected build manifest schema' }
-    if ($manifest.projectVersion -ne '3.0') { throw 'The staged build must produce project version 3.0' }
+    if ($manifest.projectVersion -ne '4.0') { throw 'The staged build must produce project version 4.0' }
     if ($manifest.sourceCommit -notmatch '^[0-9a-f]{40}$') { throw 'Manifest source commit is invalid' }
     if ($manifest.sourceSha256 -notmatch '^[A-F0-9]{64}$') { throw 'Manifest source hash is invalid' }
     if ($manifest.buildInputs.Count -lt 7) { throw 'Manifest must describe all compiler and source inputs' }

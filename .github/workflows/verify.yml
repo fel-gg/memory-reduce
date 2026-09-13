@@ -625,7 +625,7 @@ jobs:
           "${install_root}/bin/reduce-memory" check
           "${install_root}/bin/reduce-memory-native" check
           menu_output="$(printf '0\n' | "${install_root}/bin/reduce-memory" --menu)"
-          grep -F 'Reduce Memory 3.0 - Linux' <<< "${menu_output}"
+          grep -F 'Reduce Memory 4.0 - Linux' <<< "${menu_output}"
           ! grep -F 'Linux Server' <<< "${menu_output}"
           grep -F '3. AI Shield' <<< "${menu_output}"
           grep -F '4. Aggressive' <<< "${menu_output}"
@@ -642,6 +642,6 @@ jobs:
           grep -F 'Mode                    : status' <<< "${status_output}"
           grep -F 'Native process page-out : supported' <<< "${status_output}"
           server_menu="$(printf '0\n' | "${server_bin}/reduce-memory-server" --menu)"
-          grep -F 'Reduce Memory 3.0 - Linux Server' <<< "${server_menu}"
+          grep -F 'Reduce Memory 4.0 - Linux Server' <<< "${server_menu}"
           grep -F '3. AI Shield' <<< "${server_menu}"
           grep -F '4. Aggressive' <<< "${server_menu}"

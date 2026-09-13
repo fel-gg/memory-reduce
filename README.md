@@ -1,10 +1,10 @@
-# Reduce Memory 3.0
+# Reduce Memory 4.0
 
 Reduce Memory adalah tool kecil buat membantu RAM terasa lebih lega di Windows
 dan Linux. Keduanya punya engine terpisah karena cara Windows dan Linux
 mengelola memori memang berbeda.
 
-Proyek ini adalah **Reduce Memory 3.0**, terinspirasi dari Reduce Memory v1.7
+Proyek ini adalah **Reduce Memory 4.0**, terinspirasi dari Reduce Memory v1.7
 buatan Sordum Team (BlueLife). Ini bukan klaim bahwa proyek ini adalah binary
 resmi Sordum; source AutoIt dan native engine di sini adalah pengembangan
 terpisah yang mempertahankan ide dasar working-set trimming dengan provenance

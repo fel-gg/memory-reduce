@@ -1,5 +1,13 @@
 # Upgrade progress
 
+## 2026-09-13 - Reduce Memory 4.0 release candidate
+
+- Version identity is now `4.0` in the AutoIt frontend, Linux launcher,
+  README, and release packaging default.
+- Phase 1/Phase 2 runtime evidence is recorded in the current checkpoints;
+  final package generation must use the rebuilt 4.0 binaries and matching
+  manifest hashes.
+
 ## 2026-09-12 - Benchmark Windows peak RSS fix (3.0 development)
 
 - M7.5 summarizer diperluas untuk merangkum CPU delta, swap delta, serta
