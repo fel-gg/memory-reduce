@@ -430,9 +430,14 @@ jobs:
             sleep 0.1
           done
           test -s "${target_log}"
-          output="$(timeout 30s sudo env REDUCE_MEMORY_TARGET_PID="${target_pid}" REDUCE_MEMORY_RECLAIM_MB=64 ./linux/ReduceMemory_Linux.sh aggressive 2>&1)"
-          printf '%s\n' "${output}"
-          grep -F 'Mode                    : aggressive' <<< "${output}"
+            set +e
+            output="$(timeout 30s sudo env REDUCE_MEMORY_TARGET_PID="${target_pid}" REDUCE_MEMORY_RECLAIM_MB=64 ./linux/ReduceMemory_Linux.sh aggressive 2>&1)"
+            launcher_exit=$?
+            set -e
+            printf '%s\n' "${output}"
+            printf 'Targeted launcher exit: %s\n' "${launcher_exit}"
+            test "${launcher_exit}" -eq 0
+            grep -F 'Mode                    : aggressive' <<< "${output}"
           grep -E '^Native process page-out : pass[0-9]+=' <<< "${output}"
           grep -E 'Processes scanned       : [1-9][0-9]*' <<< "${output}"
           grep -E 'Mappings advised        : [1-9][0-9]*' <<< "${output}"
