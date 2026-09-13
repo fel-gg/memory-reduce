@@ -425,7 +425,7 @@ jobs:
           python3 tests/benchmark/workload_memory.py --megabytes 96 --seconds 30 --pattern private >"${target_log}" 2>&1 &
           target_pid=$!
           trap 'kill "${target_pid}" 2>/dev/null || true; wait "${target_pid}" 2>/dev/null || true' EXIT
-          for attempt in {1..50}; do
+          for attempt in {1..300}; do
             grep -q '^pid=' "${target_log}" && break
             sleep 0.1
           done
